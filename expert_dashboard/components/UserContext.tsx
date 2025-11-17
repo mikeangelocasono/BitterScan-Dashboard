@@ -100,6 +100,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const initialResolved = useRef(false);
   const isMountedRef = useRef(true);
   const resolveSessionRef = useRef<typeof resolveSession | null>(null);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const sessionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const fetchProfile = useCallback(async (userId: string) => {
     try {
@@ -170,14 +172,30 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     isMountedRef.current = true;
+    // Clear any existing timeouts
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    if (sessionTimeoutRef.current) clearTimeout(sessionTimeoutRef.current);
+    timeoutRef.current = null;
+    sessionTimeoutRef.current = null;
 
     const getInitialSession = async () => {
       try {
+        // Set a timeout to prevent infinite loading in production
+        timeoutRef.current = setTimeout(() => {
+          if (isMountedRef.current && !initialResolved.current) {
+            console.warn('[UserContext] Session fetch timeout - clearing loading state');
+            setLoading(false);
+            initialResolved.current = true;
+            // Don't set user to null here - let the auth state change handler manage it
+          }
+        }, 8000); // 8 second timeout for production
+
         // Validate Supabase client before attempting session
         try {
           validateSupabaseClient();
         } catch (err) {
           console.error('[UserContext] Supabase client validation failed:', err instanceof Error ? err.message : String(err));
+          if (timeoutRef.current) clearTimeout(timeoutRef.current);
           if (isMountedRef.current) {
             setLoading(false);
             initialResolved.current = true;
@@ -195,6 +213,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
           } catch {
             // Corrupted localStorage data - clear it
             console.warn('Corrupted localStorage data detected, clearing...');
+            if (timeoutRef.current) clearTimeout(timeoutRef.current);
             await clearAuthAndSignOut();
             if (isMountedRef.current) {
               setLoading(false);
@@ -210,20 +229,38 @@ export function UserProvider({ children }: { children: ReactNode }) {
         let sessionError = null;
         
         try {
-          const result = await supabase.auth.getSession();
+          // Add timeout to getSession call to prevent hanging
+          const sessionPromise = supabase.auth.getSession();
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            sessionTimeoutRef.current = setTimeout(() => reject(new Error('Session fetch timeout')), 5000);
+          });
+          
+          const result = await Promise.race([sessionPromise, timeoutPromise]);
+          if (sessionTimeoutRef.current) {
+            clearTimeout(sessionTimeoutRef.current);
+            sessionTimeoutRef.current = null;
+          }
           session = result.data?.session || null;
           sessionError = result.error || null;
         } catch (err) {
-          // Catch network errors when credentials are invalid
+          // Catch network errors and timeouts
           const errorMessage = err instanceof Error ? err.message : String(err);
-          if (errorMessage.includes('Failed to fetch') || errorMessage.includes('fetch') || errorMessage.includes('NetworkError')) {
-            // Expected error when credentials are invalid - don't treat as fatal
+          if (errorMessage.includes('Failed to fetch') || 
+              errorMessage.includes('fetch') || 
+              errorMessage.includes('NetworkError') ||
+              errorMessage.includes('timeout')) {
+            // Expected error when credentials are invalid or network issues
+            console.warn('[UserContext] Session fetch failed:', errorMessage);
             sessionError = null; // Clear error to allow graceful handling
             session = null;
           } else {
             throw err; // Re-throw unexpected errors
           }
         }
+        
+        // Clear timeouts if we got here
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
+        if (sessionTimeoutRef.current) clearTimeout(sessionTimeoutRef.current);
         
         // Handle refresh token errors
         if (sessionError && isRefreshTokenError(sessionError)) {
@@ -245,6 +282,10 @@ export function UserProvider({ children }: { children: ReactNode }) {
         
         await resolveSession(session?.user ?? null);
       } catch (error: unknown) {
+        // Clear timeouts on error
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
+        if (sessionTimeoutRef.current) clearTimeout(sessionTimeoutRef.current);
+        
         // Handle refresh token errors
         if (isRefreshTokenError(error)) {
           console.warn('Invalid refresh token detected in getSession catch, clearing auth...');
@@ -261,6 +302,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
           console.error('Error getting initial session:', error);
         }
       } finally {
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
+        if (sessionTimeoutRef.current) clearTimeout(sessionTimeoutRef.current);
         if (isMountedRef.current) {
           setLoading(false);
           initialResolved.current = true;
@@ -334,6 +377,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
     return () => {
       isMountedRef.current = false;
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      if (sessionTimeoutRef.current) clearTimeout(sessionTimeoutRef.current);
       subscription.unsubscribe();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -29,30 +29,49 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 // Create Supabase client with proper configuration
-export const supabase = createClient(
-	supabaseUrl!,
-	supabaseAnonKey!,
-	{
-		auth: {
-			persistSession: true,
-			autoRefreshToken: true,
-			detectSessionInUrl: true,
-			storage: typeof window !== 'undefined' ? window.localStorage : undefined,
-			storageKey: 'sb-auth-token',
-			flowType: 'pkce',
-		},
-		global: {
-			headers: {
-				'x-client-info': 'bitter-scan-expert-dashboard',
-			},
-		},
-		realtime: {
-			params: {
-				eventsPerSecond: 10,
-			},
-		},
+// Use singleton pattern to ensure only one client instance
+export const supabase = (() => {
+	// Only create client if we have valid credentials
+	if (!supabaseUrl || !supabaseAnonKey) {
+		// Return a mock client that will throw clear errors
+		return createClient(
+			'https://invalid.supabase.co',
+			'invalid-key',
+			{
+				auth: {
+					persistSession: false,
+					autoRefreshToken: false,
+					detectSessionInUrl: false,
+				},
+			}
+		);
 	}
-);
+	
+	return createClient(
+		supabaseUrl,
+		supabaseAnonKey,
+		{
+			auth: {
+				persistSession: true,
+				autoRefreshToken: true,
+				detectSessionInUrl: true,
+				storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+				storageKey: 'sb-auth-token',
+				flowType: 'pkce',
+			},
+			global: {
+				headers: {
+					'x-client-info': 'bitter-scan-expert-dashboard',
+				},
+			},
+			realtime: {
+				params: {
+					eventsPerSecond: 10,
+				},
+			},
+		}
+	);
+})();
 
 // Runtime validation helper - call this before making API calls
 export function validateSupabaseClient(): void {
@@ -60,6 +79,13 @@ export function validateSupabaseClient(): void {
 	
 	if (!supabaseUrl || !supabaseAnonKey) {
 		const errorMessage = 'Supabase client is not properly configured. Please create a .env.local file with NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.';
+		console.error('[Supabase]', errorMessage);
+		throw new Error(errorMessage);
+	}
+	
+	// Additional validation for production - check if URLs are valid
+	if (supabaseUrl === 'https://invalid.supabase.co' || supabaseAnonKey === 'invalid-key') {
+		const errorMessage = 'Supabase client is not properly configured. Please check your environment variables in Vercel Dashboard → Settings → Environment Variables.';
 		console.error('[Supabase]', errorMessage);
 		throw new Error(errorMessage);
 	}

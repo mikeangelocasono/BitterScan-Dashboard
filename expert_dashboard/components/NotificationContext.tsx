@@ -53,13 +53,47 @@ function saveReadScanIds(ids: Set<number>): void {
 	}
 }
 
+/**
+ * NotificationProvider - Real-Time Notification Management
+ * 
+ * This context provides real-time notifications for pending scans that need validation.
+ * 
+ * REAL-TIME FUNCTIONALITY:
+ * - Automatically updates when new scans with status='Pending Validation' are inserted
+ * - Notification count updates instantly without page refresh
+ * - Scans are filtered from DataContext's scans array, which updates via Supabase Realtime
+ * - When scans are validated/corrected, they're automatically removed from notifications
+ * 
+ * How it works:
+ * 1. DataContext subscribes to Supabase Realtime events (INSERT/UPDATE on 'scans' table)
+ * 2. When a new scan is inserted with status='Pending Validation', it's added to scans state
+ * 3. This context filters scans for 'Pending Validation' status
+ * 4. Unread count is calculated (pending scans not marked as read)
+ * 5. NotificationBell displays the count and updates automatically
+ * 
+ * When a scan is validated/corrected:
+ * - Scan status changes to 'Validated'/'Corrected' via real-time UPDATE event
+ * - Filter automatically excludes it (no longer 'Pending Validation')
+ * - Unread count decreases immediately
+ * - No manual refresh needed!
+ */
 export function NotificationProvider({ children }: { children: ReactNode }) {
+	// Get scans from DataContext - these update automatically via Supabase Realtime subscriptions
 	const { scans, loading, error, refreshData } = useData();
 	const [readScanIds, setReadScanIds] = useState<Set<number>>(() => loadReadScanIds());
 
-	// Filter scans to get only pending validation scans (these are our "notifications")
-	// Status must match exactly: "Pending Validation" (capital P and V)
-	// This automatically updates in real-time when DataContext receives new scans via Supabase Realtime
+	/**
+	 * REAL-TIME FILTERING: Filter scans for 'Pending Validation' status
+	 * 
+	 * This memoized filter ensures:
+	 * - Only pending scans are included in notifications
+	 * - New scans appear automatically when inserted via real-time subscriptions
+	 * - Validated/corrected scans are automatically excluded
+	 * - Efficient re-renders only when scans array changes
+	 * 
+	 * Status must match exactly: "Pending Validation" (capital P and V)
+	 * This matches the database enum value and ensures only relevant scans trigger notifications.
+	 */
 	const pendingScans = useMemo(() => {
 		if (!scans || scans.length === 0) return [];
 		// Filter for scans with status = 'Pending Validation' (exact match required)
@@ -119,7 +153,17 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 		});
 	}, []);
 
-	// Unread count is simply the number of pending scans that haven't been marked as read yet
+	/**
+	 * REAL-TIME UNREAD COUNT: Calculate unread notifications
+	 * 
+	 * This memoized calculation ensures:
+	 * - Count updates automatically when new scans arrive via real-time subscriptions
+	 * - Count decreases when scans are validated/corrected (filtered out)
+	 * - Count decreases when scans are marked as read
+	 * - Efficient calculation only when pendingScans or readScanIds change
+	 * 
+	 * The count is displayed in the NotificationBell badge and updates instantly.
+	 */
 	const unreadCount = useMemo(() => {
 		if (pendingScans.length === 0) return 0;
 		return pendingScans.reduce((count, scan) => (readScanIds.has(scan.id) ? count : count + 1), 0);

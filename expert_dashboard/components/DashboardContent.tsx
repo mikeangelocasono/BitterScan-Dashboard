@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, memo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { motion } from "framer-motion";
 import { UsersRound, Camera, CheckCircle2, AlertCircle } from "lucide-react";
@@ -36,7 +36,60 @@ const getStatusColor = (status: string) => {
 	}
 };
 
-export default function DashboardContent() {
+// Memoized loading skeleton component
+const LoadingSkeleton = memo(() => (
+	<div className="min-h-[60vh] flex items-center justify-center">
+		<div className="text-center">
+			<div className="h-10 w-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+			<p className="text-gray-600 text-sm">Loading dashboard...</p>
+		</div>
+	</div>
+));
+LoadingSkeleton.displayName = "LoadingSkeleton";
+
+// Memoized error component
+const ErrorDisplay = memo(({ error }: { error: string }) => (
+	<div className="min-h-[60vh] flex items-center justify-center">
+		<div className="text-center space-y-4">
+			<p className="text-red-600 font-medium">{error}</p>
+		</div>
+	</div>
+));
+ErrorDisplay.displayName = "ErrorDisplay";
+
+// Memoized stat card component
+const StatCard = memo(({ 
+	icon: Icon, 
+	label, 
+	value, 
+	color, 
+	index 
+}: { 
+	icon: React.ComponentType<{ className?: string }>;
+	label: string;
+	value: number;
+	color: string;
+	index: number;
+}) => (
+	<motion.div 
+		initial={{ y: 12, opacity: 0 }} 
+		animate={{ y: 0, opacity: 1 }} 
+		transition={{ delay: index * 0.05, duration: 0.3 }}
+	>
+		<Card>
+			<CardHeader className="pb-2">
+				<CardTitle>{label}</CardTitle>
+			</CardHeader>
+			<CardContent className="flex items-center justify-between">
+				<p className="text-3xl font-semibold">{value.toLocaleString("en-US")}</p>
+				<Icon className={`h-8 w-8 ${color}`} />
+			</CardContent>
+		</Card>
+	</motion.div>
+));
+StatCard.displayName = "StatCard";
+
+function DashboardContent() {
 	const { user, profile } = useUser();
 	const { scans, totalUsers, loading, error } = useData();
 
@@ -66,24 +119,11 @@ export default function DashboardContent() {
 	}, []);
 
 	if (loading) {
-		return (
-			<div className="min-h-[60vh] flex items-center justify-center">
-				<div className="text-center">
-					<div className="h-10 w-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-					<p className="text-gray-600 text-sm">Loading dashboard...</p>
-				</div>
-			</div>
-		);
+		return <LoadingSkeleton />;
 	}
 
 	if (error) {
-		return (
-			<div className="min-h-[60vh] flex items-center justify-center">
-				<div className="text-center space-y-4">
-					<p className="text-red-600 font-medium">{error}</p>
-				</div>
-			</div>
-		);
+		return <ErrorDisplay error={error} />;
 	}
 
 	return (
@@ -103,17 +143,7 @@ export default function DashboardContent() {
 					{ icon: CheckCircle2, label: "Validated", value: validatedScans, color: "text-emerald-600" },
 					{ icon: AlertCircle, label: "Pending", value: pendingValidations, color: "text-amber-600" }
 				].map((s, idx) => (
-					<motion.div key={idx} initial={{ y: 12, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: idx * 0.05 }}>
-						<Card>
-							<CardHeader className="pb-2">
-								<CardTitle>{s.label}</CardTitle>
-							</CardHeader>
-							<CardContent className="flex items-center justify-between">
-								<p className="text-3xl font-semibold">{s.value.toLocaleString("en-US")}</p>
-								<s.icon className={`h-8 w-8 ${s.color}`} />
-							</CardContent>
-						</Card>
-					</motion.div>
+					<StatCard key={s.label} icon={s.icon} label={s.label} value={s.value} color={s.color} index={idx} />
 				))}
 			</div>
 
@@ -154,6 +184,8 @@ export default function DashboardContent() {
 															width={32}
 															height={32}
 															className="w-8 h-8 rounded-full object-cover"
+															loading="lazy"
+															priority={false}
 															onError={(e) => {
 																e.currentTarget.style.display = 'none';
 															}}
@@ -189,5 +221,7 @@ export default function DashboardContent() {
 		</div>
 	);
 }
+
+export default memo(DashboardContent);
 
 

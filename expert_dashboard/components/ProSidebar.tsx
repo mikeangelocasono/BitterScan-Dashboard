@@ -116,17 +116,17 @@ function SidebarLinks({ onClick, isCollapsed }: { onClick?: () => void; isCollap
 					href={href}
 					prefetch={true}
 					className={clsx(
-						"flex items-center rounded-lg transition-colors",
+						"flex items-center rounded-lg transition-all duration-150 active:scale-[0.98]",
 						isCollapsed ? "justify-center px-3 py-3" : "gap-3 px-4 py-3",
 						active 
-							? "bg-[var(--primary)] text-white" 
+							? "bg-[var(--primary)] text-white shadow-sm" 
 							: "text-[var(--foreground)] hover:bg-gray-100 focus:bg-gray-100 focus:outline-none"
 					)}
 					aria-current={active ? "page" : undefined}
 					onClick={onClick}
 					title={isCollapsed ? label : undefined}
 				>
-					<Icon className={clsx("h-5 w-5 flex-shrink-0", active ? "text-white" : "text-gray-500")} />
+					<Icon className={clsx("h-5 w-5 flex-shrink-0 transition-colors", active ? "text-white" : "text-gray-500")} />
 					{!isCollapsed && (
 						<span className="text-sm font-medium whitespace-nowrap">{label}</span>
 					)}

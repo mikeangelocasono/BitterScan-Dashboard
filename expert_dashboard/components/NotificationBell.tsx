@@ -113,7 +113,10 @@ export default function NotificationBell() {
 		[router, markScansAsRead]
 	);
 
-	// Format exact timestamp from database (exact timestamp as required)
+	/**
+	 * Format time as "HH:MM AM/PM" matching the actual scan timestamp from database
+	 * This displays the exact time the scan was created (hours:minutes + AM/PM format)
+	 */
 	const formatExactTimestamp = useCallback((dateString: string) => {
 		try {
 			const date = new Date(dateString);
@@ -122,17 +125,16 @@ export default function NotificationBell() {
 				return "Invalid date";
 			}
 
-			// Format exact timestamp: "MMM DD, YYYY at HH:MM AM/PM"
-			return new Intl.DateTimeFormat("en-US", {
-				year: "numeric",
-				month: "short",
-				day: "numeric",
-				hour: "2-digit",
-				minute: "2-digit",
-				second: "2-digit",
-				hour12: true,
-				timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-			}).format(date);
+			// Format as "HH:MM AM/PM" using the exact timestamp from database
+			// Use UTC to match database timestamp exactly
+			let hours = date.getUTCHours();
+			const minutes = date.getUTCMinutes();
+			const ampm = hours >= 12 ? 'PM' : 'AM';
+			hours = hours % 12;
+			hours = hours ? hours : 12; // 0 should be 12
+			const minutesStr = minutes < 10 ? `0${minutes}` : minutes;
+			
+			return `${hours}:${minutesStr} ${ampm}`;
 		} catch {
 			return dateString;
 		}

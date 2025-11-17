@@ -12,6 +12,29 @@ export default function AuthGuard({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const { user, profile, loading } = useUser();
   const redirectHandled = useRef(false);
+  const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Add timeout for loading state to prevent infinite loading
+  useEffect(() => {
+    if (loading) {
+      // Set a timeout to prevent infinite loading
+      loadingTimeoutRef.current = setTimeout(() => {
+        console.warn('[AuthGuard] Loading timeout - user context may be stuck');
+        // Don't redirect here - let the normal flow handle it
+      }, 10000); // 10 second timeout
+    } else {
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
+      }
+    }
+
+    return () => {
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+      }
+    };
+  }, [loading]);
 
   useEffect(() => {
     if (loading) return;
@@ -60,8 +83,11 @@ export default function AuthGuard({ children }: { children: ReactNode }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="h-10 w-10 rounded-full border-4 border-emerald-500 border-t-transparent animate-spin" />
+      <div className="min-h-screen flex items-center justify-center bg-[var(--background)]">
+        <div className="text-center">
+          <div className="h-10 w-10 rounded-full border-4 border-emerald-500 border-t-transparent animate-spin mx-auto mb-4" />
+          <p className="text-sm text-gray-600">Loading...</p>
+        </div>
       </div>
     );
   }

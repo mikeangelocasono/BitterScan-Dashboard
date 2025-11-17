@@ -1,6 +1,6 @@
 "use client";
 
-import { PropsWithChildren, useState, useMemo, useCallback } from "react";
+import { PropsWithChildren, useState, useMemo, useCallback, memo } from "react";
 import ProSidebar, { MobileSidebar } from "./ProSidebar";
 import { Sheet } from "./ui/sheet";
 import { Button } from "./ui/button";
@@ -10,7 +10,7 @@ import NotificationBell from "./NotificationBell";
 import { SidebarProvider, useSidebar } from "./SidebarContext";
 import { clsx } from "clsx";
 
-function AppShellContent({ children }: PropsWithChildren) {
+const AppShellContent = memo(function AppShellContent({ children }: PropsWithChildren) {
 	// Named function component for Fast Refresh support
 	const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 	const { isCollapsed } = useSidebar();
@@ -19,10 +19,14 @@ function AppShellContent({ children }: PropsWithChildren) {
 		setMobileMenuOpen(false);
 	}, []);
 
+	const handleMobileMenuOpen = useCallback(() => {
+		setMobileMenuOpen(true);
+	}, []);
+
 	const contentAreaClassName = useMemo(
 		() =>
 			clsx(
-				"flex-1 w-full transition-all duration-300",
+				"flex-1 w-full transition-all duration-300 ease-in-out",
 				isCollapsed ? "lg:pl-20" : "lg:pl-72"
 			),
 		[isCollapsed]
@@ -41,8 +45,9 @@ function AppShellContent({ children }: PropsWithChildren) {
                     <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => setMobileMenuOpen(true)}
+                        onClick={handleMobileMenuOpen}
                         className="bg-[var(--surface)] shadow-md"
+                        aria-label="Open menu"
                     >
                         <Menu className="h-4 w-4" />
                     </Button>
@@ -71,7 +76,9 @@ function AppShellContent({ children }: PropsWithChildren) {
 			</div>
 		</div>
 	);
-}
+});
+
+AppShellContent.displayName = "AppShellContent";
 
 export default function AppShell({ children }: PropsWithChildren) {
 	return (

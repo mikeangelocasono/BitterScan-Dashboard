@@ -48,6 +48,26 @@ const buildSupabaseErrorMessage = (error: SupabaseApiError | null): string => {
 	return parts.length ? parts.join(" • ") : JSON.stringify(error);
 };
 
+/**
+ * Validate Page - Real-Time Scan Validation
+ * 
+ * This page automatically displays new scans in real-time without requiring page refresh.
+ * 
+ * REAL-TIME FUNCTIONALITY:
+ * - New scans with status='Pending Validation' appear automatically via Supabase Realtime
+ * - When a scan is marked as Confirmed or Corrected, it disappears immediately
+ * - All updates happen instantly through DataContext real-time subscriptions
+ * - No manual refresh needed - UI updates automatically
+ * 
+ * How it works:
+ * 1. DataContext subscribes to Supabase Realtime events (INSERT/UPDATE on 'scans' table)
+ * 2. When a new scan is inserted with status='Pending Validation', it's added to the scans state
+ * 3. This page filters scans for status='Pending Validation' and displays them
+ * 4. When a scan is validated/corrected, its status changes to 'Validated'/'Corrected'
+ * 5. The filter automatically excludes non-pending scans, so they disappear from the list
+ * 
+ * The filtered array is memoized to prevent unnecessary re-renders when unrelated state changes.
+ */
 export default function ValidatePage() {
 	const [tab, setTab] = useState<'leaf' | 'fruit'>('leaf');
 	const [notes, setNotes] = useState<Record<string, string>>({});
@@ -58,6 +78,7 @@ export default function ValidatePage() {
 	const [detailId, setDetailId] = useState<string | null>(null);
 	const [processingScanId, setProcessingScanId] = useState<number | null>(null);
 	const { user } = useUser();
+	// Get scans from DataContext - these update automatically via Supabase Realtime subscriptions
 	const { scans, loading, error, removeScanFromState, refreshData } = useData();
 
 	// Prevent body scroll when modal is open and fix dialog max-width
@@ -90,6 +111,19 @@ export default function ValidatePage() {
 		return decisionValue !== undefined && decisionValue !== null && decisionValue.trim() !== '';
 	}, [decision]);
 
+	/**
+	 * REAL-TIME VALIDATION: Mark scan as Confirmed or Corrected
+	 * 
+	 * When a scan is validated:
+	 * 1. Scan status is updated in database (triggers Supabase Realtime UPDATE event)
+	 * 2. Validation history is created (triggers Supabase Realtime INSERT event)
+	 * 3. DataContext receives the real-time events and updates the scans state
+	 * 4. This page's filter automatically excludes the scan (no longer 'Pending Validation')
+	 * 5. Scan disappears from the list immediately - no refresh needed!
+	 * 6. Notification count decreases automatically via NotificationContext
+	 * 
+	 * All users viewing the Validate page will see the update in real-time.
+	 */
 	const handleValidation = useCallback(async (scanId: number, action: "confirm" | "correct") => {
 		if (processingScanId === scanId) return;
 
@@ -137,6 +171,8 @@ export default function ValidatePage() {
 		setProcessingScanId(scanId);
 
 		try {
+			// Update scan status - this triggers Supabase Realtime UPDATE event
+			// DataContext will receive the event and update the scan in state
 			const updatePayload: Record<string, unknown> = {
 				status,
 				updated_at: timestamp,
@@ -145,6 +181,8 @@ export default function ValidatePage() {
 			await applyScanUpdate(updatePayload);
 			scanUpdated = true;
 
+			// Create validation history - this triggers Supabase Realtime INSERT event
+			// DataContext will also update the scan status via this event
 			const insertPayload = {
 				scan_id: scanId,
 				expert_id: user.id,
@@ -181,8 +219,12 @@ export default function ValidatePage() {
 					? "A scan has been confirmed."
 					: "A scan has been corrected.";
 			toast.success(successMessage);
+			
+			// Remove scan from local state immediately (optimistic update)
+			// The real-time subscription will also update it, but this provides instant feedback
 			removeScanFromState(scanId);
 
+			// Clear form state
 			setDecision(prev => {
 				// eslint-disable-next-line @typescript-eslint/no-unused-vars
 				const { [scanKey]: _, ...rest } = prev;
@@ -197,6 +239,7 @@ export default function ValidatePage() {
 				setDetailId(null);
 			}
 
+			// Refresh data to ensure consistency (real-time updates handle most of this)
 			await refreshData();
 		} catch (err: unknown) {
 			if (scanUpdated) {
@@ -264,9 +307,33 @@ export default function ValidatePage() {
 		return { start: null, end: null };
 	}, [startDate, endDate]);
 
+	/**
+	 * REAL-TIME FILTERING: Automatically filters scans for 'Pending Validation' status
+	 * 
+	 * This memoized filter ensures:
+	 * - Only pending scans are shown (status='Pending Validation')
+	 * - New scans appear automatically when inserted via real-time subscriptions
+	 * - Validated/corrected scans disappear immediately (filtered out)
+	 * - Efficient re-renders only when scans array or filter criteria change
+	 * 
+	 * The scans array is updated in real-time by DataContext when:
+	 * - New scans are inserted with status='Pending Validation'
+	 * - Scan status changes (e.g., 'Pending Validation' → 'Validated'/'Corrected')
+	 * 
+	 * No manual refresh needed - the UI updates automatically!
+	 */
 	const filtered = useMemo(() => {
+		// Early return if no scans
+		if (!scans.length) return [];
+		
+		// Filter for pending validation scans only
+		// This automatically excludes scans that have been validated/corrected
 		const pendingScans = scans.filter(scan => scan.status === 'Pending Validation');
 		
+		// Early return if no pending scans
+		if (!pendingScans.length) return [];
+		
+		// Apply additional filters (tab type and date range)
 		return pendingScans.filter((scan) => {
 			const matchesTab = tab === 'leaf' ? scan.scan_type === 'leaf_disease' : scan.scan_type === 'fruit_maturity';
 			
@@ -511,6 +578,8 @@ export default function ValidatePage() {
 																width={64}
 																height={64}
 																className="w-full h-full object-cover"
+																loading="lazy"
+																priority={false}
 																onError={(e) => {
 																	e.currentTarget.style.display = 'none';
 																}}
