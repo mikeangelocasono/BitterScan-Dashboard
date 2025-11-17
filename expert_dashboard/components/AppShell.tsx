@@ -11,6 +11,7 @@ import { SidebarProvider, useSidebar } from "./SidebarContext";
 import { clsx } from "clsx";
 
 function AppShellContent({ children }: PropsWithChildren) {
+	// Named function component for Fast Refresh support
 	const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 	const { isCollapsed } = useSidebar();
 

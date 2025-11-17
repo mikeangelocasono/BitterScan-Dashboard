@@ -10,7 +10,7 @@ import { useMemo, useState, useCallback, useEffect } from "react";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import toast from "react-hot-toast";
 import { supabase } from "@/components/supabase";
-import { Loader2, AlertCircle, Edit, Trash2, X } from "lucide-react";
+import { Loader2, AlertCircle, Trash2, X } from "lucide-react";
 import { useUser } from "@/components/UserContext";
 import { useData } from "@/components/DataContext";
 
@@ -44,10 +44,8 @@ export default function HistoryPage() {
 	const [endDate, setEndDate] = useState<string>("");
 	const [showAll, setShowAll] = useState(false);
 	const [detailIdx, setDetailIdx] = useState<number | null>(null);
-	const [editIdx, setEditIdx] = useState<number | null>(null);
 	const [deleteIdx, setDeleteIdx] = useState<number | null>(null);
-	const [editForm, setEditForm] = useState({ expert_validation: "", status: "" });
-	const [editLoading, setEditLoading] = useState(false);
+	const [deleteLoading, setDeleteLoading] = useState(false);
 	const { user } = useUser();
 	const { scans, validationHistory, loading, error, refreshData } = useData();
 
@@ -158,54 +156,6 @@ export default function HistoryPage() {
 		}
 	}, []);
 
-	// Handle edit validation record
-	const handleEdit = useCallback(async () => {
-		if (editIdx === null) return;
-		const record = filtered[editIdx];
-		if (!record || !user) return;
-
-		// Check if user is the expert who created this validation
-		if (record.expert_id !== user.id) {
-			toast.error("You can only edit your own validations.");
-			return;
-		}
-
-		setEditLoading(true);
-		try {
-			const { error: updateError } = await supabase
-				.from('validation_history')
-				.update({
-					expert_validation: editForm.expert_validation,
-					status: editForm.status as 'Validated' | 'Corrected'
-				})
-				.eq('id', record.id);
-
-			if (updateError) throw updateError;
-
-			// Also update the associated scan if it exists
-			if (record.scan_id) {
-				await supabase
-					.from('scans')
-					.update({
-						status: editForm.status,
-						expert_comment: editForm.expert_validation,
-						updated_at: new Date().toISOString()
-					})
-					.eq('id', record.scan_id);
-			}
-
-			toast.success("Validation record updated successfully");
-			setEditIdx(null);
-			setEditForm({ expert_validation: "", status: "" });
-			await refreshData();
-		} catch (err: unknown) {
-			console.error('Error updating validation:', err);
-			toast.error('Failed to update validation record');
-		} finally {
-			setEditLoading(false);
-		}
-	}, [editIdx, filtered, user, editForm, refreshData]);
-
 	// Handle delete validation record
 	const handleDelete = useCallback(async () => {
 		if (deleteIdx === null) return;
@@ -219,7 +169,7 @@ export default function HistoryPage() {
 			return;
 		}
 
-		setEditLoading(true);
+		setDeleteLoading(true);
 		try {
 			const { error: deleteError } = await supabase
 				.from('validation_history')
@@ -247,45 +197,27 @@ export default function HistoryPage() {
 			console.error('Error deleting validation:', err);
 			toast.error('Failed to delete validation record');
 		} finally {
-			setEditLoading(false);
+			setDeleteLoading(false);
 		}
 	}, [deleteIdx, filtered, user, refreshData]);
 
-	// Open edit dialog
-	const openEditDialog = useCallback((idx: number) => {
-		const record = filtered[idx];
-		if (record) {
-			setEditIdx(idx);
-			setEditForm({
-				expert_validation: record.expert_validation || "",
-				status: record.status
-			});
-		}
-	}, [filtered]);
-
 	// Calculate statistics from real data
-	// Total Records: Total number of scans in the database
+	// Total Scans: Total number of scans in the database
 	const totalRecords = scans.length;
 	
-	// Avg Confidence: Average confidence of all scans (rounded to 2 decimal places)
-	const avgConfidence = useMemo(() => {
-		const confidences = scans
-			.map(scan => scan.confidence)
-			.filter((conf): conf is number | string => conf !== null && conf !== undefined)
-			.map(conf => typeof conf === 'number' ? conf : parseFloat(String(conf)))
-			.filter(conf => !isNaN(conf));
-		
-		if (confidences.length === 0) return '0.00';
-		const sum = confidences.reduce((acc, val) => acc + val, 0);
-		const average = sum / confidences.length;
-		// Return value rounded to exactly 2 decimal places
-		return average.toFixed(2);
+	// Total Validated: Count of all validated scans (including both "Validated" and "Corrected" status)
+	const totalValidated = useMemo(() => {
+		return scans.filter(scan => scan.status === 'Validated' || scan.status === 'Corrected').length;
 	}, [scans]);
 	
 	// Validation Rate: Percentage of scans that have been validated
-	// Formula: (Number of Validated Scans / Total Records) × 100
-	const validatedScans = scans.filter(scan => scan.status === 'Validated').length;
-	const validationRate = totalRecords > 0 ? (((validatedScans / totalRecords) * 100).toFixed(1)) : '0.0';
+	// Formula: (Total Validated Scans / Total Scans) × 100
+	// Total Validated Scans includes both confirmed and corrected scans
+	const validationRate = useMemo(() => {
+		if (totalRecords === 0) return '0.0';
+		const rate = (totalValidated / totalRecords) * 100;
+		return rate.toFixed(1);
+	}, [totalValidated, totalRecords]);
 	
 	// Expert Corrections: Number of scans that were corrected by experts
 	const correctedRecords = scans.filter(scan => scan.status === 'Corrected').length;
@@ -316,7 +248,7 @@ export default function HistoryPage() {
 					<div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 md:gap-6">
 						<Card className="shadow-sm hover:shadow-md transition-shadow">
 							<CardHeader className="pb-2">
-								<CardTitle>Total Records</CardTitle>
+								<CardTitle>Total Scans</CardTitle>
 							</CardHeader>
 							<CardContent>
 								<p className="text-3xl font-semibold">{totalRecords.toLocaleString("en-US")}</p>
@@ -324,10 +256,10 @@ export default function HistoryPage() {
 						</Card>
 						<Card className="shadow-sm hover:shadow-md transition-shadow">
 							<CardHeader className="pb-2">
-								<CardTitle>Avg Confidence</CardTitle>
+								<CardTitle>Total Validated</CardTitle>
 							</CardHeader>
 							<CardContent>
-								<p className="text-3xl font-semibold">{avgConfidence}%</p>
+								<p className="text-3xl font-semibold">{totalValidated.toLocaleString("en-US")}</p>
 							</CardContent>
 						</Card>
 						<Card className="shadow-sm hover:shadow-md transition-shadow">
@@ -628,7 +560,7 @@ export default function HistoryPage() {
 													</Td>
 													<Td className="whitespace-nowrap py-4 px-4 text-sm text-gray-700">{formatDate(record.validated_at)}</Td>
 													<Td className="py-4 px-4 no-print" onClick={(e) => e.stopPropagation()}>
-														<div className="flex items-center gap-2">
+														<div className="flex items-center gap-2 flex-nowrap">
 															<Button 
 																variant="outline" 
 																size="sm" 
@@ -638,41 +570,25 @@ export default function HistoryPage() {
 																		setDetailIdx(originalIdx);
 																	}
 																}}
-																className="text-xs"
+																className="text-xs text-gray-700 border-gray-300 hover:bg-gray-50 hover:text-gray-900 whitespace-nowrap"
 															>
 																View Details
 															</Button>
 															{user && record.expert_id === user.id && (
-																<>
-																	<Button 
-																		variant="outline" 
-																		size="sm" 
-																		onClick={(e) => {
-																			e.stopPropagation();
-																			if (originalIdx >= 0) {
-																				openEditDialog(originalIdx);
-																			}
-																		}}
-																		className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 border-blue-200"
-																		title="Edit"
-																	>
-																		<Edit className="h-4 w-4" />
-																	</Button>
-																	<Button 
-																		variant="outline" 
-																		size="sm" 
-																		onClick={(e) => {
-																			e.stopPropagation();
-																			if (originalIdx >= 0) {
-																				setDeleteIdx(originalIdx);
-																			}
-																		}}
-																		className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
-																		title="Delete"
-																	>
-																		<Trash2 className="h-4 w-4" />
-																	</Button>
-																</>
+																<Button 
+																	variant="outline" 
+																	size="sm" 
+																	onClick={(e) => {
+																		e.stopPropagation();
+																		if (originalIdx >= 0) {
+																			setDeleteIdx(originalIdx);
+																		}
+																	}}
+																	className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200 flex-shrink-0"
+																	title="Delete Validation"
+																>
+																	<Trash2 className="h-4 w-4" />
+																</Button>
 															)}
 														</div>
 													</Td>
@@ -714,54 +630,6 @@ export default function HistoryPage() {
 						</CardContent>
 					</Card>
 
-					{/* Edit Dialog */}
-					<Dialog open={editIdx !== null} onOpenChange={() => {
-						setEditIdx(null);
-						setEditForm({ expert_validation: "", status: "" });
-					}}>
-						<DialogContent>
-							<DialogHeader>
-								<DialogTitle>Edit Validation Record</DialogTitle>
-							</DialogHeader>
-							{editIdx !== null && filtered[editIdx] && (
-								<div className="space-y-4 py-4">
-									<div>
-										<label className="block text-sm font-medium text-gray-700 mb-2">Expert Validation</label>
-										<textarea
-											value={editForm.expert_validation}
-											onChange={(e) => setEditForm({ ...editForm, expert_validation: e.target.value })}
-											placeholder="Enter validation result..."
-											className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent"
-											rows={3}
-										/>
-									</div>
-									<div>
-										<label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
-										<select
-											value={editForm.status}
-											onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
-											className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent"
-										>
-											<option value="Validated">Validated</option>
-											<option value="Corrected">Corrected</option>
-										</select>
-									</div>
-								</div>
-							)}
-							<DialogFooter>
-								<Button variant="outline" onClick={() => {
-									setEditIdx(null);
-									setEditForm({ expert_validation: "", status: "" });
-								}} disabled={editLoading}>
-									Cancel
-								</Button>
-								<Button onClick={handleEdit} disabled={editLoading}>
-									{editLoading ? "Updating..." : "Update"}
-								</Button>
-							</DialogFooter>
-						</DialogContent>
-					</Dialog>
-
 					{/* Delete Confirmation Dialog */}
 					<Dialog open={deleteIdx !== null} onOpenChange={() => setDeleteIdx(null)}>
 						<DialogContent>
@@ -779,173 +647,151 @@ export default function HistoryPage() {
 								</p>
 							</div>
 							<DialogFooter>
-								<Button variant="outline" onClick={() => setDeleteIdx(null)} disabled={editLoading}>
+								<Button variant="outline" onClick={() => setDeleteIdx(null)} disabled={deleteLoading}>
 									Cancel
 								</Button>
 								<Button 
 									onClick={handleDelete} 
-									disabled={editLoading}
+									disabled={deleteLoading}
 									className="bg-red-600 hover:bg-red-700"
 								>
-									{editLoading ? "Deleting..." : "Delete"}
+									{deleteLoading ? "Deleting..." : "Delete"}
 								</Button>
 							</DialogFooter>
 						</DialogContent>
 					</Dialog>
 
-					<Dialog open={detailIdx !== null} onOpenChange={()=>setDetailIdx(null)}>
-						<DialogContent className="sm:max-w-2xl p-0 overflow-hidden bg-white">
-							<div className="flex flex-col max-h-[85vh]">
-								<div className="flex items-start justify-between px-6 py-5 border-b border-gray-200">
-									<DialogHeader className="p-0">
-										<DialogTitle className="text-lg font-semibold text-black">Validation Details</DialogTitle>
-									</DialogHeader>
-									<button 
-										aria-label="Close" 
-										onClick={() => setDetailIdx(null)} 
-										className="rounded-md p-1.5 text-black hover:bg-gray-100 transition-colors"
-									>
-										<X className="h-5 w-5" />
-									</button>
-								</div>
-								<div className="px-6 py-6 overflow-y-auto bg-white">
-									{detailIdx !== null && filtered[detailIdx] && (() => {
-										const record = filtered[detailIdx];
-										return (
-											<div className="space-y-6">
-												{/* Scan Result Details */}
-												{record.scan && (
-													<div className="space-y-6 bg-white">
-														{/* Disease */}
-														<div className="space-y-2">
-															<h3 className="text-sm font-semibold text-black uppercase tracking-wide">Disease</h3>
-															<p className="text-base text-black font-normal leading-relaxed">{record.ai_prediction}</p>
-														</div>
+					{/* View Details Dialog */}
+					<Dialog open={detailIdx !== null} onOpenChange={() => setDetailIdx(null)}>
+						<DialogContent className="sm:max-w-3xl p-0 overflow-hidden bg-white max-h-[90vh] flex flex-col">
+							{/* Header */}
+							<div className="flex items-center justify-between px-6 py-5 border-b border-gray-200 bg-white sticky top-0 z-10">
+								<DialogHeader className="p-0">
+									<DialogTitle className="text-xl font-semibold text-gray-900">Validation Details</DialogTitle>
+								</DialogHeader>
+								<button 
+									aria-label="Close" 
+									onClick={() => setDetailIdx(null)} 
+									className="rounded-lg p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+								>
+									<X className="h-5 w-5" />
+								</button>
+							</div>
 
-														{/* Confidence Level */}
-														{record.scan.confidence !== null && record.scan.confidence !== undefined && (
-															<div className="space-y-2">
-																<h3 className="text-sm font-semibold text-black uppercase tracking-wide">Confidence Level</h3>
-																<p className="text-base text-black font-normal">
-																	Confidence: {typeof record.scan.confidence === 'number' 
-																		? `${record.scan.confidence.toFixed(1)}%` 
-																		: `${parseFloat(String(record.scan.confidence)).toFixed(1)}%`}
-																</p>
-															</div>
-														)}
-
-														{/* Treatment / Solution */}
-														{record.scan.solution && (
-															<div className="space-y-2">
-																<h3 className="text-sm font-semibold text-black uppercase tracking-wide">Treatment / Solution</h3>
-																<p className="text-base text-black font-normal leading-relaxed whitespace-pre-wrap">{record.scan.solution}</p>
-															</div>
-														)}
-
-														{/* Recommended Products */}
-														{record.scan.recommended_products && (
-															<div className="space-y-2">
-																<h3 className="text-sm font-semibold text-black uppercase tracking-wide">Recommended Products</h3>
-																<p className="text-base text-black font-normal leading-relaxed">{record.scan.recommended_products}</p>
-															</div>
-														)}
-													</div>
-												)}
-
-												{/* Divider */}
-												<div className="border-t border-gray-200"></div>
-
-												{/* Scan Image */}
-												{record.scan?.image_url && (
-													<div className="space-y-2">
-														<h3 className="text-sm font-semibold text-black uppercase tracking-wide">Scan Image</h3>
-														<div className="mt-2">
-															<img 
-																src={record.scan.image_url} 
-																alt="Scan preview" 
-																className="w-full max-h-80 md:max-h-96 object-contain rounded border border-gray-200"
-																onError={(e) => { e.currentTarget.style.display = 'none'; }}
-															/>
-														</div>
-													</div>
-												)}
-
-												{/* Divider */}
-												<div className="border-t border-gray-200"></div>
-
-												{/* Farmer Information */}
-												<div className="space-y-3">
-													<h3 className="text-sm font-semibold text-black uppercase tracking-wide">Farmer Information</h3>
-													<div className="flex items-center gap-3">
-														{record.scan?.farmer_profile?.profile_picture ? (
-															<img 
-																src={record.scan.farmer_profile.profile_picture} 
-																alt="Profile" 
-																className="w-10 h-10 rounded-full object-cover"
-																onError={(e) => { e.currentTarget.style.display = 'none'; }}
-															/>
-														) : (
-															<div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-sm font-medium text-black">
-																{record.scan?.farmer_profile?.full_name?.charAt(0) || record.scan?.farmer_profile?.username?.charAt(0) || '?'}
-															</div>
-														)}
-														<div>
-															<p className="text-base text-black font-normal">
-																{record.scan?.farmer_profile?.full_name || record.scan?.farmer_profile?.username || 'Unknown Farmer'}
-															</p>
-															<p className="text-sm text-black font-normal opacity-70">
-																{record.scan ? formatDate(record.scan.created_at) : formatDate(record.validated_at)}
-															</p>
-														</div>
-													</div>
+							{/* Scrollable Content */}
+							<div className="px-6 py-6 overflow-y-auto flex-1">
+								{detailIdx !== null && filtered[detailIdx] && (() => {
+									const record = filtered[detailIdx];
+									const isFruitMaturity = record.scan?.scan_type === 'fruit_maturity';
+									return (
+										<div className="space-y-6">
+											{/* Scan Type & Status Section */}
+											<div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+												<div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+													<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Scan Type</label>
+													<p className="text-sm font-semibold text-gray-900">
+														{record.scan ? formatScanType(record.scan.scan_type) : 'N/A'}
+													</p>
 												</div>
-
-												{/* Expert Information */}
-												<div className="space-y-3">
-													<h3 className="text-sm font-semibold text-black uppercase tracking-wide">Expert Information</h3>
-													<div className="flex items-center gap-3">
-														<div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-sm font-medium text-black">
-															{record.expert_profile?.full_name?.charAt(0) || record.expert_profile?.username?.charAt(0) || '?'}
-														</div>
-														<div>
-															<p className="text-base text-black font-normal">
-																{record.expert_profile?.full_name || record.expert_profile?.username || 'Unknown Expert'}
-															</p>
-															<p className="text-sm text-black font-normal opacity-70">{formatDate(record.validated_at)}</p>
-														</div>
-													</div>
-												</div>
-
-												{/* Expert Validation */}
-												{record.expert_validation && (
-													<>
-														<div className="border-t border-gray-200"></div>
-														<div className="space-y-2">
-															<h3 className="text-sm font-semibold text-black uppercase tracking-wide">Expert Validation</h3>
-															<p className="text-base text-black font-normal leading-relaxed whitespace-pre-wrap">{record.expert_validation}</p>
-														</div>
-													</>
-												)}
-
-												{/* Status */}
-												<div className="border-t border-gray-200"></div>
-												<div className="space-y-2">
-													<h3 className="text-sm font-semibold text-black uppercase tracking-wide">Status</h3>
-													<Badge color={getStatusColor(record.status)}>{record.status}</Badge>
+												<div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+													<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Status</label>
+													<Badge color={getStatusColor(record.status)} className="mt-1">{record.status}</Badge>
 												</div>
 											</div>
-										);
-									})()}
-								</div>
-								<div className="px-6 py-4 border-t border-gray-200 flex items-center justify-end bg-white">
-									<Button 
-										variant="outline" 
-										onClick={() => setDetailIdx(null)}
-										className="text-black border-gray-300 hover:bg-gray-50"
-									>
-										Close
-									</Button>
-								</div>
+
+											{/* Scan Result Details */}
+											{record.scan && (
+												<div className="space-y-5 bg-white rounded-lg border border-gray-200 p-5">
+													<h2 className="text-base font-semibold text-gray-900 border-b border-gray-200 pb-2">Scan Results</h2>
+													
+													{/* Disease / Fruit Ripeness */}
+													<div className="space-y-2">
+														<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">
+															{isFruitMaturity ? 'Fruit Ripeness' : 'Disease / Diagnosis'}
+														</label>
+														<p className="text-sm font-medium text-gray-900 leading-relaxed">{record.ai_prediction || 'N/A'}</p>
+													</div>
+
+													{/* Confidence Level */}
+													{record.scan.confidence !== null && record.scan.confidence !== undefined && (
+														<div className="space-y-2">
+															<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">Confidence Level</label>
+															<p className="text-sm font-medium text-gray-900">
+																{typeof record.scan.confidence === 'number' 
+																	? `${record.scan.confidence.toFixed(1)}%` 
+																	: `${parseFloat(String(record.scan.confidence)).toFixed(1)}%`}
+															</p>
+														</div>
+													)}
+
+													{/* Treatment / Solution / Harvest Recommendation */}
+													{record.scan.solution && (
+														<div className="space-y-2">
+															<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">
+																{isFruitMaturity ? 'Harvest Recommendation' : 'Treatment / Solution'}
+															</label>
+															<p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{record.scan.solution}</p>
+														</div>
+													)}
+
+													{/* Recommended Products */}
+													{record.scan.recommended_products && (
+														<div className="space-y-2">
+															<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">Recommended Products</label>
+															<p className="text-sm text-gray-700 leading-relaxed">{record.scan.recommended_products}</p>
+														</div>
+													)}
+												</div>
+											)}
+
+											{/* Scan Image */}
+											{record.scan?.image_url && (
+												<div className="space-y-3 bg-white rounded-lg border border-gray-200 p-5">
+													<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">Scan Image</label>
+													<div className="mt-2 bg-gray-50 rounded-lg p-3 border border-gray-200">
+														<img 
+															src={record.scan.image_url} 
+															alt="Scan preview" 
+															className="w-full max-h-[400px] object-contain rounded-lg"
+															onError={(e) => { 
+																e.currentTarget.style.display = 'none';
+																const parent = e.currentTarget.parentElement;
+																if (parent) {
+																	parent.innerHTML = '<p class="text-sm text-gray-500 text-center py-8">Image failed to load</p>';
+																}
+															}}
+														/>
+													</div>
+												</div>
+											)}
+
+											{/* Expert Comment */}
+											<div className="space-y-3 bg-white rounded-lg border border-gray-200 p-5">
+												<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">Expert Comment</label>
+												{record.expert_validation ? (
+													<p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap bg-gray-50 rounded-lg p-4 border border-gray-200">
+														{record.expert_validation}
+													</p>
+												) : (
+													<p className="text-sm text-gray-400 italic bg-gray-50 rounded-lg p-4 border border-gray-200">
+														No comment provided by the expert.
+													</p>
+												)}
+											</div>
+										</div>
+									);
+								})()}
+							</div>
+
+							{/* Footer */}
+							<div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-end sticky bottom-0">
+								<Button 
+									variant="outline" 
+									onClick={() => setDetailIdx(null)}
+									className="text-gray-700 border-gray-300 hover:bg-gray-100"
+								>
+									Close
+								</Button>
 							</div>
 						</DialogContent>
 					</Dialog>
@@ -954,5 +800,7 @@ export default function HistoryPage() {
 		</AuthGuard>
 	);
 }
+
+
 
 

@@ -269,25 +269,52 @@ export function DataProvider({ children }: { children: ReactNode }) {
 			})
 			.on(
 				"postgres_changes",
-				{ event: "INSERT", schema: "public", table: "scans" },
+				{ 
+					event: "INSERT", 
+					schema: "public", 
+					table: "scans"
+				},
 				async (payload) => {
-					// Only update if we've already fetched initial data
-					if (!initialFetched.current) return;
-
+					// Process new scans immediately - don't wait for initial fetch
+					// This ensures real-time updates work instantly
+					
 					const newScan = payload.new as Partial<Scan>;
 					if (!newScan.id) return;
 
+					// Log immediately when we receive the event
+					if (process.env.NODE_ENV === "development") {
+						console.log("🔔 Real-time INSERT event received for scan:", newScan.id, "Status:", newScan.status);
+					}
+
+					// Only process if status is "Pending Validation"
+					if (newScan.status !== "Pending Validation") {
+						if (process.env.NODE_ENV === "development") {
+							console.log("⏭️ Skipping scan - status is not 'Pending Validation':", newScan.status);
+						}
+						return;
+					}
+
 					// Fetch the full scan with profile data
 					const fullScan = await fetchScanWithProfile(newScan.id);
-					if (fullScan) {
+					if (fullScan && fullScan.status === "Pending Validation") {
 						setScans((prev) => {
 							// Check if scan already exists (prevent duplicates)
 							const exists = prev.some((s) => s.id === fullScan.id);
 							if (exists) {
+								if (process.env.NODE_ENV === "development") {
+									console.log("⚠️ Scan already exists, skipping:", fullScan.id);
+								}
 								return prev; // Return same reference to prevent re-render
 							}
-							// Add new scan at the beginning (already sorted by created_at desc from DB)
-							return [fullScan, ...prev];
+							// Add new scan at the beginning (newest first)
+							const updated = [fullScan, ...prev];
+							
+							// Log for debugging (only in development)
+							if (process.env.NODE_ENV === "development") {
+								console.log("✅ New pending scan added via real-time:", fullScan.id, "Farmer:", fullScan.farmer_profile?.full_name || "Unknown", "Total scans:", updated.length);
+							}
+							
+							return updated;
 						});
 					}
 				}
@@ -307,14 +334,23 @@ export function DataProvider({ children }: { children: ReactNode }) {
 						setScans((prev) => {
 							const index = prev.findIndex((s) => s.id === fullScan.id);
 							if (index === -1) {
-								// Scan doesn't exist, add it at the beginning (already sorted from DB)
-								return [fullScan, ...prev];
+								// Scan doesn't exist, add it at the beginning (newest first)
+								// Only add if status is "Pending Validation" (for notifications)
+								if (fullScan.status === "Pending Validation") {
+									return [fullScan, ...prev];
+								}
+								return prev; // Don't add non-pending scans
 							}
 							// Update existing scan in place (maintains order, no need to re-sort)
 							const updated = [...prev];
 							updated[index] = fullScan;
 							return updated;
 						});
+						
+						// Log for debugging (only in development)
+						if (process.env.NODE_ENV === "development") {
+							console.log("✅ Scan updated via real-time:", fullScan.id, fullScan.status);
+						}
 					}
 				}
 			)
@@ -448,55 +484,76 @@ export function DataProvider({ children }: { children: ReactNode }) {
 					channelRef.current = channel;
 					subscriptionActiveRef.current = true;
 					if (process.env.NODE_ENV === "development") {
-						console.log("✅ Real-time subscription active for scans and validations");
+						console.log("✅ Real-time subscription SUBSCRIBED for scans and validations");
+						console.log("📡 Listening for INSERT/UPDATE/DELETE events on 'scans' table");
+						console.log("🔔 Notifications will appear automatically when new scans are added");
 					}
 				} else if (status === "CHANNEL_ERROR") {
 					// Improved error handling - extract error message from various possible formats
-					let errorMessage = "Unknown error";
+					let errorMessage = "";
+					const shouldLogError = true;
+					
 					if (err) {
 						if (typeof err === "string") {
 							errorMessage = err;
 						} else if (err instanceof Error) {
-							errorMessage = err.message || errorMessage;
+							errorMessage = err.message || "";
 						} else if (typeof err === "object" && err !== null) {
 							// Try to extract message from error object
 							const errObj = err as Record<string, unknown>;
 							errorMessage = 
-								(typeof errObj.message === "string" ? errObj.message : null) ||
-								(typeof errObj.error === "string" ? errObj.error : null) ||
-								(typeof errObj.toString === "function" ? errObj.toString() : null) ||
-								JSON.stringify(errObj) ||
-								errorMessage;
+								(typeof errObj.message === "string" ? errObj.message : "") ||
+								(typeof errObj.error === "string" ? errObj.error : "") ||
+								(typeof errObj.reason === "string" ? errObj.reason : "") ||
+								(typeof errObj.toString === "function" ? errObj.toString() : "") ||
+								JSON.stringify(errObj) || 
+								"";
 						}
 					}
 					
-					// Only log errors in development or if they're meaningful
-					if (process.env.NODE_ENV === "development") {
-						console.error("Error subscribing to real-time data changes:", errorMessage);
+					// Normalize error message for checking
+					const errorStr = errorMessage.toLowerCase();
+					
+					// Suppress common connection-related errors that are normal (auto-reconnect will handle them)
+					const isConnectionError = 
+						errorStr.includes("connection") ||
+						errorStr.includes("close") ||
+						errorStr.includes("disconnect") ||
+						errorStr.includes("websocket") ||
+						errorStr === "" ||
+						errorMessage === "";
+					
+					// Only log meaningful errors (not normal connection issues)
+					if (shouldLogError && !isConnectionError && process.env.NODE_ENV === "development") {
+						console.error("Error subscribing to real-time data changes:", errorMessage || "Connection issue");
 						if (err && typeof err === "object") {
 							console.error("Full error object:", err);
 						}
 					}
 					
 					// Check if error is related to Realtime not being enabled
-					const errorStr = String(errorMessage).toLowerCase();
 					if (errorStr.includes("realtime") || errorStr.includes("publication") || errorStr.includes("not enabled") || errorStr.includes("permission")) {
 						if (process.env.NODE_ENV === "development") {
 							console.warn("⚠️ Realtime may not be enabled on your tables. Please enable Realtime on the 'scans' and 'validation_history' tables in your Supabase dashboard.");
 						}
 					}
 					
-					subscriptionActiveRef.current = false;
-					// Fallback to periodic refresh if real-time fails
-					if (initialFetched.current && fetchDataRef.current) {
-						fetchDataRef.current();
+					// Only mark as inactive if it's a real error (not just a connection close)
+					if (!isConnectionError) {
+						subscriptionActiveRef.current = false;
+						// Fallback to periodic refresh if real-time fails
+						if (initialFetched.current && fetchDataRef.current) {
+							fetchDataRef.current();
+						}
 					}
+					// For connection errors, let Supabase handle auto-reconnect
 				} else if (status === "TIMED_OUT" || status === "CLOSED") {
-					if (process.env.NODE_ENV === "development") {
-						console.warn("Real-time connection lost, attempting to refresh data");
-					}
+					// Connection lost - Supabase will attempt to reconnect automatically
 					subscriptionActiveRef.current = false;
-					// Refresh data when connection is lost
+					if (process.env.NODE_ENV === "development") {
+						console.log("Real-time connection closed, will auto-reconnect");
+					}
+					// Refresh data when connection is lost to ensure we have latest data
 					if (initialFetched.current && fetchDataRef.current) {
 						fetchDataRef.current();
 					}
@@ -518,22 +575,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
 				subscriptionActiveRef.current = false;
 			}
 		};
-	}, [isReady, user?.id]); // Removed fetchData, fetchScanWithProfile, fetchValidationWithRelations from deps to prevent re-subscriptions
+	// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [isReady, user?.id]); // Empty deps for fetchData, fetchScanWithProfile, fetchValidationWithRelations - accessed via refs to prevent re-subscriptions
 
-	useEffect(() => {
-		if (typeof document === "undefined") return;
-
-		const handleVisibilityChange = () => {
-			if (document.visibilityState === "visible" && fetchDataRef.current) {
-				void fetchDataRef.current();
-			}
-		};
-
-		document.addEventListener("visibilitychange", handleVisibilityChange);
-		return () => {
-			document.removeEventListener("visibilitychange", handleVisibilityChange);
-		};
-	}, []); // Empty deps - use ref to access latest fetchData
+	// Removed visibility change listener - real-time subscriptions handle updates automatically
+	// This was causing notifications to only appear when tab became visible
+	// Real-time WebSocket subscriptions work continuously regardless of tab visibility
 
 	const removeScanFromState = useCallback((scanId: number) => {
 		setScans((prev) => prev.filter((scan) => scan.id !== scanId));

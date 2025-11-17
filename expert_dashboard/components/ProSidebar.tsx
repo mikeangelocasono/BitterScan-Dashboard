@@ -85,6 +85,7 @@ export default function ProSidebar() {
 }
 
 function SidebarLinks({ onClick, isCollapsed }: { onClick?: () => void; isCollapsed?: boolean }) {
+	// Named function component for Fast Refresh support
 	const pathname = usePathname();
 	const router = useRouter();
 	const [showLogoutDialog, setShowLogoutDialog] = useState(false);

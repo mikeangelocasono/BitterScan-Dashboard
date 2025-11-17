@@ -1,26 +1,20 @@
 import { createClient } from '@supabase/supabase-js'
 
 /**
- * Local development fallback credentials keep the app functional when the
- * expected NEXT_PUBLIC_* environment variables are missing. They mirror the
- * previous hard-coded values and can safely be overridden by defining the env
- * vars in `.env.local` as documented in AUTHENTICATION_GUIDE.md.
+ * Supabase client configuration using environment variables.
+ * 
+ * Required environment variables (defined in .env.local):
+ * - NEXT_PUBLIC_SUPABASE_URL: Your Supabase project URL
+ * - NEXT_PUBLIC_SUPABASE_ANON_KEY: Your Supabase anonymous/public key
+ * 
+ * These should be set in .env.local file in the project root.
  */
-const FALLBACK_SUPABASE_URL = 'https://dqbmrakpaxhqmfuwxuqf.supabase.co'
-const FALLBACK_SUPABASE_ANON_KEY =
-	'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRxYm1yYWtwYXhocW1mdXd4dXFmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzNTc4MTcsImV4cCI6MjA3MTkzMzgxN30.LZmk0N6uhUZ8Tr0T6mPd_J7phpvT5HXwQmoiYnjhKXQ'
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? FALLBACK_SUPABASE_URL
-const supabaseAnonKey =
-	process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? FALLBACK_SUPABASE_ANON_KEY
-
-if (
-	(process.env.NEXT_PUBLIC_SUPABASE_URL === undefined ||
-		process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY === undefined) &&
-	typeof console !== 'undefined'
-) {
-	console.warn(
-		'Using fallback Supabase credentials. Define NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in your environment to override.'
+if (!supabaseUrl || !supabaseAnonKey) {
+	throw new Error(
+		'Missing Supabase environment variables. Please ensure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set in your .env.local file.'
 	)
 }
 
@@ -39,6 +33,68 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 		},
 	},
 })
+
+// Suppress refresh token errors in console (handled gracefully by UserContext)
+if (typeof window !== 'undefined') {
+	const originalError = console.error;
+	console.error = (...args: unknown[]) => {
+		// Check if this is a refresh token error from Supabase
+		const firstArg = args[0];
+		let isRefreshTokenError = false;
+		
+		// Check string errors
+		if (typeof firstArg === 'string') {
+			const errorLower = firstArg.toLowerCase();
+			isRefreshTokenError = 
+				errorLower.includes('refresh token') ||
+				errorLower.includes('refresh_token') ||
+				errorLower.includes('refresh_token_not_found') ||
+				errorLower.includes('invalid refresh token');
+		}
+		// Check Error objects
+		else if (firstArg instanceof Error) {
+			const errorLower = firstArg.message.toLowerCase();
+			const errorName = firstArg.name.toLowerCase();
+			isRefreshTokenError = 
+				errorLower.includes('refresh token') ||
+				errorLower.includes('refresh_token') ||
+				errorLower.includes('refresh_token_not_found') ||
+				errorLower.includes('invalid refresh token') ||
+				errorName.includes('authapierror');
+		}
+		// Check object errors with message property
+		else if (firstArg && typeof firstArg === 'object' && 'message' in firstArg) {
+			const errorObj = firstArg as { message?: string; name?: string; code?: string };
+			const errorLower = String(errorObj.message || '').toLowerCase();
+			const errorCode = String(errorObj.code || '').toLowerCase();
+			isRefreshTokenError = 
+				errorLower.includes('refresh token') ||
+				errorLower.includes('refresh_token') ||
+				errorLower.includes('refresh_token_not_found') ||
+				errorLower.includes('invalid refresh token') ||
+				errorCode.includes('refresh_token') ||
+				errorCode === 'refresh_token_not_found';
+		}
+		// Check all args as string
+		else {
+			const allArgsString = args.map(arg => String(arg)).join(' ').toLowerCase();
+			isRefreshTokenError = 
+				allArgsString.includes('refresh token') ||
+				allArgsString.includes('refresh_token') ||
+				allArgsString.includes('refresh_token_not_found') ||
+				allArgsString.includes('invalid refresh token');
+		}
+		
+		// Suppress refresh token errors (UserContext handles them gracefully)
+		if (isRefreshTokenError) {
+			// Silently ignore - UserContext will handle sign out automatically
+			return;
+		}
+		
+		// Log other errors normally
+		originalError.apply(console, args);
+	};
+}
 
 // Helper function to listen for auth state changes
 export function listenForSession(callback: (user: unknown) => void) {

@@ -1,7 +1,7 @@
 "use client";
 
-import { ReactNode, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { ReactNode, useEffect, useRef } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import { useUser } from "./UserContext";
 import toast from "react-hot-toast";
 
@@ -9,12 +9,24 @@ const SUPPRESS_AUTH_TOAST_KEY = "bs:suppress-auth-toast";
 
 export default function AuthGuard({ children }: { children: ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
   const { user, profile, loading } = useUser();
+  const redirectHandled = useRef(false);
 
   useEffect(() => {
     if (loading) return;
 
+    // Prevent multiple redirects
+    if (redirectHandled.current) return;
+
+    // Don't redirect if already on login page
+    if (pathname === "/login" || pathname === "/register") {
+      redirectHandled.current = false;
+      return;
+    }
+
     if (!user) {
+      redirectHandled.current = true;
       let shouldSuppressToast = false;
 
       if (typeof window !== "undefined") {
@@ -34,10 +46,17 @@ export default function AuthGuard({ children }: { children: ReactNode }) {
 
     // Only check role if profile exists and is loaded
     if (profile && profile.role !== "expert") {
+      redirectHandled.current = true;
       toast.error("You are not allowed to log in here because your role does not match.");
       router.replace("/login");
+      return;
     }
-  }, [loading, user, profile, router]);
+
+    // Reset redirect flag when user is valid
+    if (user && (!profile || profile.role === "expert")) {
+      redirectHandled.current = false;
+    }
+  }, [loading, user, profile, router, pathname]);
 
   if (loading) {
     return (

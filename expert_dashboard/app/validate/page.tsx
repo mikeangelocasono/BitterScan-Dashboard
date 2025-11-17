@@ -2,7 +2,7 @@
 
 import AppShell from "@/components/AppShell";
 import AuthGuard from "@/components/AuthGuard";
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@/components/ui/table";
@@ -14,19 +14,22 @@ import { Scan, SupabaseApiError, isSupabaseApiError } from "@/types";
 import { useUser } from "@/components/UserContext";
 import { useData } from "@/components/DataContext";
 
-// Accurate date formatter - shows local time without timezone shifts
+// Format exact timestamp from database (UTC time as stored, no timezone conversion)
+// Displays date and time (hours:minutes AM/PM) matching the actual scan time from device
 const formatScanDate = (dateString: string): string => {
 	try {
+		// Parse as UTC to get exact timestamp from database
 		const date = new Date(dateString);
 		if (isNaN(date.getTime())) return 'Invalid Date';
 		
+		// Use UTC methods to display exact database timestamp
 		const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-		const month = monthNames[date.getMonth()];
-		const day = date.getDate();
-		const year = date.getFullYear();
+		const month = monthNames[date.getUTCMonth()];
+		const day = date.getUTCDate();
+		const year = date.getUTCFullYear();
 		
-		let hours = date.getHours();
-		const minutes = date.getMinutes();
+		let hours = date.getUTCHours();
+		const minutes = date.getUTCMinutes();
 		const ampm = hours >= 12 ? 'PM' : 'AM';
 		hours = hours % 12;
 		hours = hours ? hours : 12; // 0 should be 12
@@ -55,6 +58,30 @@ export default function ValidatePage() {
 	const [processingScanId, setProcessingScanId] = useState<number | null>(null);
 	const { user } = useUser();
 	const { scans, loading, error, removeScanFromState, refreshData } = useData();
+
+	// Prevent body scroll when modal is open and fix dialog max-width
+	useEffect(() => {
+		if (detailId) {
+			document.body.style.overflow = 'hidden';
+			// Fix dialog wrapper max-width for larger modals
+			const timer = setTimeout(() => {
+				const dialogWrapper = document.querySelector('[data-open="true"]');
+				if (dialogWrapper) {
+					(dialogWrapper as HTMLElement).style.maxWidth = '56rem';
+					(dialogWrapper as HTMLElement).style.width = 'calc(100% - 2rem)';
+				}
+			}, 10);
+			return () => {
+				clearTimeout(timer);
+				document.body.style.overflow = '';
+			};
+		} else {
+			document.body.style.overflow = '';
+		}
+		return () => {
+			document.body.style.overflow = '';
+		};
+	}, [detailId]);
 
 	// Helper function to check if a decision is selected for a scan
 	const hasDecision = useCallback((scanId: number): boolean => {
@@ -147,10 +174,11 @@ export default function ValidatePage() {
 				}
 			}
 
+			// Show appropriate alert message based on action
 			const successMessage =
-				status === "Validated"
-					? `Validation for scan ${scanId} confirmed`
-					: `Validation for scan ${scanId} corrected`;
+				action === "confirm"
+					? "A scan has been confirmed."
+					: "A scan has been corrected.";
 			toast.success(successMessage);
 			removeScanFromState(scanId);
 
@@ -313,7 +341,7 @@ export default function ValidatePage() {
 								}`} 
 								onClick={() => setTab('fruit')}
 							>
-								Fruit Maturity
+								Fruit Ripeness
 							</button>
 						</div>
 					</div>
@@ -458,7 +486,7 @@ export default function ValidatePage() {
 									<Tr>
 										<Th className="w-20">Image</Th>
 										<Th>Farmer Name</Th>
-										<Th>Crop Type</Th>
+										<Th>Scan Type</Th>
 										<Th>Status</Th>
 										<Th>Date Scanned</Th>
 										<Th className="text-right">Action</Th>
@@ -466,7 +494,7 @@ export default function ValidatePage() {
 								</Thead>
 								<Tbody>
 									{filtered.map((scan) => {
-										const cropType = scan.scan_type === 'leaf_disease' ? 'Leaf Disease' : 'Fruit Maturity';
+										const cropType = scan.scan_type === 'leaf_disease' ? 'Leaf Disease' : 'Fruit Ripeness';
 										const farmerName = scan.farmer_profile?.full_name || scan.farmer_profile?.username || 'Unknown Farmer';
 										
 										return (
@@ -524,10 +552,10 @@ export default function ValidatePage() {
 														variant="outline"
 														size="sm"
 														onClick={() => setDetailId(scan.id.toString())}
-														className="flex items-center gap-1.5 bg-white text-black border-black/20 shadow-sm hover:bg-white hover:text-black hover:font-semibold hover:shadow-md hover:border-black/30 transition-all"
+														className="flex items-center gap-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 shadow-sm hover:bg-gray-50 hover:text-gray-900 hover:border-gray-400 hover:shadow-md active:bg-gray-100 active:shadow-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2"
 													>
-														<Eye className="h-4 w-4" />
-														View Details
+														<Eye className="h-4 w-4 flex-shrink-0" />
+														<span className="whitespace-nowrap">View Details</span>
 													</Button>
 												</Td>
 											</Tr>
@@ -538,197 +566,250 @@ export default function ValidatePage() {
 						</div>
 					)}
 
-					<Dialog open={!!detailId} onOpenChange={() => setDetailId(null)}>
-						<div className="p-0 overflow-hidden bg-white max-h-[90vh] flex flex-col">
-							<DialogContent>
+					<Dialog open={!!detailId} onOpenChange={(open) => {
+						if (!open) setDetailId(null);
+					}}>
+						<DialogContent className="!max-w-4xl w-[calc(100%-2rem)] p-0 flex flex-col max-h-[90vh] overflow-hidden bg-white rounded-xl shadow-2xl">
 							{detailId && (() => {
 								const selectedScan = scans.find(scan => scan.id.toString() === detailId);
-								if (!selectedScan) return (
-									<div className="p-6">
-										<p className="text-sm text-black">Scan not found.</p>
-									</div>
-								);
+								if (!selectedScan) {
+									return (
+										<div className="p-8 text-center">
+											<AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+											<p className="text-base font-medium text-gray-900 mb-2">Scan not found</p>
+											<p className="text-sm text-gray-500">The scan you're looking for may have been removed or doesn't exist.</p>
+											<Button 
+												variant="outline" 
+												onClick={() => setDetailId(null)}
+												className="mt-4"
+											>
+												Close
+											</Button>
+										</div>
+									);
+								}
 								
 								const scanDetails = parseScanDetails(selectedScan);
-								const cropType = selectedScan.scan_type === 'leaf_disease' ? 'Leaf Disease' : 'Fruit Maturity';
+								const cropType = selectedScan.scan_type === 'leaf_disease' ? 'Leaf Disease' : 'Fruit Ripeness';
+								const farmerName = selectedScan.farmer_profile?.full_name || selectedScan.farmer_profile?.username || 'Unknown Farmer';
+								const farmerInitial = farmerName.charAt(0).toUpperCase();
 								
 								return (
 									<>
 										{/* Modal Header */}
-										<div className="flex items-start justify-between px-6 py-5 border-b border-black/20 bg-white rounded-t-xl">
-											<div className="p-0">
-												<DialogHeader>
-													<div className="text-lg font-semibold text-gray-900">
-														<DialogTitle>Validate Scan</DialogTitle>
-													</div>
-												</DialogHeader>
-											</div>
+										<div className="flex items-center justify-between px-6 py-5 border-b border-gray-200 bg-gradient-to-r from-white to-gray-50 flex-shrink-0">
+											<DialogHeader className="p-0">
+												<DialogTitle className="text-xl font-bold text-gray-900">Scan Validation Details</DialogTitle>
+												<p className="text-sm text-gray-500 mt-1">Review and validate the scan information</p>
+											</DialogHeader>
 											<button 
 												aria-label="Close" 
 												onClick={() => setDetailId(null)} 
-												className="rounded-md p-1.5 text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors"
+												className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-900 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-gray-300"
 											>
 												<X className="h-5 w-5" />
 											</button>
 										</div>
 
-										{/* Scrollable Content - Matching Card Design */}
-										<div className="px-6 py-6 overflow-y-auto bg-white flex-1">
-											<Card className="shadow-sm border border-black/20">
-												<CardHeader className="pb-3 border-b border-black/10">
-													<div className="flex items-center gap-3">
-														{selectedScan.farmer_profile?.profile_picture ? (
-															<img 
-																src={selectedScan.farmer_profile.profile_picture} 
-																alt="Profile" 
-																className="w-10 h-10 rounded-full object-cover"
-																onError={(e) => {
-																	e.currentTarget.style.display = 'none';
-																}}
-															/>
-														) : (
-															<div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-sm font-medium text-gray-600">
-																{selectedScan.farmer_profile?.full_name?.charAt(0) || selectedScan.farmer_profile?.username?.charAt(0) || '?'}
+										{/* Scrollable Content */}
+										<div className="px-6 py-6 overflow-y-auto bg-gray-50 flex-1 min-h-0" style={{ maxHeight: 'calc(90vh - 180px)' }}>
+											<div className="space-y-6">
+												{/* Farmer Info Card */}
+												<Card className="shadow-md border border-gray-200 bg-white overflow-hidden">
+													<CardHeader className="pb-4 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-white">
+														<div className="flex items-center gap-4">
+															{selectedScan.farmer_profile?.profile_picture ? (
+																<img 
+																	src={selectedScan.farmer_profile.profile_picture} 
+																	alt="Profile" 
+																	className="w-14 h-14 rounded-full object-cover border-2 border-gray-300 shadow-sm"
+																	onError={(e) => {
+																		e.currentTarget.style.display = 'none';
+																	}}
+																/>
+															) : (
+																<div className="w-14 h-14 rounded-full bg-gradient-to-br from-gray-200 to-gray-300 flex items-center justify-center text-lg font-bold text-gray-600 border-2 border-gray-300 shadow-sm">
+																	{farmerInitial}
+																</div>
+															)}
+															<div className="flex-1 min-w-0">
+																<CardTitle className="text-lg font-bold text-gray-900 truncate">
+																	{farmerName}
+																</CardTitle>
+																<div className="flex items-center gap-2 mt-1">
+																	<p className="text-sm text-gray-600">{formatDate(selectedScan.created_at)}</p>
+																	<span className="text-gray-300">•</span>
+																	<span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800 border border-yellow-200">
+																		{selectedScan.status}
+																	</span>
+																</div>
 															</div>
-														)}
-														<div className="flex-1 min-w-0">
-															<CardTitle className="text-lg font-semibold truncate">
-																{selectedScan.farmer_profile?.full_name || selectedScan.farmer_profile?.username || 'Unknown Farmer'}
-															</CardTitle>
-															<p className="text-xs text-gray-500 mt-0.5">{formatDate(selectedScan.created_at)}</p>
 														</div>
-													</div>
-												</CardHeader>
-												<CardContent className="flex-1 flex flex-col space-y-4 pt-4">
-													{/* Scan Image */}
-													<div className="aspect-video w-full bg-emerald-50 rounded-lg overflow-hidden border border-black/20">
-														{selectedScan.image_url ? (
-															<img 
-																src={selectedScan.image_url} 
-																alt="Scan preview" 
-																className="w-full h-full object-contain"
-																onError={(e) => {
-																	e.currentTarget.style.display = 'none';
-																}}
-															/>
-														) : (
-															<div className="flex items-center justify-center h-full text-gray-400 text-sm">
-																No image available
+													</CardHeader>
+													<CardContent className="pt-6">
+														{/* Scan Image */}
+														<div className="space-y-3">
+															<label className="block text-sm font-medium text-gray-700">Scan Image</label>
+															<div className="aspect-video w-full bg-gradient-to-br from-gray-100 to-gray-200 rounded-xl overflow-hidden border border-gray-300 shadow-inner">
+																{selectedScan.image_url ? (
+																	<img 
+																		src={selectedScan.image_url} 
+																		alt="Scan preview" 
+																		className="w-full h-full object-contain"
+																		onError={(e) => {
+																			e.currentTarget.style.display = 'none';
+																		}}
+																	/>
+																) : (
+																	<div className="flex items-center justify-center h-full text-gray-500 text-base font-medium">
+																		No image available
+																	</div>
+																)}
 															</div>
-														)}
-													</div>
-
-													{/* Scan Result Details */}
-													<div className="space-y-3 bg-white border border-black/20 rounded-lg p-4">
-														{/* Crop Type */}
-														<div className="space-y-1">
-															<p className="text-xs font-semibold text-black uppercase tracking-wide">Crop Type</p>
-															<p className="text-sm text-black font-normal">{cropType}</p>
 														</div>
+													</CardContent>
+												</Card>
 
-														{/* Disease / AI Result */}
-														<div className="space-y-1">
-															<p className="text-xs font-semibold text-black uppercase tracking-wide">
-																{selectedScan.scan_type === 'leaf_disease' ? 'Disease' : 'Maturity Stage'}
-															</p>
-															<p className="text-sm text-black font-normal">{scanDetails.disease}</p>
+												{/* AI Analysis Overview */}
+												<Card className="shadow-md border border-gray-200 bg-white">
+													<CardHeader className="pb-4 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-white">
+														<CardTitle className="text-lg font-semibold text-gray-900">AI Analysis Overview</CardTitle>
+													</CardHeader>
+													<CardContent className="pt-6 space-y-4">
+														{/* Scan Type */}
+														<div className="space-y-2">
+															<label className="block text-sm font-medium text-gray-700">Scan Type</label>
+															<p className="text-base text-gray-900 bg-gray-50 px-4 py-2.5 rounded-lg border border-gray-200">{cropType}</p>
 														</div>
 														
 														{/* Confidence Level */}
-														<div className="space-y-1">
-															<p className="text-xs font-semibold text-black uppercase tracking-wide">Confidence Level</p>
-															<p className="text-sm text-black font-normal">{scanDetails.confidence}</p>
-														</div>
-
-														{/* Validation Status */}
-														<div className="space-y-1">
-															<p className="text-xs font-semibold text-black uppercase tracking-wide">Validation Status</p>
-															<p className="text-sm text-black font-normal">
-																<span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-																	{selectedScan.status}
-																</span>
+														<div className="space-y-2">
+															<label className="block text-sm font-medium text-gray-700">AI Confidence Level</label>
+															<p className="text-base text-gray-900 bg-blue-50 px-4 py-2.5 rounded-lg border border-blue-200 text-blue-900">
+																{scanDetails.confidence}
 															</p>
 														</div>
+													</CardContent>
+												</Card>
 
-														{/* Treatment / Solution */}
-														{scanDetails.solution && (
-															<div className="space-y-1">
-																<p className="text-xs font-semibold text-black uppercase tracking-wide">Treatment / Solution</p>
-																<p className="text-sm text-black font-normal leading-relaxed">{scanDetails.solution}</p>
-															</div>
-														)}
+												{/* Leaf Disease Details or Fruit Ripeness Details */}
+												<Card className="shadow-md border border-gray-200 bg-white">
+													<CardHeader className="pb-4 border-b border-gray-200 bg-gradient-to-r from-emerald-50/50 to-white">
+														<CardTitle className="text-lg font-semibold text-gray-900">
+															{selectedScan.scan_type === 'leaf_disease' ? 'Leaf Disease Details' : 'Fruit Ripeness Details'}
+														</CardTitle>
+													</CardHeader>
+													<CardContent className="pt-6">
+														<div className="bg-gray-50 border border-gray-200 rounded-lg px-5 py-4">
+															{selectedScan.scan_type === 'leaf_disease' ? (
+																<div className="space-y-3 text-base text-gray-900 leading-relaxed">
+																	<div>
+																		<span className="text-gray-900">Disease: </span>
+																		<span className="text-gray-900">{scanDetails.disease}</span>
+																	</div>
+																	<div>
+																		<span className="text-gray-900">Solution: </span>
+																		<span className="text-gray-900 whitespace-pre-wrap">
+																			{scanDetails.solution || 'No solution available'}
+																		</span>
+																	</div>
+																	<div>
+																		<span className="text-gray-900">Recommended Products: </span>
+																		<span className="text-gray-900 whitespace-pre-wrap">
+																			{scanDetails.recommendedProducts || 'No products recommended'}
+																		</span>
+																	</div>
+																</div>
+															) : (
+																<div className="space-y-3 text-base text-gray-900 leading-relaxed">
+																	<div>
+																		<span className="text-gray-900">Ripeness Stage: </span>
+																		<span className="text-gray-900">{scanDetails.disease}</span>
+																	</div>
+																	<div>
+																		<span className="text-gray-900">Harvest Recommendation: </span>
+																		<span className="text-gray-900 whitespace-pre-wrap">
+																			{scanDetails.solution || 'No recommendation.'}
+																		</span>
+																	</div>
+																</div>
+															)}
+														</div>
+													</CardContent>
+												</Card>
 
-														{/* Recommended Products */}
-														{scanDetails.recommendedProducts && (
-															<div className="space-y-1">
-																<p className="text-xs font-semibold text-black uppercase tracking-wide">Recommended Products</p>
-																<p className="text-sm text-black font-normal">{scanDetails.recommendedProducts}</p>
-															</div>
-														)}
-													</div>
+												{/* Expert Validation Section */}
+												<Card className="shadow-md border-2 border-gray-300 bg-white">
+													<CardHeader className="pb-4 border-b border-gray-200 bg-gradient-to-r from-emerald-50 to-white">
+														<CardTitle className="text-lg font-semibold text-gray-900">Expert Validation</CardTitle>
+														<p className="text-sm text-gray-600 mt-1">Review and provide your expert assessment</p>
+													</CardHeader>
+													<CardContent className="pt-6 space-y-5">
+														{/* Disease/Maturity Selection */}
+														<div className="space-y-3">
+															<label className="block text-sm font-semibold text-gray-900">
+																{selectedScan.scan_type === 'leaf_disease' ? 'Select Diagnosis' : 'Select Ripeness Stage'}
+																<span className="text-red-500 ml-1">*</span>
+															</label>
+															{selectedScan.scan_type === 'leaf_disease' ? (
+																<select 
+																	value={decision[detailId!] ?? ''} 
+																	onChange={(e) => setDecision({...decision, [detailId!]: e.target.value})} 
+																	className="w-full rounded-lg border-2 border-gray-300 px-4 py-3 text-base font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white shadow-sm transition-all"
+																>
+																	<option value="">Select diagnosis</option>
+																	<option>Healthy</option>
+																	<option>Fusarium Wilt</option>
+																	<option>Downy Mildew</option>
+																	<option>Yellow Mosaic Virus</option>
+																	<option>Cercospora</option>
+																	<option>Other</option>
+																</select>
+															) : (
+																<select 
+																	value={decision[detailId!] ?? ''} 
+																	onChange={(e) => setDecision({...decision, [detailId!]: e.target.value})} 
+																	className="w-full rounded-lg border-2 border-gray-300 px-4 py-3 text-base font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white shadow-sm transition-all"
+																>
+																	<option value="">Select ripeness stage</option>
+																	<option>Immature</option>
+																	<option>Mature</option>
+																	<option>Overmature</option>
+																	<option>Overripe</option>
+																</select>
+															)}
+														</div>
 
-													{/* Disease/Maturity Selection */}
-													<div className="space-y-2">
-														<label className="block text-sm font-semibold text-black uppercase tracking-wide">
-															{selectedScan.scan_type === 'leaf_disease' ? 'Select Diagnosis' : 'Select Ripeness Stage'}
-														</label>
-														{selectedScan.scan_type === 'leaf_disease' ? (
-															<select 
-																value={decision[detailId!] ?? ''} 
-																onChange={(e) => setDecision({...decision, [detailId!]: e.target.value})} 
-																className="w-full rounded-lg border border-emerald-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white"
-															>
-																<option value="">Select diagnosis</option>
-																<option>Healthy</option>
-																<option>Fusarium Wilt</option>
-																<option>Downy Mildew</option>
-																<option>Yellow Mosaic Virus</option>
-																<option>Other</option>
-															</select>
-														) : (
-															<select 
-																value={decision[detailId!] ?? ''} 
-																onChange={(e) => setDecision({...decision, [detailId!]: e.target.value})} 
-																className="w-full rounded-lg border border-emerald-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white"
-															>
-																<option value="">Select ripeness stage</option>
-																<option>Immature</option>
-																<option>Mature</option>
-																<option>Overmature</option>
-																<option>Overripe</option>
-															</select>
-														)}
-													</div>
-
-													{/* Notes */}
-													<div className="space-y-2">
-														<label className="block text-sm font-semibold text-gray-900 uppercase tracking-wide">Notes (optional)</label>
-														<textarea 
-															value={notes[detailId!] ?? ''} 
-															onChange={(e) => setNotes({...notes, [detailId!]: e.target.value})} 
-															placeholder="Add your expert analysis or comments..." 
-															className="w-full rounded-lg border border-emerald-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 resize-none"
-															rows={3}
-														/>
-													</div>
-												</CardContent>
-											</Card>
+														{/* Notes */}
+														<div className="space-y-3">
+															<label className="block text-sm font-semibold text-gray-900">Expert Notes (Optional)</label>
+															<textarea 
+																value={notes[detailId!] ?? ''} 
+																onChange={(e) => setNotes({...notes, [detailId!]: e.target.value})} 
+																placeholder="Add your expert analysis, observations, or additional comments..." 
+																className="w-full rounded-lg border-2 border-gray-300 px-4 py-3 text-base text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 resize-none shadow-sm transition-all"
+																rows={4}
+															/>
+														</div>
+													</CardContent>
+												</Card>
+											</div>
 										</div>
 
 										{/* Modal Footer */}
-										<div className="bg-white border-t border-black/20 rounded-b-xl">
-											<DialogFooter>
+										<div className="bg-white border-t-2 border-gray-200 px-6 py-4 flex-shrink-0 shadow-lg">
+											<DialogFooter className="flex flex-row items-center justify-end gap-3 sm:gap-3">
 												<Button 
 													variant="outline" 
 													onClick={() => setDetailId(null)}
-													className="text-gray-700 border-emerald-300 hover:bg-emerald-50 hover:border-emerald-400 hover:text-emerald-700"
+													className="text-base font-medium text-gray-700 border-2 border-gray-300 hover:bg-gray-50 hover:border-gray-400 active:bg-gray-100 transition-all duration-200"
 												>
 													Cancel
 												</Button>
 												<Button 
 													onClick={() => onConfirm(parseInt(detailId))}
 													disabled={hasDecision(parseInt(detailId)) || processingScanId === parseInt(detailId)}
-													className="bg-[var(--primary)] text-white hover:bg-[var(--primary-600)] disabled:opacity-50 disabled:cursor-not-allowed"
+													className="text-base font-semibold bg-[var(--primary)] text-white hover:bg-[var(--primary-600)] active:bg-[var(--primary-700)] disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg transition-all duration-200"
 												>
 													{processingScanId === parseInt(detailId) ? 'Processing...' : 'Confirm'}
 												</Button>
@@ -736,7 +817,7 @@ export default function ValidatePage() {
 													variant="outline" 
 													onClick={() => onReject(parseInt(detailId))}
 													disabled={!hasDecision(parseInt(detailId)) || processingScanId === parseInt(detailId)}
-													className="text-gray-700 border-emerald-300 hover:bg-emerald-50 hover:border-emerald-400 hover:text-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+													className="text-base font-semibold text-gray-700 border-2 border-gray-300 hover:bg-gray-50 hover:border-gray-400 active:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
 												>
 													{processingScanId === parseInt(detailId) ? 'Processing...' : 'Correct'}
 												</Button>
@@ -745,8 +826,7 @@ export default function ValidatePage() {
 									</>
 								);
 							})()}
-							</DialogContent>
-						</div>
+						</DialogContent>
 					</Dialog>
 				</div>
 			</AppShell>

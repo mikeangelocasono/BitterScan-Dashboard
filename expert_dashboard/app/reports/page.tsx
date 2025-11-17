@@ -1,12 +1,12 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { useMemo, useState, useEffect, useCallback } from "react";
+import { useMemo, useState, useCallback } from "react";
 import AppShell from "@/components/AppShell";
 import AuthGuard from "@/components/AuthGuard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Loader2, AlertCircle, TrendingUp, Activity, PieChart, Camera, CheckCircle2, Download, Calendar } from "lucide-react";
+import { Loader2, AlertCircle, TrendingUp, Camera, CheckCircle2, Download, Calendar } from "lucide-react";
 import {
   LineChart,
   Line,
@@ -96,8 +96,8 @@ function getRangeStart(range: Range, customStart?: Date) {
   }
   if (range === "weekly") {
     const start = new Date(now);
-    const day = start.getDay();
-    start.setDate(start.getDate() - day);
+    const day = start.getDay(); // 0 = Sunday, 1 = Monday, etc.
+    start.setDate(start.getDate() - day); // Go back to Sunday
     return start;
   }
   const start = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -315,13 +315,23 @@ export default function ReportsPage() {
   // Removed debug useEffect - unnecessary re-renders
 
   const rangeStart = useMemo(() => {
-    const customStart = customStartDate ? new Date(customStartDate) : undefined;
-    return getRangeStart(range, customStart);
+    try {
+      const customStart = customStartDate ? new Date(customStartDate) : undefined;
+      return getRangeStart(range, customStart);
+    } catch {
+      // Fallback to daily if date parsing fails
+      return normalizeToStartOfDay(new Date());
+    }
   }, [range, customStartDate]);
   
   const rangeEnd = useMemo(() => {
-    const customEnd = customEndDate ? new Date(customEndDate) : undefined;
-    return getRangeEnd(range, customEnd);
+    try {
+      const customEnd = customEndDate ? new Date(customEndDate) : undefined;
+      return getRangeEnd(range, customEnd);
+    } catch {
+      // Fallback to current time if date parsing fails
+      return new Date();
+    }
   }, [range, customEndDate]);
 
   const filteredScans = useMemo(() => {
@@ -388,64 +398,73 @@ export default function ReportsPage() {
   );
 
   const diseaseDistribution = useMemo(() => {
-    if (!filteredScans || filteredScans.length === 0) return [];
+    const counts = {
+      Cercospora: 0,
+      "Yellow Mosaic Virus": 0,
+      Healthy: 0,
+      Unknown: 0,
+      "Fusarium Wilt": 0,
+      "Downy Mildew": 0,
+    };
     
-    const counts = filteredScans
-      .filter((scan) => scan.scan_type === "leaf_disease" && scan.ai_prediction)
-      .reduce(
-        (acc, scan) => {
+    if (filteredScans && filteredScans.length > 0) {
+      filteredScans
+        .filter((scan) => scan.scan_type === "leaf_disease" && scan.ai_prediction)
+        .forEach((scan) => {
           try {
             const prediction = String(scan.ai_prediction).toLowerCase();
-            if (prediction.includes("cercospora")) acc.Cercospora += 1;
-            else if (prediction.includes("downy") || prediction.includes("mildew")) acc["Downy Mildew"] += 1;
-            else if (prediction.includes("fusarium") || prediction.includes("wilt")) acc["Fusarium Wilt"] += 1;
-            else if (prediction.includes("mosaic") || prediction.includes("virus")) acc["Yellow Mosaic Virus"] += 1;
-            else if (prediction.includes("healthy")) acc.Healthy += 1;
-            else acc.Unknown += 1;
+            if (prediction.includes("cercospora")) counts.Cercospora += 1;
+            else if (prediction.includes("downy") || prediction.includes("mildew")) counts["Downy Mildew"] += 1;
+            else if (prediction.includes("fusarium") || prediction.includes("wilt")) counts["Fusarium Wilt"] += 1;
+            else if (prediction.includes("mosaic") || prediction.includes("virus")) counts["Yellow Mosaic Virus"] += 1;
+            else if (prediction.includes("healthy")) counts.Healthy += 1;
+            else counts.Unknown += 1;
           } catch {
-            acc.Unknown += 1;
+            counts.Unknown += 1;
           }
-          return acc;
-        },
-        { Cercospora: 0, "Downy Mildew": 0, "Fusarium Wilt": 0, "Yellow Mosaic Virus": 0, Healthy: 0, Unknown: 0 }
-      );
+        });
+    }
 
-    // Return in specific order with all items (even if 0) for consistent legend
-    const order = ["Cercospora", "Yellow Mosaic Virus", "Healthy", "Unknown", "Downy Mildew", "Fusarium Wilt"];
+    // Return in specific order with all items (even if 0) - order: Cercospora, Yellow Mosaic Virus, Healthy, Unknown, Fusarium Wilt, Downy Mildew
+    const order = ["Cercospora", "Yellow Mosaic Virus", "Healthy", "Unknown", "Fusarium Wilt", "Downy Mildew"];
     return order.map((name) => ({
       name,
       value: counts[name as keyof typeof counts] || 0,
-    })).filter((item) => item.value > 0 || item.name === "Healthy"); // Show all or only non-zero
+    }));
   }, [filteredScans]);
 
   const ripenessDistribution = useMemo(() => {
-    if (!filteredScans || filteredScans.length === 0) return [];
+    const counts = {
+      Unknown: 0,
+      Immature: 0,
+      Mature: 0,
+      Overmature: 0,
+      Overripe: 0,
+    };
     
-    const counts = filteredScans
-      .filter((scan) => scan.scan_type === "fruit_maturity" && scan.ai_prediction)
-      .reduce(
-        (acc, scan) => {
+    if (filteredScans && filteredScans.length > 0) {
+      filteredScans
+        .filter((scan) => scan.scan_type === "fruit_maturity" && scan.ai_prediction)
+        .forEach((scan) => {
           try {
             const prediction = String(scan.ai_prediction).toLowerCase();
-            if (prediction.includes("immature")) acc.Immature += 1;
-            else if (prediction.includes("mature") && !prediction.includes("over")) acc.Mature += 1;
-            else if (prediction.includes("overmature")) acc.Overmature += 1;
-            else if (prediction.includes("overripe")) acc.Overripe += 1;
-            else acc.Unknown += 1;
+            if (prediction.includes("immature")) counts.Immature += 1;
+            else if (prediction.includes("mature") && !prediction.includes("over")) counts.Mature += 1;
+            else if (prediction.includes("overmature")) counts.Overmature += 1;
+            else if (prediction.includes("overripe")) counts.Overripe += 1;
+            else counts.Unknown += 1;
           } catch {
-            acc.Unknown += 1;
+            counts.Unknown += 1;
           }
-          return acc;
-        },
-        { Immature: 0, Mature: 0, Overmature: 0, Overripe: 0, Unknown: 0 }
-      );
+        });
+    }
 
-    // Return in specific order for consistent legend
-    const order = ["Immature", "Mature", "Overmature", "Overripe", "Unknown"];
+    // Return in specific order with all items (even if 0) - order: Unknown, Immature, Mature, Overmature, Overripe
+    const order = ["Unknown", "Immature", "Mature", "Overmature", "Overripe"];
     return order.map((name) => ({
       name,
       value: counts[name as keyof typeof counts] || 0,
-    })).filter((item) => item.value > 0); // Only show non-zero
+    }));
   }, [filteredScans]);
 
   // CSV Export function
@@ -453,7 +472,7 @@ export default function ReportsPage() {
     const headers = [
       "Date Range",
       "Total Scans",
-      "Validated Scans",
+      "Total Validated",
       "AI Accuracy Rate (%)",
       "Cercospora",
       "Yellow Mosaic Virus",
@@ -536,82 +555,205 @@ export default function ReportsPage() {
       return acc;
     }, {} as Record<string, number>);
 
+    // Build scans trend table
+    const scansTrendRows = scansTrend.map(item => 
+      `<tr><td>${item.period}</td><td>${item.scans}</td></tr>`
+    ).join('');
+
+    // Build validation activity table
+    const validationActivityRows = validationActivity.map(item => 
+      `<tr><td>${item.period}</td><td>${item.validated}</td><td>${item.corrected}</td></tr>`
+    ).join('');
+
     const htmlContent = `
       <!DOCTYPE html>
       <html>
         <head>
           <title>BitterScan Report - ${RANGE_LABELS[range]}</title>
+          <meta charset="UTF-8">
           <style>
-            body { font-family: Arial, sans-serif; padding: 20px; color: #333; }
-            h1 { color: #388E3C; border-bottom: 2px solid #388E3C; padding-bottom: 10px; }
-            h2 { color: #2F7A33; margin-top: 30px; }
-            table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-            th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
-            th { background-color: #388E3C; color: white; }
-            tr:nth-child(even) { background-color: #f9f9f9; }
-            .metric { display: inline-block; margin: 10px 20px 10px 0; }
-            .metric-label { font-weight: bold; color: #666; }
-            .metric-value { font-size: 24px; color: #388E3C; }
-            @media print { body { margin: 0; } }
+            * { color: #000000 !important; }
+            body { 
+              font-family: Arial, sans-serif; 
+              padding: 20px; 
+              color: #000000; 
+              background: #ffffff;
+            }
+            h1 { 
+              color: #000000 !important; 
+              border-bottom: 2px solid #000000; 
+              padding-bottom: 10px; 
+              margin-bottom: 20px;
+              font-size: 24px;
+            }
+            h2 { 
+              color: #000000 !important; 
+              margin-top: 30px; 
+              margin-bottom: 15px;
+              font-size: 18px;
+              border-bottom: 1px solid #cccccc;
+              padding-bottom: 5px;
+            }
+            p { color: #000000 !important; margin: 8px 0; }
+            table { 
+              width: 100%; 
+              border-collapse: collapse; 
+              margin: 20px 0; 
+              page-break-inside: avoid;
+            }
+            th, td { 
+              border: 1px solid #000000; 
+              padding: 10px; 
+              text-align: left; 
+              color: #000000 !important;
+            }
+            th { 
+              background-color: #f0f0f0 !important; 
+              color: #000000 !important; 
+              font-weight: bold;
+            }
+            tr:nth-child(even) { 
+              background-color: #f9f9f9; 
+            }
+            .metric-container {
+              display: flex;
+              flex-wrap: wrap;
+              gap: 30px;
+              margin: 20px 0;
+            }
+            .metric { 
+              display: inline-block; 
+              margin: 10px 0;
+              padding: 15px;
+              border: 1px solid #000000;
+              min-width: 150px;
+            }
+            .metric-label { 
+              font-weight: bold; 
+              color: #000000 !important; 
+              font-size: 14px;
+              margin-bottom: 5px;
+            }
+            .metric-value { 
+              font-size: 28px; 
+              color: #000000 !important; 
+              font-weight: bold;
+            }
+            .section {
+              margin-bottom: 30px;
+              page-break-inside: avoid;
+            }
+            @media print { 
+              body { margin: 0; padding: 15px; }
+              .no-print { display: none; }
+              @page { margin: 1cm; }
+            }
           </style>
         </head>
         <body>
           <h1>BitterScan Analytics Report</h1>
-          <p><strong>Date Range:</strong> ${RANGE_LABELS[range]}</p>
-          <p><strong>Generated:</strong> ${new Date().toLocaleString()}</p>
+          <div class="section">
+            <p><strong>Date Range:</strong> ${RANGE_LABELS[range]}</p>
+            <p><strong>Generated:</strong> ${new Date().toLocaleString()}</p>
+          </div>
           
-          <h2>Summary Metrics</h2>
-          <div class="metric">
-            <div class="metric-label">Total Scans</div>
-            <div class="metric-value">${filteredScans.length.toLocaleString()}</div>
-          </div>
-          <div class="metric">
-            <div class="metric-label">Validated Scans</div>
-            <div class="metric-value">${validatedScansCount.toLocaleString()}</div>
-          </div>
-          <div class="metric">
-            <div class="metric-label">AI Accuracy Rate</div>
-            <div class="metric-value">${aiAccuracyRate.toFixed(1)}%</div>
+          <div class="section">
+            <h2>Summary Metrics</h2>
+            <div class="metric-container">
+              <div class="metric">
+                <div class="metric-label">Total Scans</div>
+                <div class="metric-value">${filteredScans.length.toLocaleString()}</div>
+              </div>
+              <div class="metric">
+                <div class="metric-label">Total Validated</div>
+                <div class="metric-value">${validatedScansCount.toLocaleString()}</div>
+              </div>
+              <div class="metric">
+                <div class="metric-label">AI Accuracy Rate</div>
+                <div class="metric-value">${aiAccuracyRate.toFixed(1)}%</div>
+              </div>
+            </div>
           </div>
 
-          <h2>Disease Distribution</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Disease Type</th>
-                <th>Count</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr><td>Cercospora</td><td>${diseaseCounts["Cercospora"] || 0}</td></tr>
-              <tr><td>Yellow Mosaic Virus</td><td>${diseaseCounts["Yellow Mosaic Virus"] || 0}</td></tr>
-              <tr><td>Healthy</td><td>${diseaseCounts["Healthy"] || 0}</td></tr>
-              <tr><td>Unknown</td><td>${diseaseCounts["Unknown"] || 0}</td></tr>
-              <tr><td>Downy Mildew</td><td>${diseaseCounts["Downy Mildew"] || 0}</td></tr>
-              <tr><td>Fusarium Wilt</td><td>${diseaseCounts["Fusarium Wilt"] || 0}</td></tr>
-            </tbody>
-          </table>
+          ${scansTrend.length > 0 ? `
+          <div class="section">
+            <h2>Scans Trend - ${RANGE_LABELS[range]}</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Period</th>
+                  <th>Number of Scans</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${scansTrendRows}
+              </tbody>
+            </table>
+          </div>
+          ` : ''}
 
-          <h2>Ripeness Distribution</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Ripeness Level</th>
-                <th>Count</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr><td>Immature</td><td>${ripenessCounts["Immature"] || 0}</td></tr>
-              <tr><td>Mature</td><td>${ripenessCounts["Mature"] || 0}</td></tr>
-              <tr><td>Overmature</td><td>${ripenessCounts["Overmature"] || 0}</td></tr>
-              <tr><td>Overripe</td><td>${ripenessCounts["Overripe"] || 0}</td></tr>
-              <tr><td>Unknown</td><td>${ripenessCounts["Unknown"] || 0}</td></tr>
-            </tbody>
-          </table>
+          ${validationActivity.length > 0 ? `
+          <div class="section">
+            <h2>Validation Activity - ${RANGE_LABELS[range]}</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Period</th>
+                  <th>Validated</th>
+                  <th>Corrected</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${validationActivityRows}
+              </tbody>
+            </table>
+          </div>
+          ` : ''}
+
+          <div class="section">
+            <h2>Disease Distribution</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Disease Type</th>
+                  <th>Count</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>Cercospora</td><td>${diseaseCounts["Cercospora"] || 0}</td></tr>
+                <tr><td>Yellow Mosaic Virus</td><td>${diseaseCounts["Yellow Mosaic Virus"] || 0}</td></tr>
+                <tr><td>Healthy</td><td>${diseaseCounts["Healthy"] || 0}</td></tr>
+                <tr><td>Unknown</td><td>${diseaseCounts["Unknown"] || 0}</td></tr>
+                <tr><td>Fusarium Wilt</td><td>${diseaseCounts["Fusarium Wilt"] || 0}</td></tr>
+                <tr><td>Downy Mildew</td><td>${diseaseCounts["Downy Mildew"] || 0}</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="section">
+            <h2>Ripeness Distribution</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Ripeness Level</th>
+                  <th>Count</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>Unknown</td><td>${ripenessCounts["Unknown"] || 0}</td></tr>
+                <tr><td>Immature</td><td>${ripenessCounts["Immature"] || 0}</td></tr>
+                <tr><td>Mature</td><td>${ripenessCounts["Mature"] || 0}</td></tr>
+                <tr><td>Overmature</td><td>${ripenessCounts["Overmature"] || 0}</td></tr>
+                <tr><td>Overripe</td><td>${ripenessCounts["Overripe"] || 0}</td></tr>
+              </tbody>
+            </table>
+          </div>
 
           <script>
             window.onload = function() {
-              window.print();
+              setTimeout(function() {
+                window.print();
+              }, 250);
             };
           </script>
         </body>
@@ -620,7 +762,7 @@ export default function ReportsPage() {
 
     printWindow.document.write(htmlContent);
     printWindow.document.close();
-  }, [range, filteredScans, validatedScansCount, aiAccuracyRate, diseaseDistribution, ripenessDistribution]);
+  }, [range, filteredScans, validatedScansCount, aiAccuracyRate, diseaseDistribution, ripenessDistribution, scansTrend, validationActivity]);
 
   if (loading) {
     return (
@@ -658,11 +800,11 @@ export default function ReportsPage() {
   return (
     <AuthGuard>
       <AppShell>
-        <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <h2 className="text-2xl font-semibold text-gray-900">Reports &amp; Analytics</h2>
-              <p className="text-gray-600 mt-1 text-sm">Comprehensive insights into scan activity and AI performance</p>
+        <div className="space-y-8 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <div className="flex flex-wrap items-start justify-between gap-6">
+            <div className="space-y-1">
+              <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Reports &amp; Analytics</h1>
+              <p className="text-gray-600 text-base">Comprehensive insights into scan activity and AI performance</p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
@@ -744,36 +886,41 @@ export default function ReportsPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {[
               {
                 icon: TrendingUp,
                 label: "AI Accuracy Rate",
                 value: `${aiAccuracyRate}%`,
                 color: "text-emerald-600",
+                bgColor: "bg-emerald-50",
               },
               {
                 icon: Camera,
                 label: "Total Scans",
                 value: filteredScans.length.toLocaleString("en-US"),
-                color: "text-emerald-600",
+                color: "text-blue-600",
+                bgColor: "bg-blue-50",
               },
               {
                 icon: CheckCircle2,
-                label: "Validated",
+                label: "Total Validated",
                 value: validatedScansCount.toLocaleString("en-US"),
-                color: "text-emerald-600",
+                color: "text-green-600",
+                bgColor: "bg-green-50",
               },
             ].map((metric, idx) => {
               const Icon = metric.icon;
               return (
-                <Card key={idx} className="shadow-sm hover:shadow-md transition-shadow">
-                  <CardHeader className="pb-2">
-                    <CardTitle>{metric.label}</CardTitle>
+                <Card key={idx} className="shadow-sm hover:shadow-lg transition-all duration-200 border border-gray-200">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base font-semibold text-gray-700">{metric.label}</CardTitle>
                   </CardHeader>
-                  <CardContent className="flex items-center justify-between">
-                    <p className="text-3xl font-semibold">{metric.value}</p>
-                    <Icon className={`h-8 w-8 ${metric.color} flex-shrink-0`} />
+                  <CardContent className="flex items-center justify-between pt-0">
+                    <p className="text-4xl font-bold text-gray-900">{metric.value}</p>
+                    <div className={`${metric.bgColor} p-3 rounded-lg`}>
+                      <Icon className={`h-6 w-6 ${metric.color} flex-shrink-0`} />
+                    </div>
                   </CardContent>
                 </Card>
               );
@@ -875,7 +1022,7 @@ export default function ReportsPage() {
             })()}
           </ChartCard>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <ChartCard title={`Scans Trend • ${RANGE_LABELS[range]}`}>
               {scansTrend.length > 0 ? (
                 <ResponsiveContainer width="100%" height={300}>
@@ -911,7 +1058,7 @@ export default function ReportsPage() {
               )}
             </ChartCard>
 
-			<ChartCard title={`Validated Activity • ${RANGE_LABELS[range]}`}>
+            <ChartCard title={`Validated Activity • ${RANGE_LABELS[range]}`}>
               {validationActivity.length > 0 ? (
                 <motion.div
                   initial={{ opacity: 0, y: 16 }}
@@ -990,174 +1137,221 @@ export default function ReportsPage() {
             </ChartCard>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
-            <ChartCard title="Disease Distribution">
-              <div className="rounded-2xl bg-gradient-to-br from-white via-emerald-50/60 to-white p-4">
-                {diseaseDistribution.length > 0 ? (
-                  <motion.div
-                    initial={{ opacity: 0, y: 18 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.35 }}
-                  >
-                    <ResponsiveContainer width="100%" height={300}>
-                      <RechartsPieChart>
-                        <Pie
-                          data={diseaseDistribution}
-                          cx="50%"
-                          cy="50%"
-                          labelLine={false}
-                          label={({ name, percent }) => {
-                            const percentage = Math.round((percent ?? 0) * 100);
-                            return percentage > 0 ? `${percentage}%` : "";
-                          }}
-                          outerRadius={110}
-                          innerRadius={55}
-                          dataKey="value"
-                          paddingAngle={3}
-                          stroke="#f5f7f5"
-                          strokeWidth={2}
-                        >
-                          {diseaseDistribution.map((entry) => (
-                            <Cell
-                              key={`disease-${entry.name}`}
-                              fill={DISEASE_COLORS[entry.name] || COLORS[0]}
-                              stroke={DISEASE_COLORS[entry.name] || COLORS[0]}
-                              strokeOpacity={0.15}
-                            />
-                          ))}
-                        </Pie>
-                        <Tooltip
-                          cursor={{ stroke: "rgba(56,142,60,0.15)", strokeWidth: 2 }}
-                          contentStyle={{
-                            backgroundColor: "#ffffff",
-                            border: "1px solid rgba(56,142,60,0.12)",
-                            borderRadius: "12px",
-                            boxShadow: "0 12px 30px rgba(56,142,60,0.12)",
-                            fontSize: "12px",
-                            padding: "10px 14px",
-                          }}
-                          formatter={(value: number, name: string) => [
-                            `${value.toLocaleString("en-US")} cases`,
-                            name,
-                          ]}
-                        />
-                      </RechartsPieChart>
-                    </ResponsiveContainer>
-                  </motion.div>
-                ) : (
-                  <div className="flex h-[300px] flex-col items-center justify-center rounded-2xl border border-dashed border-emerald-200/70 bg-white/80 px-6 text-center text-sm text-emerald-700">
-                    <p className="font-medium">No disease distribution data for {RANGE_LABELS[range].toLowerCase()} yet.</p>
-                    <p className="mt-1 text-xs text-emerald-600">New scans will populate this chart automatically.</p>
-                  </div>
-                )}
-                {/* Legend - Always visible with all disease types */}
-                <div className="mt-5 grid grid-cols-1 gap-2 text-sm text-gray-700 sm:grid-cols-2 lg:grid-cols-3">
-                  {["Cercospora", "Yellow Mosaic Virus", "Healthy", "Unknown", "Downy Mildew", "Fusarium Wilt"].map((diseaseName) => {
-                    const entry = diseaseDistribution.find((e) => e.name === diseaseName);
-                    const value = entry?.value || 0;
-                    return (
-                      <div
-                        key={diseaseName}
-                        className="flex items-center gap-2.5 rounded-xl border border-gray-100 bg-white/70 px-3 py-2.5 shadow-sm transition-shadow hover:shadow-md"
-                      >
-                        <span
-                          className="inline-flex h-3 w-3 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: DISEASE_COLORS[diseaseName] || "#6B7280" }}
-                        />
-                        <span className="font-medium text-gray-900 flex-1">{diseaseName}</span>
-                        <span className="text-xs font-semibold text-emerald-600">
-                          {value.toLocaleString("en-US")}
-                        </span>
+          {/* Disease and Ripeness Distribution Sections - Side by Side */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Disease Distribution Section */}
+            <Card className="shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-xl font-bold text-gray-900">
+                  Disease Distribution
+                </CardTitle>
+                <p className="text-sm text-gray-600 mt-2">Leaf disease scan analysis for {RANGE_LABELS[range].toLowerCase()}</p>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-6">
+                  <div className="flex justify-center">
+                    {diseaseDistribution.some((item) => item.value > 0) ? (
+                      <ResponsiveContainer width="100%" height={280}>
+                        <RechartsPieChart>
+                          <Pie
+                            data={diseaseDistribution.filter((item) => item.value > 0)}
+                            cx="50%"
+                            cy="50%"
+                            labelLine={false}
+                            outerRadius={90}
+                            fill="#8884d8"
+                            dataKey="value"
+                            animationBegin={0}
+                            animationDuration={800}
+                          >
+                            {diseaseDistribution.filter((item) => item.value > 0).map((entry, index) => (
+                              <Cell 
+                                key={`disease-cell-${index}`} 
+                                fill={DISEASE_COLORS[entry.name] || "#6B7280"}
+                                stroke="#ffffff"
+                                strokeWidth={2}
+                              />
+                            ))}
+                          </Pie>
+                          <Tooltip
+                            formatter={(value: number, name: string, props: any) => [
+                              `${value.toLocaleString("en-US")} cases`,
+                              props.payload.name
+                            ]}
+                            contentStyle={{
+                              backgroundColor: "#ffffff",
+                              border: "1px solid #e5e7eb",
+                              borderRadius: "8px",
+                              fontSize: "13px",
+                              padding: "10px 14px",
+                              boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
+                            }}
+                          />
+                        </RechartsPieChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="flex h-[280px] w-full items-center justify-center rounded-lg border border-dashed border-gray-300 bg-gray-50">
+                        <p className="text-sm text-gray-500">No data to display</p>
                       </div>
-                    );
-                  })}
+                    )}
+                  </div>
+                  
+                  {/* Indicators/Labels - Show all categories */}
+                  <div className="space-y-2 pt-4 border-t border-gray-200">
+                    {diseaseDistribution.map((entry) => {
+                      const total = diseaseDistribution.reduce((sum, item) => sum + item.value, 0);
+                      const percentage = total > 0 ? ((entry.value / total) * 100).toFixed(1) : "0.0";
+                      const color = DISEASE_COLORS[entry.name] || "#6B7280";
+                      
+                      return (
+                        <motion.div
+                          key={entry.name}
+                          initial={{ opacity: 0, x: -10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ duration: 0.3 }}
+                          className={`flex items-center gap-3 p-2.5 rounded-lg transition-colors ${
+                            entry.value === 0 
+                              ? "bg-gray-50/50 opacity-60" 
+                              : "bg-gray-50 hover:bg-gray-100"
+                          }`}
+                        >
+                          <div 
+                            className="w-3.5 h-3.5 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: color }}
+                          />
+                          <div className="flex-1 min-w-0 flex items-center justify-between">
+                            <p className={`text-sm font-semibold truncate ${
+                              entry.value === 0 ? "text-gray-500" : "text-gray-900"
+                            }`}>
+                              {entry.name}
+                            </p>
+                            <div className="flex items-baseline gap-2 ml-2">
+                              <span className={`text-base font-bold ${
+                                entry.value === 0 ? "text-gray-400" : "text-gray-900"
+                              }`}>
+                                {entry.value.toLocaleString("en-US")}
+                              </span>
+                              {total > 0 && (
+                                <span className="text-xs text-gray-500 font-medium">
+                                  ({percentage}%)
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            </ChartCard>
+              </CardContent>
+            </Card>
 
-            <ChartCard title="Ripeness Distribution">
-              <div className="rounded-2xl bg-gradient-to-br from-white via-emerald-50/40 to-white p-4">
-                {ripenessDistribution.length > 0 ? (
-                  <motion.div
-                    initial={{ opacity: 0, y: 18 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.35, delay: 0.05 }}
-                  >
-                    <ResponsiveContainer width="100%" height={300}>
-                      <RechartsPieChart>
-                        <Pie
-                          data={ripenessDistribution}
-                          cx="50%"
-                          cy="50%"
-                          labelLine={false}
-                          label={({ name, percent }) => {
-                            const percentage = Math.round((percent ?? 0) * 100);
-                            return percentage > 0 ? `${percentage}%` : "";
-                          }}
-                          outerRadius={110}
-                          innerRadius={55}
-                          dataKey="value"
-                          paddingAngle={3}
-                          stroke="#f5f7f5"
-                          strokeWidth={2}
-                        >
-                          {ripenessDistribution.map((entry) => (
-                            <Cell
-                              key={`ripeness-${entry.name}`}
-                              fill={RIPENESS_COLORS[entry.name] || COLORS[0]}
-                              stroke={RIPENESS_COLORS[entry.name] || COLORS[0]}
-                              strokeOpacity={0.15}
-                            />
-                          ))}
-                        </Pie>
-                        <Tooltip
-                          cursor={{ stroke: "rgba(56,142,60,0.15)", strokeWidth: 2 }}
-                          contentStyle={{
-                            backgroundColor: "#ffffff",
-                            border: "1px solid rgba(56,142,60,0.12)",
-                            borderRadius: "12px",
-                            boxShadow: "0 12px 30px rgba(56,142,60,0.12)",
-                            fontSize: "12px",
-                            padding: "10px 14px",
-                          }}
-                          formatter={(value: number, name: string) => [
-                            `${value.toLocaleString("en-US")} items`,
-                            name,
-                          ]}
-                        />
-                      </RechartsPieChart>
-                    </ResponsiveContainer>
-                  </motion.div>
-                ) : (
-                  <div className="flex h-[300px] flex-col items-center justify-center rounded-2xl border border-dashed border-emerald-200/70 bg-white/80 px-6 text-center text-sm text-emerald-700">
-                    <p className="font-medium">No ripeness distribution data for {RANGE_LABELS[range].toLowerCase()} yet.</p>
-                    <p className="mt-1 text-xs text-emerald-600">Collect more fruit maturity scans to see insights.</p>
-                  </div>
-                )}
-                {/* Legend - Always visible with all ripeness stages */}
-                <div className="mt-5 grid grid-cols-1 gap-2 text-sm text-gray-700 sm:grid-cols-2 lg:grid-cols-3">
-                  {["Immature", "Mature", "Overmature", "Overripe", "Unknown"].map((ripenessName) => {
-                    const entry = ripenessDistribution.find((e) => e.name === ripenessName);
-                    const value = entry?.value || 0;
-                    return (
-                      <div
-                        key={ripenessName}
-                        className="flex items-center gap-2.5 rounded-xl border border-gray-100 bg-white/70 px-3 py-2.5 shadow-sm transition-shadow hover:shadow-md"
-                      >
-                        <span
-                          className="inline-flex h-3 w-3 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: RIPENESS_COLORS[ripenessName] || "#6B7280" }}
-                        />
-                        <span className="font-medium text-gray-900 flex-1">{ripenessName}</span>
-                        <span className="text-xs font-semibold text-emerald-600">
-                          {value.toLocaleString("en-US")}
-                        </span>
+            {/* Ripeness Distribution Section */}
+            <Card className="shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-xl font-bold text-gray-900">
+                  Ripeness Distribution
+                </CardTitle>
+                <p className="text-sm text-gray-600 mt-2">Fruit maturity scan analysis for {RANGE_LABELS[range].toLowerCase()}</p>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-6">
+                  <div className="flex justify-center">
+                    {ripenessDistribution.some((item) => item.value > 0) ? (
+                      <ResponsiveContainer width="100%" height={280}>
+                        <RechartsPieChart>
+                          <Pie
+                            data={ripenessDistribution.filter((item) => item.value > 0)}
+                            cx="50%"
+                            cy="50%"
+                            labelLine={false}
+                            outerRadius={90}
+                            fill="#8884d8"
+                            dataKey="value"
+                            animationBegin={0}
+                            animationDuration={800}
+                          >
+                            {ripenessDistribution.filter((item) => item.value > 0).map((entry, index) => (
+                              <Cell 
+                                key={`ripeness-cell-${index}`} 
+                                fill={RIPENESS_COLORS[entry.name] || "#6B7280"}
+                                stroke="#ffffff"
+                                strokeWidth={2}
+                              />
+                            ))}
+                          </Pie>
+                          <Tooltip
+                            formatter={(value: number, name: string, props: any) => [
+                              `${value.toLocaleString("en-US")} items`,
+                              props.payload.name
+                            ]}
+                            contentStyle={{
+                              backgroundColor: "#ffffff",
+                              border: "1px solid #e5e7eb",
+                              borderRadius: "8px",
+                              fontSize: "13px",
+                              padding: "10px 14px",
+                              boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
+                            }}
+                          />
+                        </RechartsPieChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="flex h-[280px] w-full items-center justify-center rounded-lg border border-dashed border-gray-300 bg-gray-50">
+                        <p className="text-sm text-gray-500">No data to display</p>
                       </div>
-                    );
-                  })}
+                    )}
+                  </div>
+                  
+                  {/* Indicators/Labels - Show all categories */}
+                  <div className="space-y-2 pt-4 border-t border-gray-200">
+                    {ripenessDistribution.map((entry) => {
+                      const total = ripenessDistribution.reduce((sum, item) => sum + item.value, 0);
+                      const percentage = total > 0 ? ((entry.value / total) * 100).toFixed(1) : "0.0";
+                      const color = RIPENESS_COLORS[entry.name] || "#6B7280";
+                      
+                      return (
+                        <motion.div
+                          key={entry.name}
+                          initial={{ opacity: 0, x: -10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ duration: 0.3 }}
+                          className={`flex items-center gap-3 p-2.5 rounded-lg transition-colors ${
+                            entry.value === 0 
+                              ? "bg-gray-50/50 opacity-60" 
+                              : "bg-gray-50 hover:bg-gray-100"
+                          }`}
+                        >
+                          <div 
+                            className="w-3.5 h-3.5 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: color }}
+                          />
+                          <div className="flex-1 min-w-0 flex items-center justify-between">
+                            <p className={`text-sm font-semibold truncate ${
+                              entry.value === 0 ? "text-gray-500" : "text-gray-900"
+                            }`}>
+                              {entry.name}
+                            </p>
+                            <div className="flex items-baseline gap-2 ml-2">
+                              <span className={`text-base font-bold ${
+                                entry.value === 0 ? "text-gray-400" : "text-gray-900"
+                              }`}>
+                                {entry.value.toLocaleString("en-US")}
+                              </span>
+                              {total > 0 && (
+                                <span className="text-xs text-gray-500 font-medium">
+                                  ({percentage}%)
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            </ChartCard>
+              </CardContent>
+            </Card>
           </div>
         </div>
       </AppShell>
