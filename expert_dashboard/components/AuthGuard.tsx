@@ -18,10 +18,15 @@ export default function AuthGuard({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (loading) {
       // Set a timeout to prevent infinite loading
+      // Match UserContext timeout (6s) + buffer
       loadingTimeoutRef.current = setTimeout(() => {
         console.warn('[AuthGuard] Loading timeout - user context may be stuck');
-        // Don't redirect here - let the normal flow handle it
-      }, 10000); // 10 second timeout
+        // Force redirect to login if loading takes too long
+        // This prevents infinite spinner on pages
+        if (!user && pathname !== '/login' && pathname !== '/register') {
+          router.replace('/login');
+        }
+      }, 7000); // 7 second timeout (6s UserContext + 1s buffer)
     } else {
       if (loadingTimeoutRef.current) {
         clearTimeout(loadingTimeoutRef.current);
@@ -34,7 +39,7 @@ export default function AuthGuard({ children }: { children: ReactNode }) {
         clearTimeout(loadingTimeoutRef.current);
       }
     };
-  }, [loading]);
+  }, [loading, user, pathname, router]);
 
   useEffect(() => {
     if (loading) return;

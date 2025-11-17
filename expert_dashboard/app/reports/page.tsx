@@ -1,12 +1,13 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useEffect } from "react";
 import AppShell from "@/components/AppShell";
 import AuthGuard from "@/components/AuthGuard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Loader2, AlertCircle, TrendingUp, Camera, CheckCircle2, Download, Calendar } from "lucide-react";
+import { supabase } from "@/components/supabase";
 import {
   LineChart,
   Line,
@@ -310,8 +311,51 @@ export default function ReportsPage() {
   const [customStartDate, setCustomStartDate] = useState<string>("");
   const [customEndDate, setCustomEndDate] = useState<string>("");
   const [showCustomPicker, setShowCustomPicker] = useState(false);
+  const [totalScansCount, setTotalScansCount] = useState<number>(0);
+  const [totalScansLoading, setTotalScansLoading] = useState<boolean>(true);
 
-  // Removed debug useEffect - unnecessary re-renders
+  // Fetch total scans count from Supabase on page load
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchTotalScans = async () => {
+      try {
+        setTotalScansLoading(true);
+        // Fetch total count from Supabase using count query
+        const { count, error: countError } = await supabase
+          .from("scans")
+          .select("*", { count: "exact", head: true });
+
+        if (!isMounted) return;
+
+        if (countError) {
+          console.error("Error fetching total scans count:", countError);
+          // Fallback to scans.length if count query fails
+          setTotalScansCount(scans?.length || 0);
+        } else {
+          setTotalScansCount(count || 0);
+        }
+      } catch (err) {
+        if (!isMounted) return;
+        console.error("Error fetching total scans:", err);
+        // Fallback to scans.length on error
+        setTotalScansCount(scans?.length || 0);
+      } finally {
+        if (isMounted) {
+          setTotalScansLoading(false);
+        }
+      }
+    };
+
+    // Only fetch if not loading (data is ready)
+    if (!loading) {
+      fetchTotalScans();
+    }
+
+    return () => {
+      isMounted = false;
+    };
+  }, [loading, scans?.length]);
 
   const rangeStart = useMemo(() => {
     try {
@@ -897,9 +941,9 @@ export default function ReportsPage() {
               {
                 icon: Camera,
                 label: "Total Scans",
-                value: filteredScans.length.toLocaleString("en-US"),
-                color: "text-blue-600",
-                bgColor: "bg-blue-50",
+                value: totalScansLoading ? "..." : totalScansCount.toLocaleString("en-US"),
+                color: "text-green-600",
+                bgColor: "bg-green-50",
               },
               {
                 icon: CheckCircle2,

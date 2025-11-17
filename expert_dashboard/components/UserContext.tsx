@@ -181,14 +181,20 @@ export function UserProvider({ children }: { children: ReactNode }) {
     const getInitialSession = async () => {
       try {
         // Set a timeout to prevent infinite loading in production
+        // Reduced to 6 seconds to match getSession timeout + buffer
         timeoutRef.current = setTimeout(() => {
           if (isMountedRef.current && !initialResolved.current) {
             console.warn('[UserContext] Session fetch timeout - clearing loading state');
             setLoading(false);
             initialResolved.current = true;
-            // Don't set user to null here - let the auth state change handler manage it
+            // If we haven't resolved a session by now, there likely isn't one
+            // Set user to null to allow login flow
+            if (!user) {
+              setUser(null);
+              setProfile(null);
+            }
           }
-        }, 8000); // 8 second timeout for production
+        }, 6000); // 6 second timeout (4s for getSession + 2s buffer)
 
         // Validate Supabase client before attempting session
         try {
@@ -230,29 +236,49 @@ export function UserProvider({ children }: { children: ReactNode }) {
         
         try {
           // Add timeout to getSession call to prevent hanging
-          const sessionPromise = supabase.auth.getSession();
-          const timeoutPromise = new Promise<never>((_, reject) => {
-            sessionTimeoutRef.current = setTimeout(() => reject(new Error('Session fetch timeout')), 5000);
-          });
+          // Use AbortController for better timeout handling
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => {
+            controller.abort();
+          }, 4000); // 4 second timeout
           
-          const result = await Promise.race([sessionPromise, timeoutPromise]);
-          if (sessionTimeoutRef.current) {
-            clearTimeout(sessionTimeoutRef.current);
-            sessionTimeoutRef.current = null;
+          try {
+            const sessionPromise = supabase.auth.getSession();
+            const timeoutPromise = new Promise<never>((_, reject) => {
+              sessionTimeoutRef.current = setTimeout(() => {
+                reject(new Error('Session fetch timeout'));
+              }, 4000);
+            });
+            
+            const result = await Promise.race([sessionPromise, timeoutPromise]);
+            clearTimeout(timeoutId);
+            if (sessionTimeoutRef.current) {
+              clearTimeout(sessionTimeoutRef.current);
+              sessionTimeoutRef.current = null;
+            }
+            session = result.data?.session || null;
+            sessionError = result.error || null;
+          } catch (raceError) {
+            clearTimeout(timeoutId);
+            if (sessionTimeoutRef.current) {
+              clearTimeout(sessionTimeoutRef.current);
+              sessionTimeoutRef.current = null;
+            }
+            throw raceError;
           }
-          session = result.data?.session || null;
-          sessionError = result.error || null;
         } catch (err) {
           // Catch network errors and timeouts
           const errorMessage = err instanceof Error ? err.message : String(err);
           if (errorMessage.includes('Failed to fetch') || 
               errorMessage.includes('fetch') || 
               errorMessage.includes('NetworkError') ||
-              errorMessage.includes('timeout')) {
+              errorMessage.includes('timeout') ||
+              errorMessage.includes('aborted')) {
             // Expected error when credentials are invalid or network issues
             console.warn('[UserContext] Session fetch failed:', errorMessage);
             sessionError = null; // Clear error to allow graceful handling
             session = null;
+            // Don't throw - allow graceful fallback to no session
           } else {
             throw err; // Re-throw unexpected errors
           }
@@ -280,7 +306,14 @@ export function UserProvider({ children }: { children: ReactNode }) {
           throw sessionError;
         }
         
+        // Resolve session (even if null - this allows login flow to proceed)
         await resolveSession(session?.user ?? null);
+        
+        // Ensure loading is cleared after session resolution
+        if (isMountedRef.current) {
+          setLoading(false);
+          initialResolved.current = true;
+        }
       } catch (error: unknown) {
         // Clear timeouts on error
         if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -313,11 +346,16 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
     getInitialSession();
 
+    // Set up auth state change listener - only once
+    // This listener handles all auth state changes (login, logout, token refresh, etc.)
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
+      // Guard: Don't process if component is unmounted
       if (!isMountedRef.current) return;
 
+      // Only show spinner if initial session hasn't been resolved yet
+      // This prevents showing spinner during normal auth state changes (like login)
       const shouldShowSpinner = !initialResolved.current;
       if (shouldShowSpinner) {
         setLoading(true);
@@ -353,6 +391,26 @@ export function UserProvider({ children }: { children: ReactNode }) {
           return;
         }
 
+        // Handle SIGNED_IN event - update user state immediately
+        // This is critical for login flow - don't block on profile fetch
+        if (event === 'SIGNED_IN' && session?.user) {
+          // Update user immediately for login redirect
+          setUser(session.user);
+          // Fetch profile in background (don't await - let it update async)
+          fetchProfile(session.user.id).catch(err => {
+            console.error('Error fetching profile after sign in:', err);
+          });
+          
+          if (isMountedRef.current) {
+            if (shouldShowSpinner) {
+              setLoading(false);
+            }
+            initialResolved.current = true;
+          }
+          return;
+        }
+
+        // For other events, use resolveSession
         await resolveSession(session?.user ?? null);
       } catch (error: unknown) {
         // Handle refresh token errors silently (expected behavior when token is invalid)
@@ -387,43 +445,76 @@ export function UserProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (typeof document === 'undefined') return;
 
+    // Add debounce to prevent rapid-fire session checks
+    let visibilityTimeout: NodeJS.Timeout | null = null;
+    let isChecking = false;
+
     const handleVisibilityChange = async () => {
-      if (document.visibilityState !== 'visible' || !resolveSessionRef.current) return;
-      try {
-        const {
-          data: { session },
-          error: sessionError,
-        } = await supabase.auth.getSession();
-        
-        // Handle refresh token errors
-        if (sessionError && isRefreshTokenError(sessionError)) {
-          console.warn('Invalid refresh token detected on visibility change, clearing auth...');
-          setUser(null);
-          setProfile(null);
-          await clearAuthAndSignOut();
-          return;
-        }
-        
-        if (sessionError) {
-          throw sessionError;
-        }
-        
-        await resolveSessionRef.current(session?.user ?? null);
-      } catch (error: unknown) {
-        // Handle refresh token errors
-        if (isRefreshTokenError(error)) {
-          console.warn('Invalid refresh token detected on visibility change (catch), clearing auth...');
-          setUser(null);
-          setProfile(null);
-          await clearAuthAndSignOut();
-        } else {
-          console.error('Error refreshing session on visibility change:', error);
-        }
+      // Only check if tab becomes visible and we're not already checking
+      if (document.visibilityState !== 'visible' || !resolveSessionRef.current || isChecking) return;
+      
+      // Clear any pending timeout
+      if (visibilityTimeout) {
+        clearTimeout(visibilityTimeout);
       }
+      
+      // Debounce the check to prevent rapid calls
+      visibilityTimeout = setTimeout(async () => {
+        if (!resolveSessionRef.current || isChecking) return;
+        isChecking = true;
+        
+        try {
+          // Add timeout to prevent hanging
+          const sessionPromise = supabase.auth.getSession();
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('Session check timeout')), 3000);
+          });
+          
+          const result = await Promise.race([sessionPromise, timeoutPromise]);
+          const { data: { session }, error: sessionError } = result;
+          
+          // Handle refresh token errors
+          if (sessionError && isRefreshTokenError(sessionError)) {
+            console.warn('Invalid refresh token detected on visibility change, clearing auth...');
+            setUser(null);
+            setProfile(null);
+            await clearAuthAndSignOut();
+            isChecking = false;
+            return;
+          }
+          
+          if (sessionError) {
+            throw sessionError;
+          }
+          
+          // Only update if session actually changed to prevent unnecessary re-renders
+          if (resolveSessionRef.current) {
+            await resolveSessionRef.current(session?.user ?? null);
+          }
+        } catch (error: unknown) {
+          // Handle timeout and refresh token errors
+          if (error instanceof Error && error.message.includes('timeout')) {
+            // Timeout is expected in some cases, don't log as error
+            console.warn('[UserContext] Session check timeout on visibility change');
+          } else if (isRefreshTokenError(error)) {
+            console.warn('Invalid refresh token detected on visibility change (catch), clearing auth...');
+            setUser(null);
+            setProfile(null);
+            await clearAuthAndSignOut();
+          } else {
+            console.error('Error refreshing session on visibility change:', error);
+          }
+        } finally {
+          isChecking = false;
+        }
+      }, 500); // 500ms debounce
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
+      if (visibilityTimeout) {
+        clearTimeout(visibilityTimeout);
+      }
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, []); // Empty deps - use ref to access latest resolveSession

@@ -239,8 +239,7 @@ export default function ValidatePage() {
 				setDetailId(null);
 			}
 
-			// Refresh data to ensure consistency (real-time updates handle most of this)
-			await refreshData();
+			// Note: No need to call refreshData() here - real-time subscriptions handle updates automatically
 		} catch (err: unknown) {
 			if (scanUpdated) {
 				const rollbackPayload: Record<string, unknown> = {
@@ -263,7 +262,7 @@ export default function ValidatePage() {
 		} finally {
 			setProcessingScanId(prev => (prev === scanId ? null : prev));
 		}
-	}, [processingScanId, scans, user, notes, decision, detailId, removeScanFromState, refreshData]);
+	}, [processingScanId, scans, user, notes, decision, detailId, removeScanFromState]);
 
 	const onConfirm = useCallback((scanId: number) => handleValidation(scanId, "confirm"), [handleValidation]);
 	const onReject = useCallback((scanId: number) => handleValidation(scanId, "correct"), [handleValidation]);

@@ -34,15 +34,22 @@ export default function LoginPage() {
     };
   }, []);
 
+  // Track if redirect has been initiated to prevent infinite loops
+  const redirectInitiated = useRef(false);
+
   // Handle redirect after successful login - wait for user context to update
   useEffect(() => {
     // Don't redirect while user context is loading or login is in progress
-    if (userLoading || loginInProgress.current) return;
+    if (userLoading || loginInProgress.current) {
+      redirectInitiated.current = false; // Reset flag when loading
+      return;
+    }
 
-    // Reset role mismatch flag when user logs out
+    // Reset role mismatch flag and redirect flag when user logs out
     if (!user) {
       roleMismatchHandled.current = false;
       loginInProgress.current = false;
+      redirectInitiated.current = false;
       return;
     }
 
@@ -55,6 +62,7 @@ export default function LoginPage() {
       }
       roleMismatchHandled.current = true;
       loginInProgress.current = false;
+      redirectInitiated.current = false;
       setLoading(false);
       const roleMsg = "You are not allowed to log in here because your role does not match.";
       setError(roleMsg);
@@ -66,20 +74,35 @@ export default function LoginPage() {
     }
 
     // Redirect to dashboard when user is authenticated and has expert role
-    if (user && (!profile || profile.role === "expert")) {
+    // IMPORTANT: Only redirect once to prevent infinite loops
+    if (user && (!profile || profile.role === "expert") && !redirectInitiated.current) {
+      redirectInitiated.current = true; // Mark redirect as initiated
+      
       // Clear timeout since redirect is happening
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
         timeoutRef.current = null;
       }
+      
       loginInProgress.current = false;
       setLoading(false);
-      router.replace("/dashboard");
+      
+      // Use setTimeout to ensure state updates complete before redirect
+      setTimeout(() => {
+        router.replace("/dashboard");
+      }, 100);
     }
   }, [user, profile, userLoading, router]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Prevent multiple submissions - critical to prevent infinite loops
+    if (loading || loginInProgress.current) {
+      console.warn('[Login] Login already in progress, ignoring duplicate submission');
+      return;
+    }
+    
     setError(null);
     setLoading(true);
     loginInProgress.current = true;
@@ -160,20 +183,25 @@ export default function LoginPage() {
       // Clear any existing timeout
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
       }
       
-      // Set a timeout fallback to reset loading state if redirect doesn't happen
+      // IMPORTANT: Don't set loading to false here - let the useEffect handle redirect
+      // The useEffect will handle the redirect when user context updates
+      // Set a timeout fallback ONLY if UserContext doesn't update within 5 seconds
       // This prevents infinite loading if UserContext takes too long to update
       timeoutRef.current = setTimeout(() => {
-        if (loginInProgress.current) {
+        // Only fallback if login is still in progress and user context hasn't updated
+        if (loginInProgress.current && !user) {
+          console.warn('[Login] UserContext update timeout - forcing redirect');
           setLoading(false);
           loginInProgress.current = false;
-          // If user context hasn't updated after 3 seconds, try redirect anyway
+          // If user context hasn't updated after 5 seconds, try redirect anyway
           if (data.user) {
             router.replace("/dashboard");
           }
         }
-      }, 3000);
+      }, 5000); // Increased to 5 seconds to give UserContext more time
       
     } catch (err: unknown) {
       // Clear timeout on error
@@ -310,10 +338,10 @@ export default function LoginPage() {
               {/* Submit Button */}
               <button 
                 type="submit" 
-                disabled={loading} 
+                disabled={loading || loginInProgress.current} 
                 className="w-full py-3 px-4 rounded-lg bg-[#388E3C] text-white font-medium hover:bg-[#2F7A33] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
               >
-                {loading ? "Signing In..." : "Sign In"}
+                {loading || loginInProgress.current ? "Signing In..." : "Sign In"}
               </button>
             </form>
 

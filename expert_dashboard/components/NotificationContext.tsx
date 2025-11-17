@@ -33,7 +33,9 @@ function loadReadScanIds(): Set<number> {
 			return new Set(parsed.filter((id): id is number => typeof id === "number"));
 		}
 	} catch (error) {
-		console.warn("Error loading read scan IDs from localStorage:", error);
+		if (process.env.NODE_ENV === 'development') {
+			console.warn("Error loading read scan IDs from localStorage:", error);
+		}
 	}
 	
 	return new Set();
@@ -49,7 +51,9 @@ function saveReadScanIds(ids: Set<number>): void {
 		const array = Array.from(ids);
 		localStorage.setItem(READ_SCANS_STORAGE_KEY, JSON.stringify(array));
 	} catch (error) {
-		console.warn("Error saving read scan IDs to localStorage:", error);
+		if (process.env.NODE_ENV === 'development') {
+			console.warn("Error saving read scan IDs to localStorage:", error);
+		}
 	}
 }
 

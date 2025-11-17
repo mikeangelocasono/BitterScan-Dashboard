@@ -278,14 +278,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
 			}
 			// Set loading to false if user is not ready after a timeout
 			// This prevents infinite loading if user context never resolves
-			// Reduced timeout for production - UserContext has its own 8s timeout
+			// Match UserContext timeout (6s) + 1s buffer
 			const timeoutId = setTimeout(() => {
 				// Check current state using ref to avoid stale closure
 				if (!userRef.current?.id && !initialFetched.current) {
+					if (process.env.NODE_ENV === 'development') {
+						console.warn('[DataContext] User not ready after timeout - clearing loading state');
+					}
 					setLoading(false);
 					setError('Unable to load user session. Please refresh the page or check your connection.');
 				}
-			}, 9000); // 9 second timeout (slightly longer than UserContext timeout)
+			}, 7000); // 7 second timeout (6s UserContext + 1s buffer)
 			
 			return () => clearTimeout(timeoutId);
 		}
@@ -304,9 +307,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
 		// Prevent multiple subscriptions
 		if (subscriptionActiveRef.current) {
 			// Subscription already active, but ensure initial fetch happens if not done
-			if (!initialFetched.current && fetchDataRef.current && userRef.current?.id) {
+			if (!initialFetched.current && fetchDataRef.current && userRef.current?.id && !isFetchingRef.current) {
+				// Use requestIdleCallback or setTimeout for non-blocking fetch
 				const fetchTimeout = setTimeout(() => {
-					if (fetchDataRef.current && userRef.current?.id && !initialFetched.current) {
+					if (fetchDataRef.current && userRef.current?.id && !initialFetched.current && !isFetchingRef.current) {
 						fetchDataRef.current(true);
 					}
 				}, 100);
@@ -316,15 +320,18 @@ export function DataProvider({ children }: { children: ReactNode }) {
 		}
 
 		// Start initial fetch if not done yet (but don't block subscription setup)
-		if (!initialFetched.current) {
+		// This ensures data is fetched even if subscription setup is slow
+		if (!initialFetched.current && !isFetchingRef.current) {
 			// Use fetchDataRef to avoid dependency issues
 			// Add a small delay to ensure UserContext has fully resolved
 			const fetchTimeout = setTimeout(() => {
-				if (fetchDataRef.current && userRef.current?.id) {
+				if (fetchDataRef.current && userRef.current?.id && !isFetchingRef.current && !initialFetched.current) {
 					fetchDataRef.current(true);
 				}
-			}, 100); // Small delay to ensure user context is stable
-			// Don't return here - continue to set up subscription
+			}, 150); // Small delay to ensure user context is stable
+			
+			// Cleanup timeout on unmount
+			return () => clearTimeout(fetchTimeout);
 		}
 
 		/**
@@ -360,10 +367,14 @@ export function DataProvider({ children }: { children: ReactNode }) {
 		// Use a unique channel name to avoid conflicts between multiple users/sessions
 		const channelName = `global-data-changes-${user?.id || 'anonymous'}`;
 		
+		// Mark subscription as active BEFORE setting up to prevent race conditions
+		subscriptionActiveRef.current = true;
+		
 		try {
 			// Clean up any existing channel first to prevent duplicate subscriptions
 			if (channelRef.current) {
 				supabase.removeChannel(channelRef.current);
+				channelRef.current = null;
 			}
 
 			const channel = supabase.channel(channelName, {
@@ -396,22 +407,16 @@ export function DataProvider({ children }: { children: ReactNode }) {
 					
 					const newScan = payload.new as Partial<Scan>;
 					if (!newScan.id) {
-						console.warn("⚠️ INSERT event received but scan ID is missing");
+						if (process.env.NODE_ENV === 'development') {
+							console.warn("INSERT event received but scan ID is missing");
+						}
 						return;
 					}
 
-					// Log immediately when we receive the event
-					console.log("🔔 Real-time INSERT event received for scan:", newScan.id, "Status:", newScan.status);
-
-					// Process ALL scans, not just 'Pending Validation'
-					// This ensures we catch all new scans and update the UI accordingly
-					// The filtering happens in the components (NotificationContext, Validate page)
-					
 					// Only process if status is "Pending Validation" for immediate UI updates
 					// Other scans will be included in the next full fetch
 					if (newScan.status !== "Pending Validation") {
-						console.log("⏭️ Scan inserted with status:", newScan.status, "- will be included in next fetch");
-						// Still trigger a refresh to ensure all scans are up to date
+						// Trigger a silent refresh to ensure all scans are up to date
 						if (fetchDataRef.current && initialFetched.current) {
 							fetchDataRef.current(false);
 						}
@@ -428,20 +433,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
 								// This can happen if the same event is received multiple times
 								const exists = prev.some((s) => s.id === fullScan.id);
 								if (exists) {
-									console.log("⚠️ Scan already exists, skipping:", fullScan.id);
 									return prev; // Return same reference to prevent re-render
 								}
 								// Add new scan at the beginning (newest first) for better UX
-								const updated = [fullScan, ...prev];
-								
-								// Log for debugging
-								console.log("✅ New pending scan added via real-time:", fullScan.id, "Farmer:", fullScan.farmer_profile?.full_name || "Unknown", "Total scans:", updated.length);
-								
-								return updated;
+								return [fullScan, ...prev];
 							});
 						} else if (fullScan && fullScan.status !== "Pending Validation") {
 							// Edge case: Status changed between INSERT event and fetch
-							console.log("⏭️ Scan status changed before fetch completed:", newScan.id, "Status:", fullScan.status);
 							// Still add it to state, components will filter appropriately
 							setScans((prev) => {
 								const exists = prev.some((s) => s.id === fullScan.id);
@@ -451,7 +449,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
 								return prev;
 							});
 						} else if (!fullScan) {
-							console.warn("⚠️ Could not fetch full scan data for:", newScan.id);
 							// Fallback: refresh all data
 							if (fetchDataRef.current && initialFetched.current) {
 								fetchDataRef.current(false);
@@ -497,21 +494,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 					// This ensures real-time updates work immediately
 					
 					const updatedScan = payload.new as Partial<Scan>;
-					const oldScan = payload.old as Partial<Scan>;
 					if (!updatedScan.id) return;
-
-					// Check if status changed TO "Pending Validation" (triggers notification)
-					const statusChangedToPending = 
-						updatedScan.status === "Pending Validation" && 
-						oldScan?.status !== "Pending Validation";
-
-					// Log immediately when we receive the event (development only)
-					if (process.env.NODE_ENV === "development") {
-						console.log("🔔 Real-time UPDATE event received for scan:", updatedScan.id, 
-							"Old status:", oldScan?.status, 
-							"New status:", updatedScan.status, 
-							"Changed to pending:", statusChangedToPending);
-					}
 
 					try {
 						// Fetch the full scan with profile data to ensure we have complete information
@@ -524,9 +507,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
 									// Scan doesn't exist in state yet (e.g., page just loaded)
 									// Only add if status is "Pending Validation" (for notifications and Validate page)
 									if (fullScan.status === "Pending Validation") {
-										if (process.env.NODE_ENV === "development") {
-											console.log("✅ Adding new pending scan via UPDATE event:", fullScan.id, "Farmer:", fullScan.farmer_profile?.full_name || "Unknown");
-										}
 										return [fullScan, ...prev];
 									}
 									return prev; // Don't add non-pending scans to state
@@ -536,23 +516,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 								// This handles status changes (e.g., 'Pending Validation' → 'Validated'/'Corrected')
 								// The Validate page will automatically filter out non-pending scans
 								const updated = [...prev];
-								const previousStatus = updated[index]?.status;
 								updated[index] = fullScan;
-								
-								// Log status changes for debugging (development only)
-								if (process.env.NODE_ENV === "development") {
-									if (previousStatus !== fullScan.status) {
-										console.log("✅ Scan status changed:", fullScan.id, previousStatus, "→", fullScan.status);
-										if (statusChangedToPending) {
-											console.log("🔔 Notification triggered: Scan status changed to 'Pending Validation'");
-										}
-										// Log when scan is validated/corrected (removed from Validate page)
-										if (previousStatus === "Pending Validation" && (fullScan.status === "Validated" || fullScan.status === "Corrected")) {
-											console.log("✅ Scan validated/corrected - will be removed from Validate page:", fullScan.id);
-										}
-									}
-								}
-								
 								return updated;
 							});
 						}
@@ -715,13 +679,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
 			.subscribe((status, err) => {
 				if (status === "SUBSCRIBED") {
 					channelRef.current = channel;
+					// subscriptionActiveRef is already set above, but ensure it's true
 					subscriptionActiveRef.current = true;
-					// Always log subscription status for debugging
-					console.log("✅ Real-time subscription SUBSCRIBED for scans and validations");
-					console.log("📡 Listening for INSERT/UPDATE/DELETE events on 'scans' table");
-					console.log("🔔 Notifications will appear automatically when new scans are added or status changes to 'Pending Validation'");
-					console.log("📋 Channel name:", channelName);
-					console.log("👤 User ID:", user?.id || "anonymous");
+					if (process.env.NODE_ENV === 'development') {
+						console.log("Real-time subscription SUBSCRIBED for scans and validations");
+					}
 				} else if (status === "CHANNEL_ERROR") {
 					// Improved error handling - extract error message from various possible formats
 					let errorMessage = "";
@@ -757,20 +719,24 @@ export function DataProvider({ children }: { children: ReactNode }) {
 						errorStr === "" ||
 						errorMessage === "";
 					
-					// Always log errors for debugging
+					// Log errors for debugging (only in development or for critical errors)
 					if (shouldLogError && !isConnectionError) {
-						console.error("❌ Error subscribing to real-time data changes:", errorMessage || "Connection issue");
-						if (err && typeof err === "object") {
-							console.error("Full error object:", err);
+						if (process.env.NODE_ENV === 'development') {
+							console.error("Error subscribing to real-time data changes:", errorMessage || "Connection issue");
+							if (err && typeof err === "object") {
+								console.error("Full error object:", err);
+							}
 						}
 					}
 					
 					// Check if error is related to Realtime not being enabled
 					if (errorStr.includes("realtime") || errorStr.includes("publication") || errorStr.includes("not enabled") || errorStr.includes("permission")) {
-						console.warn("⚠️ Realtime may not be enabled on your tables. Please enable Realtime on the 'scans' and 'validation_history' tables in your Supabase dashboard.");
-						console.warn("📝 Run this SQL in Supabase SQL Editor:");
-						console.warn("   ALTER PUBLICATION supabase_realtime ADD TABLE scans;");
-						console.warn("   ALTER PUBLICATION supabase_realtime ADD TABLE validation_history;");
+						if (process.env.NODE_ENV === 'development') {
+							console.warn("Realtime may not be enabled on your tables. Please enable Realtime on the 'scans' and 'validation_history' tables in your Supabase dashboard.");
+							console.warn("Run this SQL in Supabase SQL Editor:");
+							console.warn("   ALTER PUBLICATION supabase_realtime ADD TABLE scans;");
+							console.warn("   ALTER PUBLICATION supabase_realtime ADD TABLE validation_history;");
+						}
 					}
 					
 					// Only mark as inactive if it's a real error (not just a connection close)
@@ -785,12 +751,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
 				} else if (status === "TIMED_OUT" || status === "CLOSED") {
 					// Connection lost - Supabase will attempt to reconnect automatically
 					subscriptionActiveRef.current = false;
-					if (process.env.NODE_ENV === "development") {
-						console.log("Real-time connection closed, will auto-reconnect");
-					}
 					// Refresh data when connection is lost to ensure we have latest data
 					if (initialFetched.current && fetchDataRef.current) {
-						fetchDataRef.current();
+						fetchDataRef.current(false);
 					}
 				}
 			});
@@ -811,7 +774,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 			}
 		};
 	// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [isReady, user?.id, fetchData]); // Include fetchData to ensure it's available, but use ref to prevent re-subscriptions
+	}, [isReady, user?.id]); // Only depend on isReady and user.id - fetchData is accessed via ref to prevent loops
 
 	// Removed visibility change listener - real-time subscriptions handle updates automatically
 	// This was causing notifications to only appear when tab became visible
