@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, useRef, useCallback, ReactNode } from 'react';
 import { supabase } from './supabase';
-import { UserProfile, User, UserContextType, SupabaseApiError, isSupabaseApiError } from '../types';
+import { UserProfile, User, UserContextType, isSupabaseApiError } from '../types';
 
 const SUPPRESS_AUTH_TOAST_KEY = 'bs:suppress-auth-toast';
 const SUPABASE_STORAGE_KEY = 'sb-auth-token';
@@ -180,7 +180,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
             if (stored) {
               JSON.parse(stored);
             }
-          } catch (parseError) {
+          } catch {
             // Corrupted localStorage data - clear it
             console.warn('Corrupted localStorage data detected, clearing...');
             await clearAuthAndSignOut();

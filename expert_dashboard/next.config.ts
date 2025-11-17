@@ -11,17 +11,20 @@ const nextConfig: NextConfig = {
   // Improve performance
   compress: true,
   
-  // Optimize images if you add next/image later
+  // Optimize images with next/image
   images: {
-    domains: [],
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: '**',
+      },
+    ],
     formats: ['image/avif', 'image/webp'],
   },
   
   // Ensure proper routing on Vercel
   trailingSlash: false,
   
-  // Optimize output
-  swcMinify: true,
 };
 
 export default nextConfig;

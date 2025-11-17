@@ -13,6 +13,7 @@ import { supabase } from "@/components/supabase";
 import { Loader2, AlertCircle, Trash2, X } from "lucide-react";
 import { useUser } from "@/components/UserContext";
 import { useData } from "@/components/DataContext";
+import Image from "next/image";
 
 // Accurate date formatter - shows local time without timezone shifts
 const formatHistoryDate = (dateString: string): string => {
@@ -513,7 +514,7 @@ export default function HistoryPage() {
 												</Tr>
 											</Thead>
 											<Tbody>
-												{displayedRecords.map((record, idx) => {
+												{displayedRecords.map((record) => {
 													// Find the original index in filtered array for edit/delete operations
 													const originalIdx = filtered.findIndex(r => r.id === record.id);
 													return (
@@ -529,9 +530,11 @@ export default function HistoryPage() {
 													<Td className="whitespace-nowrap py-4 px-4">
 														<div className="flex items-center gap-2">
 															{record.scan?.farmer_profile?.profile_picture ? (
-																<img 
+																<Image 
 																	src={record.scan.farmer_profile.profile_picture} 
 																	alt="Profile" 
+																	width={32}
+																	height={32}
 																	className="w-8 h-8 rounded-full object-cover"
 																	onError={(e) => {
 																		e.currentTarget.style.display = 'none';
@@ -749,9 +752,11 @@ export default function HistoryPage() {
 												<div className="space-y-3 bg-white rounded-lg border border-gray-200 p-5">
 													<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">Scan Image</label>
 													<div className="mt-2 bg-gray-50 rounded-lg p-3 border border-gray-200">
-														<img 
+														<Image 
 															src={record.scan.image_url} 
 															alt="Scan preview" 
+															width={800}
+															height={400}
 															className="w-full max-h-[400px] object-contain rounded-lg"
 															onError={(e) => { 
 																e.currentTarget.style.display = 'none';

@@ -9,6 +9,7 @@ import toast from "react-hot-toast";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 import Link from "next/link";
+import Image from "next/image";
 
 export default function AccountDropdown() {
 	const [isOpen, setIsOpen] = useState(false);
@@ -94,9 +95,11 @@ export default function AccountDropdown() {
 				>
 					<div className="h-8 w-8 rounded-full bg-[var(--primary)] text-white flex items-center justify-center text-sm font-semibold">
 						{profile?.profile_picture ? (
-							<img
+							<Image
 								src={profile.profile_picture}
 								alt={displayName}
+								width={32}
+								height={32}
 								className="h-8 w-8 rounded-full object-cover"
 								onError={(e) => {
 									e.currentTarget.style.display = "none";

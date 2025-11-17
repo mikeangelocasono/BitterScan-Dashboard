@@ -2,7 +2,7 @@
 
 import { ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "./supabase";
-import { Scan, ValidationHistory, SupabaseApiError, isSupabaseApiError } from "../types";
+import { Scan, ValidationHistory, isSupabaseApiError } from "../types";
 import { useUser } from "./UserContext";
 
 type DataContextValue = {

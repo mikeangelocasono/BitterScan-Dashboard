@@ -7,7 +7,6 @@ import { useNotifications } from "./NotificationContext";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import toast from "react-hot-toast";
-import type { Scan } from "../types";
 
 export default function NotificationBell() {
 	const [isOpen, setIsOpen] = useState(false);

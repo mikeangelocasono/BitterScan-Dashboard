@@ -13,6 +13,7 @@ import { Loader2, AlertCircle, X, Eye } from "lucide-react";
 import { Scan, SupabaseApiError, isSupabaseApiError } from "@/types";
 import { useUser } from "@/components/UserContext";
 import { useData } from "@/components/DataContext";
+import Image from "next/image";
 
 // Format exact timestamp from database (UTC time as stored, no timezone conversion)
 // Displays date and time (hours:minutes AM/PM) matching the actual scan time from device
@@ -183,10 +184,12 @@ export default function ValidatePage() {
 			removeScanFromState(scanId);
 
 			setDecision(prev => {
+				// eslint-disable-next-line @typescript-eslint/no-unused-vars
 				const { [scanKey]: _, ...rest } = prev;
 				return rest;
 			});
 			setNotes(prev => {
+				// eslint-disable-next-line @typescript-eslint/no-unused-vars
 				const { [scanKey]: _, ...rest } = prev;
 				return rest;
 			});
@@ -502,9 +505,11 @@ export default function ValidatePage() {
 												<Td>
 													<div className="w-16 h-16 rounded-lg overflow-hidden border border-gray-200 bg-gray-50 flex-shrink-0">
 														{scan.image_url ? (
-															<img 
+															<Image 
 																src={scan.image_url} 
 																alt="Scan preview" 
+																width={64}
+																height={64}
 																className="w-full h-full object-cover"
 																onError={(e) => {
 																	e.currentTarget.style.display = 'none';
@@ -520,9 +525,11 @@ export default function ValidatePage() {
 												<Td>
 													<div className="flex items-center gap-2">
 														{scan.farmer_profile?.profile_picture ? (
-															<img 
+															<Image 
 																src={scan.farmer_profile.profile_picture} 
 																alt="Profile" 
+																width={32}
+																height={32}
 																className="w-8 h-8 rounded-full object-cover flex-shrink-0"
 																onError={(e) => {
 																	e.currentTarget.style.display = 'none';
@@ -577,7 +584,7 @@ export default function ValidatePage() {
 										<div className="p-8 text-center">
 											<AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
 											<p className="text-base font-medium text-gray-900 mb-2">Scan not found</p>
-											<p className="text-sm text-gray-500">The scan you're looking for may have been removed or doesn't exist.</p>
+											<p className="text-sm text-gray-500">The scan you&apos;re looking for may have been removed or doesn&apos;t exist.</p>
 											<Button 
 												variant="outline" 
 												onClick={() => setDetailId(null)}
@@ -619,9 +626,11 @@ export default function ValidatePage() {
 													<CardHeader className="pb-4 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-white">
 														<div className="flex items-center gap-4">
 															{selectedScan.farmer_profile?.profile_picture ? (
-																<img 
+																<Image 
 																	src={selectedScan.farmer_profile.profile_picture} 
 																	alt="Profile" 
+																	width={56}
+																	height={56}
 																	className="w-14 h-14 rounded-full object-cover border-2 border-gray-300 shadow-sm"
 																	onError={(e) => {
 																		e.currentTarget.style.display = 'none';
@@ -652,9 +661,11 @@ export default function ValidatePage() {
 															<label className="block text-sm font-medium text-gray-700">Scan Image</label>
 															<div className="aspect-video w-full bg-gradient-to-br from-gray-100 to-gray-200 rounded-xl overflow-hidden border border-gray-300 shadow-inner">
 																{selectedScan.image_url ? (
-																	<img 
+																	<Image 
 																		src={selectedScan.image_url} 
 																		alt="Scan preview" 
+																		width={800}
+																		height={450}
 																		className="w-full h-full object-contain"
 																		onError={(e) => {
 																			e.currentTarget.style.display = 'none';

@@ -3,36 +3,57 @@ import { createClient } from '@supabase/supabase-js'
 /**
  * Supabase client configuration using environment variables.
  * 
- * Required environment variables (defined in .env.local):
+ * Required environment variables:
  * - NEXT_PUBLIC_SUPABASE_URL: Your Supabase project URL
  * - NEXT_PUBLIC_SUPABASE_ANON_KEY: Your Supabase anonymous/public key
  * 
- * These should be set in .env.local file in the project root.
+ * For local development: Set in .env.local file
+ * For production (Vercel): Set in Vercel Dashboard → Settings → Environment Variables
  */
+// Get environment variables - these are available at build time in Vercel
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
+// Validate environment variables
+// In production (Vercel), these should be set in Environment Variables settings
+// During build, Vercel injects these values, so this check ensures they're present
 if (!supabaseUrl || !supabaseAnonKey) {
-	throw new Error(
-		'Missing Supabase environment variables. Please ensure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set in your .env.local file.'
+	// Only throw error in client-side to prevent SSR build failures
+	// This allows the build to complete, but the app will show errors at runtime if vars are missing
+	if (typeof window !== 'undefined') {
+		throw new Error(
+			'Missing Supabase environment variables. Please ensure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set in your environment variables (Vercel Dashboard → Settings → Environment Variables).'
+		)
+	}
+	// In SSR/build, log warning but don't throw to allow build to complete
+	// The client will handle the error when it hydrates
+	console.warn(
+		'[Supabase] Environment variables not found. Make sure to set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel environment variables.'
 	)
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-	auth: {
-		persistSession: true,
-		autoRefreshToken: true,
-		detectSessionInUrl: true,
-		storage: typeof window !== 'undefined' ? window.localStorage : undefined,
-		storageKey: 'sb-auth-token',
-		flowType: 'pkce',
-	},
-	global: {
-		headers: {
-			'x-client-info': 'bitter-scan-expert-dashboard',
+// Create Supabase client
+// If env vars are missing, createClient will still work but API calls will fail
+// This allows the app to build successfully and show proper errors at runtime
+export const supabase = createClient(
+	supabaseUrl || '',
+	supabaseAnonKey || '',
+	{
+		auth: {
+			persistSession: true,
+			autoRefreshToken: true,
+			detectSessionInUrl: true,
+			storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+			storageKey: 'sb-auth-token',
+			flowType: 'pkce',
 		},
-	},
-})
+		global: {
+			headers: {
+				'x-client-info': 'bitter-scan-expert-dashboard',
+			},
+		},
+	}
+)
 
 // Suppress refresh token errors in console (handled gracefully by UserContext)
 if (typeof window !== 'undefined') {

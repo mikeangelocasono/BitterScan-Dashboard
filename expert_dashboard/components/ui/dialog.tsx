@@ -41,8 +41,8 @@ export function DialogContent({ children, className }: { children?: ReactNode; c
 	return <div className={clsx("px-5 py-4", className)}>{children}</div>;
 }
 
-export function DialogFooter({ children }: { children?: ReactNode }) {
-	return <div className="px-5 py-4 flex justify-end gap-3 border-t border-[var(--color-border)]">{children}</div>;
+export function DialogFooter({ children, className }: { children?: ReactNode; className?: string }) {
+	return <div className={clsx("px-5 py-4 flex justify-end gap-3 border-t border-[var(--color-border)]", className)}>{children}</div>;
 }
 
 

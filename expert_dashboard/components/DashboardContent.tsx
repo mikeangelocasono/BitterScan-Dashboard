@@ -7,6 +7,7 @@ import { UsersRound, Camera, CheckCircle2, AlertCircle } from "lucide-react";
 import { Table, Thead, Tbody, Tr, Th, Td } from "./ui/table";
 import { useUser } from "./UserContext";
 import { useData } from "./DataContext";
+import Image from "next/image";
 
 const DASHBOARD_DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
 	year: "numeric",
@@ -147,9 +148,11 @@ export default function DashboardContent() {
 											<Td className="whitespace-nowrap">
 												<div className="flex items-center gap-2">
 													{scan.farmer_profile?.profile_picture ? (
-														<img 
+														<Image 
 															src={scan.farmer_profile.profile_picture} 
 															alt="Profile" 
+															width={32}
+															height={32}
 															className="w-8 h-8 rounded-full object-cover"
 															onError={(e) => {
 																e.currentTarget.style.display = 'none';

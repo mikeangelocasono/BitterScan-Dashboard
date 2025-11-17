@@ -59,7 +59,6 @@ const RIPENESS_COLORS: Record<string, string> = {
   "Unknown": "#6B7280", // Gray
 };
 
-const COLORS = ["#388E3C", "#3B82F6", "#F59E0B", "#EF4444", "#8B5CF6", "#10B981"];
 const RANGE_OPTIONS: { value: Range; label: string }[] = [
   { value: "daily", label: "Daily" },
   { value: "weekly", label: "Weekly" },
@@ -1174,9 +1173,9 @@ export default function ReportsPage() {
                             ))}
                           </Pie>
                           <Tooltip
-                            formatter={(value: number, name: string, props: any) => [
+                            formatter={(value: number, name: string) => [
                               `${value.toLocaleString("en-US")} cases`,
-                              props.payload.name
+                              name
                             ]}
                             contentStyle={{
                               backgroundColor: "#ffffff",
@@ -1281,9 +1280,9 @@ export default function ReportsPage() {
                             ))}
                           </Pie>
                           <Tooltip
-                            formatter={(value: number, name: string, props: any) => [
+                            formatter={(value: number, name: string) => [
                               `${value.toLocaleString("en-US")} items`,
-                              props.payload.name
+                              name
                             ]}
                             contentStyle={{
                               backgroundColor: "#ffffff",

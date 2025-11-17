@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Button } from "./ui/button";
 import { useSidebar } from "./SidebarContext";
 import { useUser } from "./UserContext";
+import Image from "next/image";
 
 const nav = [
 	{ href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -48,7 +49,7 @@ export default function ProSidebar() {
 								exit={{ opacity: 0, width: 0 }}
 								className="flex items-center gap-2 overflow-hidden flex-1"
 							>
-								<img src="/logo.png" alt="Logo" className="h-8 w-8 object-contain flex-shrink-0" />
+								<Image src="/logo.png" alt="Logo" width={32} height={32} className="h-8 w-8 object-contain flex-shrink-0" />
 								<span className="font-semibold whitespace-nowrap">BitterScan</span>
 							</motion.div>
 						) : (
