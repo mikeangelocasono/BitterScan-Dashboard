@@ -102,17 +102,56 @@ export default function LoginPage() {
     }
 
     try {
+      // Validate environment variables are available
+      if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+        const configError = 'Supabase client is not properly configured. Please check your environment variables.';
+        setError(configError);
+        toast.error(configError);
+        setLoading(false);
+        loginInProgress.current = false;
+        return;
+      }
+
+      // Attempt login with Supabase
       const { data, error: signInError } = await supabase.auth.signInWithPassword({
-        email,
+        email: email.trim().toLowerCase(),
         password,
       });
 
+      // Check for Supabase error response
       if (signInError) {
-        throw signInError;
+        // Extract error message from Supabase error object
+        let errorMessage = signInError.message || '';
+        
+        // Check for additional error details
+        if (signInError.status) {
+          // Handle specific HTTP status codes
+          if (signInError.status === 400) {
+            errorMessage = errorMessage || 'Invalid email or password.';
+          } else if (signInError.status === 429) {
+            errorMessage = 'Too many login attempts. Please try again later.';
+          } else if (signInError.status === 500) {
+            errorMessage = 'Server error. Please try again later.';
+          }
+        }
+        
+        // Map to user-friendly message
+        const userMessage = mapSupabaseAuthError(errorMessage || 'Invalid credentials');
+        setError(userMessage);
+        toast.error(userMessage);
+        setLoading(false);
+        loginInProgress.current = false;
+        return;
       }
 
-      if (!data.user) {
-        throw new Error("Login failed. Please try again.");
+      // Verify user data exists
+      if (!data || !data.user) {
+        const noUserError = "Login failed. No user data returned.";
+        setError(noUserError);
+        toast.error(noUserError);
+        setLoading(false);
+        loginInProgress.current = false;
+        return;
       }
 
       // Success - show toast
@@ -142,11 +181,46 @@ export default function LoginPage() {
         clearTimeout(timeoutRef.current);
         timeoutRef.current = null;
       }
-      const message = mapSupabaseAuthError((err as Error)?.message) ?? "Incorrect email or password. Please try again.";
-      setError(message);
-      toast.error(message);
+      
+      // Properly extract error message from various error types
+      let errorMessage: string = '';
+      
+      if (err instanceof Error) {
+        errorMessage = err.message;
+      } else if (err && typeof err === 'object' && 'message' in err) {
+        errorMessage = String((err as { message?: unknown }).message || '');
+      } else if (typeof err === 'string') {
+        errorMessage = err;
+      } else {
+        errorMessage = String(err);
+      }
+      
+      // Check for network errors
+      if (errorMessage.toLowerCase().includes('failed to fetch') || 
+          errorMessage.toLowerCase().includes('networkerror') ||
+          errorMessage.toLowerCase().includes('network')) {
+        const networkError = 'Network error. Please check your internet connection and try again.';
+        setError(networkError);
+        toast.error(networkError);
+        setLoading(false);
+        loginInProgress.current = false;
+        return;
+      }
+      
+      // Map Supabase error to user-friendly message
+      const userMessage = errorMessage 
+        ? mapSupabaseAuthError(errorMessage)
+        : "Incorrect email or password. Please try again.";
+      
+      setError(userMessage);
+      toast.error(userMessage);
       setLoading(false);
       loginInProgress.current = false;
+      
+      // Log error for debugging (only in development)
+      if (process.env.NODE_ENV === 'development') {
+        console.error('[Login] Error details:', err);
+      }
     }
   };
 
@@ -218,7 +292,7 @@ export default function LoginPage() {
                     value={password} 
                     onChange={(e) => setPassword(e.target.value)} 
                     required 
-                    autoComplete="new-password"
+                    autoComplete="current-password"
                     className="w-full pl-10 pr-12 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-transparent transition-all duration-200 bg-gray-50 focus:bg-white text-gray-900" 
                     placeholder="Enter your password"
                   />

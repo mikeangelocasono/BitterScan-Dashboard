@@ -37,15 +37,33 @@ class ErrorBoundary extends Component<Props, State> {
         return this.props.fallback;
       }
 
+      // Check if error is related to missing environment variables
+      const isEnvVarError = this.state.error?.message?.includes('environment variable') || 
+                           this.state.error?.message?.includes('NEXT_PUBLIC_SUPABASE');
+      const isDevelopment = process.env.NODE_ENV === 'development';
+
       return (
         <div className="min-h-screen flex items-center justify-center bg-gray-50">
           <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-8 text-center">
             <AlertCircle className="h-16 w-16 text-red-500 mx-auto mb-4" />
             <h1 className="text-2xl font-semibold text-gray-900 mb-2">
-              Something went wrong
+              {isEnvVarError ? 'Configuration Required' : 'Something went wrong'}
             </h1>
             <p className="text-gray-600 mb-6">
-              We&apos;re sorry, but something unexpected happened. Please try refreshing the page.
+              {isEnvVarError && isDevelopment ? (
+                <>
+                  Missing Supabase environment variables. Please create a <code className="bg-gray-100 px-2 py-1 rounded text-sm">.env.local</code> file in the <code className="bg-gray-100 px-2 py-1 rounded text-sm">expert_dashboard</code> directory with:
+                  <div className="mt-4 text-left bg-gray-50 p-4 rounded text-sm font-mono">
+                    <div>NEXT_PUBLIC_SUPABASE_URL=your-url</div>
+                    <div>NEXT_PUBLIC_SUPABASE_ANON_KEY=your-key</div>
+                  </div>
+                  <div className="mt-4 text-sm text-gray-500">
+                    Get these values from your Supabase project: Settings → API
+                  </div>
+                </>
+              ) : (
+                'We&apos;re sorry, but something unexpected happened. Please try refreshing the page.'
+              )}
             </p>
             <div className="space-y-3">
               <Button 

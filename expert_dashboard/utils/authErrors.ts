@@ -77,41 +77,88 @@ export const AUTH_ERRORS = {
  * Maps Supabase authentication errors to user-friendly messages
  */
 export function mapSupabaseAuthError(errorMessage?: string): string {
-  if (!errorMessage) return AUTH_ERRORS.UNKNOWN_ERROR.userFriendlyMessage;
+  if (!errorMessage || errorMessage.trim() === '') {
+    return AUTH_ERRORS.UNKNOWN_ERROR.userFriendlyMessage;
+  }
   
   const message = errorMessage.toLowerCase();
   
-  // Credential errors
-  if (message.includes('invalid login credentials') || message.includes('invalid credentials')) {
+  // Credential errors - check multiple variations
+  if (
+    message.includes('invalid login credentials') || 
+    message.includes('invalid credentials') ||
+    message.includes('invalid email or password') ||
+    message.includes('email or password is incorrect') ||
+    message.includes('wrong password') ||
+    message.includes('user not found') ||
+    message.includes('no user found')
+  ) {
     return AUTH_ERRORS.INVALID_CREDENTIALS.userFriendlyMessage;
   }
   
   // Email confirmation
-  if (message.includes('email not confirmed') || message.includes('confirmation')) {
+  if (
+    message.includes('email not confirmed') || 
+    message.includes('confirmation') ||
+    message.includes('email address not confirmed')
+  ) {
     return AUTH_ERRORS.EMAIL_NOT_CONFIRMED.userFriendlyMessage;
   }
   
   // Rate limiting
-  if (message.includes('too many requests') || message.includes('rate limit')) {
+  if (
+    message.includes('too many requests') || 
+    message.includes('rate limit') ||
+    message.includes('too many attempts')
+  ) {
     return AUTH_ERRORS.TOO_MANY_REQUESTS.userFriendlyMessage;
   }
   
   // Registration errors
-  if (message.includes('already registered') || message.includes('user already exists')) {
+  if (
+    message.includes('already registered') || 
+    message.includes('user already exists') ||
+    message.includes('email already registered')
+  ) {
     return AUTH_ERRORS.EMAIL_ALREADY_EXISTS.userFriendlyMessage;
   }
   
   // Password strength
-  if (message.includes('password should be at least') || message.includes('weak password')) {
+  if (
+    message.includes('password should be at least') || 
+    message.includes('weak password') ||
+    message.includes('password does not meet')
+  ) {
     return AUTH_ERRORS.WEAK_PASSWORD.userFriendlyMessage;
   }
   
   // Network errors
-  if (message.includes('network') || message.includes('connection') || message.includes('timeout')) {
+  if (
+    message.includes('network') || 
+    message.includes('connection') || 
+    message.includes('timeout') ||
+    message.includes('failed to fetch') ||
+    message.includes('networkerror')
+  ) {
     return AUTH_ERRORS.NETWORK_ERROR.userFriendlyMessage;
   }
   
-  // Default fallback
+  // Supabase configuration errors
+  if (
+    message.includes('supabase client') ||
+    message.includes('environment variables') ||
+    message.includes('not properly configured')
+  ) {
+    return 'Configuration error. Please check your environment variables.';
+  }
+  
+  // Default fallback - return the original message if it's meaningful, otherwise use generic
+  // This helps with debugging while still providing user-friendly messages
+  if (message.length < 50 && !message.includes('error') && !message.includes('exception')) {
+    // If it's a short, meaningful message, return it (capitalize first letter)
+    return errorMessage.charAt(0).toUpperCase() + errorMessage.slice(1);
+  }
+  
   return AUTH_ERRORS.UNKNOWN_ERROR.userFriendlyMessage;
 }
 

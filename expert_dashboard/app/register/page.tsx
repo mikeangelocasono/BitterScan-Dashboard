@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "@/components/supabase";
 import toast from "react-hot-toast";
 import { User, Mail, Lock, UserCheck, Eye, EyeOff } from "lucide-react";
@@ -17,6 +17,12 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  // Ensure component is mounted on client to avoid hydration issues
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Real-time password validation
   const passwordValidation = validatePasswordStrength(password);
@@ -64,13 +70,28 @@ export default function RegisterPage() {
       return;
     }
 
+    // Validate environment variables are available
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+      const configError = 'Supabase client is not properly configured. Please check your environment variables.';
+      setError(configError);
+      toast.error(configError);
+      setLoading(false);
+      return;
+    }
+
     // Proactive uniqueness checks for better UX
     try {
-      const { data: userNameExists } = await supabase
+      const { data: userNameExists, error: usernameCheckError } = await supabase
         .from('profiles')
         .select('id')
-        .eq('username', username)
+        .eq('username', username.trim())
         .maybeSingle();
+      
+      if (usernameCheckError && usernameCheckError.code !== 'PGRST116') {
+        // PGRST116 is "not found" which is fine, other errors should be logged
+        console.warn('Error checking username:', usernameCheckError);
+      }
+      
       if (userNameExists) {
         const msg = "Username already exists";
         toast.error(msg);
@@ -78,11 +99,17 @@ export default function RegisterPage() {
         setLoading(false);
         return;
       }
-      const { data: emailExists } = await supabase
+      
+      const { data: emailExists, error: emailCheckError } = await supabase
         .from('profiles')
         .select('id')
-        .eq('email', email)
+        .eq('email', email.trim().toLowerCase())
         .maybeSingle();
+      
+      if (emailCheckError && emailCheckError.code !== 'PGRST116') {
+        console.warn('Error checking email:', emailCheckError);
+      }
+      
       if (emailExists) {
         const msg = "Email already exists";
         toast.error(msg);
@@ -90,57 +117,140 @@ export default function RegisterPage() {
         setLoading(false);
         return;
       }
-    } catch {
+    } catch (err) {
       // Continue to auth flow; server constraints will still enforce uniqueness
+      console.warn('Error during uniqueness check:', err);
     }
 
     try {
       // Create user with Supabase Auth
       const { data: authData, error: authError } = await supabase.auth.signUp({
-        email,
+        email: email.trim().toLowerCase(),
         password,
         options: {
           data: {
-            full_name: fullName,
-            username: username,
+            full_name: fullName.trim(),
+            username: username.trim(),
             role: 'expert'
           }
         }
       });
 
+      // Check for authentication errors
       if (authError) {
-        throw authError;
-      }
-
-      if (authData.user) {
-        // Upsert exact values to profiles to ensure correctness
-        const { error: profileUpsertError } = await supabase
-          .from('profiles')
-          .upsert({
-            id: authData.user.id,
-            username: username,
-            full_name: fullName,
-            email: email,
-            role: 'expert',
-          }, { onConflict: 'id' });
-
-        if (profileUpsertError) {
-          throw profileUpsertError;
+        let errorMessage = authError.message || '';
+        
+        // Handle specific error cases
+        if (authError.status === 400) {
+          if (errorMessage.toLowerCase().includes('already registered') || 
+              errorMessage.toLowerCase().includes('user already exists')) {
+            errorMessage = 'An account with this email already exists. Please try signing in instead.';
+          } else if (errorMessage.toLowerCase().includes('password')) {
+            errorMessage = 'Password does not meet requirements.';
+          }
+        } else if (authError.status === 429) {
+          errorMessage = 'Too many registration attempts. Please try again later.';
+        } else if (authError.status === 500) {
+          errorMessage = 'Server error. Please try again later.';
         }
-
-        toast.success("Your account has been successfully created. You can now log in.");
-        router.push("/login");
+        
+        const userMessage = mapSupabaseAuthError(errorMessage || 'Registration failed');
+        setError(userMessage);
+        toast.error(userMessage);
+        setLoading(false);
+        return;
       }
+
+      // Verify user was created
+      if (!authData || !authData.user) {
+        const noUserError = "Registration failed. No user data returned.";
+        setError(noUserError);
+        toast.error(noUserError);
+        setLoading(false);
+        return;
+      }
+
+      // Create or update profile
+      const { error: profileUpsertError } = await supabase
+        .from('profiles')
+        .upsert({
+          id: authData.user.id,
+          username: username.trim(),
+          full_name: fullName.trim(),
+          email: email.trim().toLowerCase(),
+          role: 'expert',
+        }, { 
+          onConflict: 'id',
+          ignoreDuplicates: false 
+        });
+
+      if (profileUpsertError) {
+        // Map database errors
+        const dbErrorMessage = mapSupabaseDbError(profileUpsertError.message) || 
+                               mapSupabaseAuthError(profileUpsertError.message) ||
+                               'Failed to create profile. Please try again.';
+        setError(dbErrorMessage);
+        toast.error(dbErrorMessage);
+        setLoading(false);
+        return;
+      }
+
+      // Success
+      toast.success("Your account has been successfully created. You can now log in.");
+      router.push("/login");
+      
     } catch (err: unknown) {
+      // Handle unexpected errors
+      let errorMessage = '';
+      
+      if (err instanceof Error) {
+        errorMessage = err.message;
+      } else if (err && typeof err === 'object' && 'message' in err) {
+        errorMessage = String((err as { message?: unknown }).message || '');
+      } else if (typeof err === 'string') {
+        errorMessage = err;
+      } else {
+        errorMessage = String(err);
+      }
+      
+      // Check for network errors
+      if (errorMessage.toLowerCase().includes('failed to fetch') || 
+          errorMessage.toLowerCase().includes('networkerror') ||
+          errorMessage.toLowerCase().includes('network')) {
+        const networkError = 'Network error. Please check your internet connection and try again.';
+        setError(networkError);
+        toast.error(networkError);
+        setLoading(false);
+        return;
+      }
+      
       // Try to map database errors first, then auth errors
-      const message = mapSupabaseDbError((err as Error)?.message) || mapSupabaseAuthError((err as Error)?.message) || "Registration failed. Please check your details";
+      const message = mapSupabaseDbError(errorMessage) || 
+                     mapSupabaseAuthError(errorMessage) || 
+                     "Registration failed. Please check your details and try again.";
       setError(message);
       toast.error(message);
+      
+      // Log error for debugging (only in development)
+      if (process.env.NODE_ENV === 'development') {
+        console.error('[Register] Error details:', err);
+      }
     } finally {
       setLoading(false);
     }
   };
 
+  // Prevent hydration mismatch by not rendering form until mounted
+  if (!mounted) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="h-10 w-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-gray-600 text-sm">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-white flex">
@@ -180,6 +290,8 @@ export default function RegisterPage() {
                     value={fullName} 
                     onChange={(e) => setFullName(e.target.value)} 
                     required 
+                    autoComplete="name"
+                    suppressHydrationWarning
                     className="w-full pl-10 pr-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-transparent transition-all duration-200 bg-gray-50 focus:bg-white text-gray-900" 
                     placeholder="Enter your full name"
                   />
@@ -196,6 +308,8 @@ export default function RegisterPage() {
                     value={username} 
                     onChange={(e) => setUsername(e.target.value)} 
                     required 
+                    autoComplete="username"
+                    suppressHydrationWarning
                     className="w-full pl-10 pr-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-transparent transition-all duration-200 bg-gray-50 focus:bg-white text-gray-900" 
                     placeholder="Choose a username"
                   />
@@ -212,6 +326,8 @@ export default function RegisterPage() {
                     value={email} 
                     onChange={(e) => setEmail(e.target.value)} 
                     required 
+                    autoComplete="email"
+                    suppressHydrationWarning
                     className="w-full pl-10 pr-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-transparent transition-all duration-200 bg-gray-50 focus:bg-white text-gray-900" 
                     placeholder="Enter your email"
                   />
@@ -228,6 +344,8 @@ export default function RegisterPage() {
                     value={password} 
                     onChange={(e) => setPassword(e.target.value)} 
                     required 
+                    autoComplete="new-password"
+                    suppressHydrationWarning
                     className="w-full pl-10 pr-12 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-transparent transition-all duration-200 bg-gray-50 focus:bg-white text-gray-900" 
                     placeholder="Enter your password"
                   />

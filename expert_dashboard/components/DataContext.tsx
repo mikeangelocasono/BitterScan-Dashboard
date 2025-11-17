@@ -1,7 +1,7 @@
 "use client";
 
 import { ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { supabase } from "./supabase";
+import { supabase, validateSupabaseClient } from "./supabase";
 import { Scan, ValidationHistory, isSupabaseApiError } from "../types";
 import { useUser } from "./UserContext";
 
@@ -42,12 +42,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
 		async (showSpinner = false) => {
 			if (!isReady || isFetchingRef.current) return;
 
-			// Validate Supabase client is properly initialized
-			const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-			const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-			
-			if (!supabaseUrl || !supabaseAnonKey) {
-				const errorMsg = 'Supabase environment variables are missing. Please check your Vercel environment variables.';
+			// Validate Supabase client is properly initialized before making API calls
+			try {
+				validateSupabaseClient();
+			} catch (err) {
+				const errorMsg = err instanceof Error ? err.message : 'Supabase client is not properly configured. Please check your Vercel environment variables.';
 				setError(errorMsg);
 				setLoading(false);
 				isFetchingRef.current = false;
@@ -282,12 +281,26 @@ export function DataProvider({ children }: { children: ReactNode }) {
 			return () => clearTimeout(timeoutId);
 		}
 
+		// Validate Supabase client before proceeding
+		try {
+			validateSupabaseClient();
+		} catch (err) {
+			const errorMsg = err instanceof Error ? err.message : 'Supabase client is not properly configured.';
+			setError(errorMsg);
+			setLoading(false);
+			console.error('[DataContext]', errorMsg);
+			return;
+		}
+
 		// Prevent multiple subscriptions
 		if (subscriptionActiveRef.current) return;
 
 		// Wait for auth/user to be ready before first fetch to avoid empty flashes
 		if (!initialFetched.current) {
-			fetchData(true);
+			// Use fetchDataRef to avoid dependency issues
+			if (fetchDataRef.current) {
+				fetchDataRef.current(true);
+			}
 		}
 
 		// Set up real-time subscriptions with direct state updates
@@ -317,7 +330,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
 					// This ensures real-time updates work instantly
 					
 					const newScan = payload.new as Partial<Scan>;
-					if (!newScan.id) return;
+					if (!newScan.id) {
+						if (process.env.NODE_ENV === "development") {
+							console.warn("⚠️ INSERT event received but scan ID is missing");
+						}
+						return;
+					}
 
 					// Log immediately when we receive the event
 					if (process.env.NODE_ENV === "development") {
@@ -332,62 +350,113 @@ export function DataProvider({ children }: { children: ReactNode }) {
 						return;
 					}
 
-					// Fetch the full scan with profile data
-					const fullScan = await fetchScanWithProfile(newScan.id);
-					if (fullScan && fullScan.status === "Pending Validation") {
-						setScans((prev) => {
-							// Check if scan already exists (prevent duplicates)
-							const exists = prev.some((s) => s.id === fullScan.id);
-							if (exists) {
-								if (process.env.NODE_ENV === "development") {
-									console.log("⚠️ Scan already exists, skipping:", fullScan.id);
+					try {
+						// Fetch the full scan with profile data
+						const fullScan = await fetchScanWithProfile(newScan.id);
+						if (fullScan && fullScan.status === "Pending Validation") {
+							setScans((prev) => {
+								// Check if scan already exists (prevent duplicates)
+								const exists = prev.some((s) => s.id === fullScan.id);
+								if (exists) {
+									if (process.env.NODE_ENV === "development") {
+										console.log("⚠️ Scan already exists, skipping:", fullScan.id);
+									}
+									return prev; // Return same reference to prevent re-render
 								}
-								return prev; // Return same reference to prevent re-render
-							}
-							// Add new scan at the beginning (newest first)
-							const updated = [fullScan, ...prev];
-							
-							// Log for debugging (only in development)
+								// Add new scan at the beginning (newest first)
+								const updated = [fullScan, ...prev];
+								
+								// Log for debugging (only in development)
+								if (process.env.NODE_ENV === "development") {
+									console.log("✅ New pending scan added via real-time:", fullScan.id, "Farmer:", fullScan.farmer_profile?.full_name || "Unknown", "Total scans:", updated.length);
+								}
+								
+								return updated;
+							});
+						} else if (fullScan && fullScan.status !== "Pending Validation") {
 							if (process.env.NODE_ENV === "development") {
-								console.log("✅ New pending scan added via real-time:", fullScan.id, "Farmer:", fullScan.farmer_profile?.full_name || "Unknown", "Total scans:", updated.length);
+								console.log("⏭️ Scan status changed before fetch completed:", newScan.id, "Status:", fullScan.status);
 							}
-							
-							return updated;
-						});
+						}
+					} catch (error) {
+						console.error("Error fetching scan after INSERT event:", error);
+						// Fallback: refresh all data if fetch fails
+						if (fetchDataRef.current) {
+							fetchDataRef.current(false);
+						}
 					}
 				}
 			)
 			.on(
 				"postgres_changes",
-				{ event: "UPDATE", schema: "public", table: "scans" },
+				{ 
+					event: "UPDATE", 
+					schema: "public", 
+					table: "scans"
+				},
 				async (payload) => {
-					if (!initialFetched.current) return;
-
+					// Process updates even if initial fetch hasn't completed
+					// This ensures real-time updates work immediately
+					
 					const updatedScan = payload.new as Partial<Scan>;
+					const oldScan = payload.old as Partial<Scan>;
 					if (!updatedScan.id) return;
 
-					// Fetch the full scan with profile data
-					const fullScan = await fetchScanWithProfile(updatedScan.id);
-					if (fullScan) {
-						setScans((prev) => {
-							const index = prev.findIndex((s) => s.id === fullScan.id);
-							if (index === -1) {
-								// Scan doesn't exist, add it at the beginning (newest first)
-								// Only add if status is "Pending Validation" (for notifications)
-								if (fullScan.status === "Pending Validation") {
-									return [fullScan, ...prev];
+					// Check if status changed TO "Pending Validation" (triggers notification)
+					const statusChangedToPending = 
+						updatedScan.status === "Pending Validation" && 
+						oldScan?.status !== "Pending Validation";
+
+					// Log immediately when we receive the event
+					if (process.env.NODE_ENV === "development") {
+						console.log("🔔 Real-time UPDATE event received for scan:", updatedScan.id, 
+							"Old status:", oldScan?.status, 
+							"New status:", updatedScan.status, 
+							"Changed to pending:", statusChangedToPending);
+					}
+
+					try {
+						// Fetch the full scan with profile data
+						const fullScan = await fetchScanWithProfile(updatedScan.id);
+						if (fullScan) {
+							setScans((prev) => {
+								const index = prev.findIndex((s) => s.id === fullScan.id);
+								
+								if (index === -1) {
+									// Scan doesn't exist in state yet
+									// Only add if status is "Pending Validation" (for notifications)
+									if (fullScan.status === "Pending Validation") {
+										if (process.env.NODE_ENV === "development") {
+											console.log("✅ Adding new pending scan via UPDATE event:", fullScan.id, "Farmer:", fullScan.farmer_profile?.full_name || "Unknown");
+										}
+										return [fullScan, ...prev];
+									}
+									return prev; // Don't add non-pending scans
 								}
-								return prev; // Don't add non-pending scans
-							}
-							// Update existing scan in place (maintains order, no need to re-sort)
-							const updated = [...prev];
-							updated[index] = fullScan;
-							return updated;
-						});
-						
-						// Log for debugging (only in development)
-						if (process.env.NODE_ENV === "development") {
-							console.log("✅ Scan updated via real-time:", fullScan.id, fullScan.status);
+								
+								// Update existing scan in place
+								const updated = [...prev];
+								const previousStatus = updated[index]?.status;
+								updated[index] = fullScan;
+								
+								// Log status changes for debugging, especially when changing TO "Pending Validation"
+								if (process.env.NODE_ENV === "development") {
+									if (previousStatus !== fullScan.status) {
+										console.log("✅ Scan status changed:", fullScan.id, previousStatus, "→", fullScan.status);
+										if (statusChangedToPending) {
+											console.log("🔔 Notification triggered: Scan status changed to 'Pending Validation'");
+										}
+									}
+								}
+								
+								return updated;
+							});
+						}
+					} catch (error) {
+						console.error("Error fetching scan after UPDATE event:", error);
+						// Fallback: refresh all data if fetch fails
+						if (fetchDataRef.current) {
+							fetchDataRef.current(false);
 						}
 					}
 				}
@@ -524,7 +593,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
 					if (process.env.NODE_ENV === "development") {
 						console.log("✅ Real-time subscription SUBSCRIBED for scans and validations");
 						console.log("📡 Listening for INSERT/UPDATE/DELETE events on 'scans' table");
-						console.log("🔔 Notifications will appear automatically when new scans are added");
+						console.log("🔔 Notifications will appear automatically when new scans are added or status changes to 'Pending Validation'");
+						console.log("📋 Channel name:", channelName);
 					}
 				} else if (status === "CHANNEL_ERROR") {
 					// Improved error handling - extract error message from various possible formats
@@ -614,7 +684,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 			}
 		};
 	// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [isReady, user?.id]); // Empty deps for fetchData, fetchScanWithProfile, fetchValidationWithRelations - accessed via refs to prevent re-subscriptions
+	}, [isReady, user?.id, fetchData]); // Include fetchData to ensure it's available, but use ref to prevent re-subscriptions
 
 	// Removed visibility change listener - real-time subscriptions handle updates automatically
 	// This was causing notifications to only appear when tab became visible

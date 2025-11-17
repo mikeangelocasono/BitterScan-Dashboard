@@ -25,6 +25,26 @@ const nextConfig: NextConfig = {
   // Ensure proper routing on Vercel
   trailingSlash: false,
   
+  // Webpack configuration to fix chunk loading issues in production builds
+  webpack: (config, { isServer, dev }) => {
+    // Only apply in production builds (not in dev mode with Turbopack)
+    if (!isServer && !dev) {
+      config.optimization = {
+        ...config.optimization,
+        moduleIds: 'deterministic',
+        chunkIds: 'deterministic',
+      };
+    }
+    
+    return config;
+  },
+  
+  // Experimental features for Next.js 15
+  experimental: {
+    // Ensure proper module resolution
+    optimizePackageImports: ['lucide-react', 'framer-motion', 'recharts'],
+  },
+  
 };
 
 export default nextConfig;

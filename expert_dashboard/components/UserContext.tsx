@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, useRef, useCallback, ReactNode } from 'react';
-import { supabase } from './supabase';
+import { supabase, validateSupabaseClient } from './supabase';
 import { UserProfile, User, UserContextType, isSupabaseApiError } from '../types';
 
 const SUPPRESS_AUTH_TOAST_KEY = 'bs:suppress-auth-toast';
@@ -173,12 +173,11 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
     const getInitialSession = async () => {
       try {
-        // Validate Supabase environment variables before attempting session
-        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-        const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-        
-        if (!supabaseUrl || !supabaseAnonKey) {
-          console.error('[UserContext] Supabase environment variables missing');
+        // Validate Supabase client before attempting session
+        try {
+          validateSupabaseClient();
+        } catch (err) {
+          console.error('[UserContext] Supabase client validation failed:', err instanceof Error ? err.message : String(err));
           if (isMountedRef.current) {
             setLoading(false);
             initialResolved.current = true;
@@ -205,10 +204,26 @@ export function UserProvider({ children }: { children: ReactNode }) {
           }
         }
 
-        const {
-          data: { session },
-          error: sessionError,
-        } = await supabase.auth.getSession();
+        // Only attempt to get session if credentials are valid
+        // This prevents "Failed to fetch" errors when env vars are missing
+        let session = null;
+        let sessionError = null;
+        
+        try {
+          const result = await supabase.auth.getSession();
+          session = result.data?.session || null;
+          sessionError = result.error || null;
+        } catch (err) {
+          // Catch network errors when credentials are invalid
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          if (errorMessage.includes('Failed to fetch') || errorMessage.includes('fetch') || errorMessage.includes('NetworkError')) {
+            // Expected error when credentials are invalid - don't treat as fatal
+            sessionError = null; // Clear error to allow graceful handling
+            session = null;
+          } else {
+            throw err; // Re-throw unexpected errors
+          }
+        }
         
         // Handle refresh token errors
         if (sessionError && isRefreshTokenError(sessionError)) {
