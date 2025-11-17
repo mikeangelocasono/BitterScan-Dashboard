@@ -11,33 +11,31 @@ import { createClient } from '@supabase/supabase-js'
  * For production (Vercel): Set in Vercel Dashboard → Settings → Environment Variables
  */
 // Get environment variables - these are available at build time in Vercel
+// In production, Vercel injects these at build/runtime
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-// Validate environment variables
-// In production (Vercel), these should be set in Environment Variables settings
-// During build, Vercel injects these values, so this check ensures they're present
+// Validate environment variables - critical for production
+// In Vercel, these MUST be set in Environment Variables settings
 if (!supabaseUrl || !supabaseAnonKey) {
-	// Only throw error in client-side to prevent SSR build failures
-	// This allows the build to complete, but the app will show errors at runtime if vars are missing
+	const errorMessage = 'Missing Supabase environment variables. Please ensure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set in your environment variables (Vercel Dashboard → Settings → Environment Variables).';
+	
+	// In client-side, throw error immediately to prevent silent failures
 	if (typeof window !== 'undefined') {
-		throw new Error(
-			'Missing Supabase environment variables. Please ensure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set in your environment variables (Vercel Dashboard → Settings → Environment Variables).'
-		)
+		console.error('[Supabase]', errorMessage);
+		throw new Error(errorMessage);
 	}
-	// In SSR/build, log warning but don't throw to allow build to complete
-	// The client will handle the error when it hydrates
-	console.warn(
-		'[Supabase] Environment variables not found. Make sure to set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel environment variables.'
-	)
+	
+	// In SSR/build, log error but allow build to complete
+	// The client will throw when it hydrates
+	console.error('[Supabase]', errorMessage);
 }
 
-// Create Supabase client
-// If env vars are missing, createClient will still work but API calls will fail
-// This allows the app to build successfully and show proper errors at runtime
+// Create Supabase client with validated environment variables
+// This will throw in client-side if env vars are missing (preventing silent failures)
 export const supabase = createClient(
-	supabaseUrl || '',
-	supabaseAnonKey || '',
+	supabaseUrl || 'https://invalid.supabase.co',
+	supabaseAnonKey || 'invalid-key',
 	{
 		auth: {
 			persistSession: true,
@@ -54,6 +52,14 @@ export const supabase = createClient(
 		},
 	}
 )
+
+// Validate client initialization in client-side
+if (typeof window !== 'undefined') {
+	// Test if Supabase client is properly initialized
+	if (!supabaseUrl || !supabaseAnonKey) {
+		console.error('[Supabase] Client initialized with invalid credentials. All API calls will fail.');
+	}
+}
 
 // Suppress refresh token errors in console (handled gracefully by UserContext)
 if (typeof window !== 'undefined') {

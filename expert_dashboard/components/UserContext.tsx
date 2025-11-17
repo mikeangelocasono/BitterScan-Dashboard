@@ -173,6 +173,19 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
     const getInitialSession = async () => {
       try {
+        // Validate Supabase environment variables before attempting session
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+        const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+        
+        if (!supabaseUrl || !supabaseAnonKey) {
+          console.error('[UserContext] Supabase environment variables missing');
+          if (isMountedRef.current) {
+            setLoading(false);
+            initialResolved.current = true;
+          }
+          return;
+        }
+
         // Check for corrupted localStorage data before attempting to get session
         if (typeof window !== 'undefined') {
           try {

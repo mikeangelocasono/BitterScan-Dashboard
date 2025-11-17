@@ -29,12 +29,31 @@ export function DataProvider({ children }: { children: ReactNode }) {
 	const fetchDataRef = useRef<typeof fetchData | null>(null);
 	const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 	const subscriptionActiveRef = useRef(false);
+	const userRef = useRef(user);
 
 	const isReady = useMemo(() => Boolean(user?.id), [user?.id]);
+	
+	// Keep user ref updated for timeout checks
+	useEffect(() => {
+		userRef.current = user;
+	}, [user]);
 
 	const fetchData = useCallback(
 		async (showSpinner = false) => {
 			if (!isReady || isFetchingRef.current) return;
+
+			// Validate Supabase client is properly initialized
+			const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+			const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+			
+			if (!supabaseUrl || !supabaseAnonKey) {
+				const errorMsg = 'Supabase environment variables are missing. Please check your Vercel environment variables.';
+				setError(errorMsg);
+				setLoading(false);
+				isFetchingRef.current = false;
+				console.error('[DataContext]', errorMsg);
+				return;
+			}
 
 			isFetchingRef.current = true;
 
@@ -143,13 +162,22 @@ export function DataProvider({ children }: { children: ReactNode }) {
 						console.warn('Invalid refresh token detected in data fetch, user will be signed out...');
 						// The UserContext will handle the sign-out via auth state change
 						setError("Session expired. Please log in again.");
+						isFetchingRef.current = false;
+						setLoading(false);
 						return;
 					}
 				}
 				
-				const message = err instanceof Error ? err.message : "Unknown error";
+				// Check for Supabase client initialization errors
+				const errorMessage = err instanceof Error ? err.message : String(err);
+				if (errorMessage.includes('Missing Supabase') || errorMessage.includes('environment variables')) {
+					setError("Supabase configuration error. Please check environment variables.");
+				} else if (errorMessage.includes('fetch') || errorMessage.includes('network')) {
+					setError("Network error. Please check your connection and try again.");
+				} else {
+					setError(`Failed to load data: ${errorMessage}`);
+				}
 				console.error("Error fetching dashboard data:", err);
-				setError(`Failed to load data: ${message}`);
 			} finally {
 				isFetchingRef.current = false;
 				setLoading(false);
@@ -241,7 +269,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
 			if (initialFetched.current) {
 				initialFetched.current = false;
 			}
-			return;
+			// Set loading to false if user is not ready after a timeout
+			// This prevents infinite loading if user context never resolves
+			const timeoutId = setTimeout(() => {
+				// Check current state using ref to avoid stale closure
+				if (!userRef.current?.id && !initialFetched.current) {
+					setLoading(false);
+					setError('Unable to load user session. Please refresh the page or check your connection.');
+				}
+			}, 10000); // 10 second timeout
+			
+			return () => clearTimeout(timeoutId);
 		}
 
 		// Prevent multiple subscriptions

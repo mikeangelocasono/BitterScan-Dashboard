@@ -19,21 +19,43 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [mounted, setMounted] = useState(false);
   const roleMismatchHandled = useRef(false);
+  const loginInProgress = useRef(false);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Ensure component is mounted on client to avoid hydration issues
   useEffect(() => {
     setMounted(true);
+    
+    // Cleanup timeout on unmount
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
   }, []);
 
+  // Handle redirect after successful login - wait for user context to update
   useEffect(() => {
-    if (userLoading) return;
+    // Don't redirect while user context is loading or login is in progress
+    if (userLoading || loginInProgress.current) return;
 
+    // Reset role mismatch flag when user logs out
     if (!user) {
       roleMismatchHandled.current = false;
+      loginInProgress.current = false;
+      return;
     }
 
+    // Handle role mismatch
     if (user && profile && profile.role !== "expert" && !roleMismatchHandled.current) {
+      // Clear timeout since we're handling error
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
       roleMismatchHandled.current = true;
+      loginInProgress.current = false;
+      setLoading(false);
       const roleMsg = "You are not allowed to log in here because your role does not match.";
       setError(roleMsg);
       toast.error(roleMsg);
@@ -43,7 +65,15 @@ export default function LoginPage() {
       return;
     }
 
+    // Redirect to dashboard when user is authenticated and has expert role
     if (user && (!profile || profile.role === "expert")) {
+      // Clear timeout since redirect is happening
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+      loginInProgress.current = false;
+      setLoading(false);
       router.replace("/dashboard");
     }
   }, [user, profile, userLoading, router]);
@@ -52,11 +82,14 @@ export default function LoginPage() {
     e.preventDefault();
     setError(null);
     setLoading(true);
+    loginInProgress.current = true;
 
+    // Validation
     if (!email || !password) {
       toast.error("All fields are required");
       setError("All fields are required");
       setLoading(false);
+      loginInProgress.current = false;
       return;
     }
 
@@ -64,6 +97,7 @@ export default function LoginPage() {
       toast.error("Invalid email format");
       setError("Invalid email format");
       setLoading(false);
+      loginInProgress.current = false;
       return;
     }
 
@@ -81,14 +115,38 @@ export default function LoginPage() {
         throw new Error("Login failed. Please try again.");
       }
 
+      // Success - show toast
       toast.success("Login successful! Redirecting to dashboard...");
-      router.replace("/dashboard");
+      
+      // Clear any existing timeout
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+      
+      // Set a timeout fallback to reset loading state if redirect doesn't happen
+      // This prevents infinite loading if UserContext takes too long to update
+      timeoutRef.current = setTimeout(() => {
+        if (loginInProgress.current) {
+          setLoading(false);
+          loginInProgress.current = false;
+          // If user context hasn't updated after 3 seconds, try redirect anyway
+          if (data.user) {
+            router.replace("/dashboard");
+          }
+        }
+      }, 3000);
+      
     } catch (err: unknown) {
+      // Clear timeout on error
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
       const message = mapSupabaseAuthError((err as Error)?.message) ?? "Incorrect email or password. Please try again.";
       setError(message);
       toast.error(message);
-    } finally {
       setLoading(false);
+      loginInProgress.current = false;
     }
   };
 
