@@ -887,7 +887,7 @@ export default function ValidatePage() {
 												</Button>
 												<Button 
 													onClick={() => onConfirm(parseInt(detailId))}
-													disabled={processingScanId === parseInt(detailId)}
+													disabled={hasDecision(parseInt(detailId)) || processingScanId === parseInt(detailId)}
 													className="text-base font-semibold bg-[var(--primary)] text-white hover:bg-[var(--primary-600)] active:bg-[var(--primary-700)] disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg transition-all duration-200"
 												>
 													{processingScanId === parseInt(detailId) ? 'Processing...' : 'Confirm'}

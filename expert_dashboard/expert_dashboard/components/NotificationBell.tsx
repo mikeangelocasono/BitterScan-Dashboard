@@ -59,26 +59,15 @@ export default function NotificationBell() {
 					const scanType = newestScan.scan_type === "leaf_disease" ? "Leaf Disease" : "Fruit Maturity";
 					toast.success(
 						() => (
-							<div className="flex flex-col gap-1">
-								<span className="text-sm font-semibold text-gray-900">
-									New scan from <span className="text-[#388E3C]">{farmerName}</span>
-								</span>
-								<span className="text-xs text-gray-600 font-medium">
-									{scanType} scan needs validation
-								</span>
+							<div className="flex flex-col">
+								<span className="font-semibold">New scan from {farmerName}</span>
+								<span className="text-xs text-gray-600">{scanType} scan needs validation</span>
 							</div>
 						),
 						{
 							duration: 4000,
 							position: "top-right",
 							icon: "🔔",
-							style: {
-								background: 'white',
-								border: '1px solid #E5E7EB',
-								borderLeft: '4px solid #388E3C',
-								boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
-								color: '#1F2937',
-							},
 						}
 					);
 				}
@@ -254,33 +243,27 @@ export default function NotificationBell() {
 											<button
 												key={scan.id}
 												onClick={() => handleNotificationClick(scan.id)}
-												className={`w-full text-left p-4 transition-all duration-200 ${
+												className={`w-full text-left p-4 transition-colors ${
 													isUnread 
-														? "bg-white hover:bg-[var(--primary-100)] border-l-4 border-[var(--primary)] shadow-sm" 
-														: "bg-white hover:bg-gray-50 border-l-4 border-transparent"
+														? "bg-blue-50 hover:bg-blue-100 border-l-4 border-blue-500" 
+														: "bg-white hover:bg-gray-50"
 												}`}
 											>
 												<div className="flex items-start gap-3">
 													<div className="flex-1 min-w-0">
-														{/* Main notification text: "New scan from [Farmer Name]" */}
-														<div className="flex items-center gap-2 mb-1.5">
-															<p className="text-sm font-semibold text-gray-900">
-																New scan from <span className="text-[var(--primary)]">{farmerName}</span>
-															</p>
+														<div className="flex items-center gap-2">
+															<p className="text-sm font-semibold text-gray-900 truncate">{farmerName}</p>
 															{isUnread && (
-																<span className="flex-shrink-0 w-2 h-2 bg-[var(--primary)] rounded-full animate-pulse" />
+																<span className="flex-shrink-0 w-2 h-2 bg-blue-500 rounded-full" />
 															)}
 														</div>
-														{/* Secondary text: "[Scan Type] scan needs validation" */}
-														<p className="text-xs text-gray-600 font-medium mb-2">
-															{scanTypeLabel} scan needs validation
-														</p>
+														<p className="text-xs text-gray-600 mt-1">{scanTypeLabel}</p>
 														{/* Display exact timestamp from database */}
-														<p className="text-xs text-gray-500 font-normal" title={formatRelativeTime(scan.created_at) || undefined}>
+														<p className="text-xs text-gray-500 mt-1.5 font-medium" title={formatRelativeTime(scan.created_at) || undefined}>
 															{formatExactTimestamp(scan.created_at)}
 														</p>
 													</div>
-													<ExternalLink className="h-4 w-4 text-[var(--primary)] flex-shrink-0 mt-0.5 opacity-60 hover:opacity-100 transition-opacity" />
+													<ExternalLink className="h-4 w-4 text-gray-400 flex-shrink-0 mt-0.5" />
 												</div>
 											</button>
 										);

@@ -30,8 +30,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
 	const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 	const subscriptionActiveRef = useRef(false);
 	const userRef = useRef(user);
-	const healthCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
-	const subscriptionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
 	const isReady = useMemo(() => Boolean(user?.id), [user?.id]);
 	
@@ -270,24 +268,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
 	useEffect(() => {
 		if (!isReady) {
 			// Clean up subscription when user becomes unavailable
-			console.log('[Realtime] 🧹 User not ready, cleaning up subscription', {
-				userId: user?.id || 'none',
-				hasChannel: !!channelRef.current,
-				subscriptionActive: subscriptionActiveRef.current
-			});
-			
-			// Clear health check interval
-			if (healthCheckIntervalRef.current) {
-				clearInterval(healthCheckIntervalRef.current);
-				healthCheckIntervalRef.current = null;
-			}
-			
-			// Clear subscription timeout
-			if (subscriptionTimeoutRef.current) {
-				clearTimeout(subscriptionTimeoutRef.current);
-				subscriptionTimeoutRef.current = null;
-			}
-			
 			if (channelRef.current) {
 				supabase.removeChannel(channelRef.current);
 				channelRef.current = null;
@@ -313,79 +293,45 @@ export function DataProvider({ children }: { children: ReactNode }) {
 			return () => clearTimeout(timeoutId);
 		}
 
-		// User is ready - proceed with subscription setup
-		console.log('[Realtime] 👤 User is ready, proceeding with subscription setup', {
-			userId: user?.id || 'anonymous',
-			hasChannel: !!channelRef.current,
-			subscriptionActive: subscriptionActiveRef.current
-		});
-
 		// Validate Supabase client before proceeding
 		try {
 			validateSupabaseClient();
-			console.log('[Realtime] ✅ Supabase client validated successfully', {
-				hasUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
-				hasKey: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-				userId: user?.id || 'anonymous'
-			});
 		} catch (err) {
 			const errorMsg = err instanceof Error ? err.message : 'Supabase client is not properly configured.';
 			setError(errorMsg);
 			setLoading(false);
-			console.error('[Realtime] ❌ Supabase client validation failed:', errorMsg, {
-				hasUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
-				hasKey: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-			});
+			console.error('[DataContext]', errorMsg);
 			return;
 		}
 
-		// Prevent multiple subscriptions - but only if we have an active channel
-		// Check both the ref AND if we actually have a subscribed channel
-		if (subscriptionActiveRef.current && channelRef.current) {
-			const channelState = channelRef.current.state;
-			// Only skip if channel is actually subscribed
-			if (channelState === 'joined' || channelState === 'joining') {
-				const channelName = `global-data-changes-${user?.id || 'anonymous'}`;
-				console.log('[Realtime] ⏭️ Subscription already active, skipping setup', {
-					channelName,
-					hasChannel: !!channelRef.current,
-					channelState,
-					initialFetched: initialFetched.current
-				});
-				// Subscription already active, but ensure initial fetch happens if not done
-				if (!initialFetched.current && fetchDataRef.current && userRef.current?.id && !isFetchingRef.current) {
-					// Use requestIdleCallback or setTimeout for non-blocking fetch
-					const fetchTimeout = setTimeout(() => {
-						if (fetchDataRef.current && userRef.current?.id && !initialFetched.current && !isFetchingRef.current) {
-							fetchDataRef.current(true);
-						}
-					}, 100);
-					return () => clearTimeout(fetchTimeout);
-				}
-				return;
-			} else {
-				// Channel exists but not in good state - clean it up and recreate
-				console.log('[Realtime] ⚠️ Channel exists but not in good state, cleaning up:', channelState);
-				if (channelRef.current) {
-					supabase.removeChannel(channelRef.current);
-					channelRef.current = null;
-				}
-				subscriptionActiveRef.current = false;
+		// Prevent multiple subscriptions
+		if (subscriptionActiveRef.current) {
+			// Subscription already active, but ensure initial fetch happens if not done
+			if (!initialFetched.current && fetchDataRef.current && userRef.current?.id && !isFetchingRef.current) {
+				// Use requestIdleCallback or setTimeout for non-blocking fetch
+				const fetchTimeout = setTimeout(() => {
+					if (fetchDataRef.current && userRef.current?.id && !initialFetched.current && !isFetchingRef.current) {
+						fetchDataRef.current(true);
+					}
+				}, 100);
+				return () => clearTimeout(fetchTimeout);
 			}
+			return;
 		}
 
 		// Start initial fetch if not done yet (but don't block subscription setup)
 		// This ensures data is fetched even if subscription setup is slow
-		// Schedule initial fetch in background - subscription setup continues regardless
-		let fetchTimeoutId: NodeJS.Timeout | null = null;
-		if (!initialFetched.current && !isFetchingRef.current && fetchDataRef.current && userRef.current?.id) {
+		if (!initialFetched.current && !isFetchingRef.current) {
 			// Use fetchDataRef to avoid dependency issues
 			// Add a small delay to ensure UserContext has fully resolved
-			fetchTimeoutId = setTimeout(() => {
+			const fetchTimeout = setTimeout(() => {
 				if (fetchDataRef.current && userRef.current?.id && !isFetchingRef.current && !initialFetched.current) {
 					fetchDataRef.current(true);
 				}
 			}, 150); // Small delay to ensure user context is stable
+			
+			// Cleanup timeout on unmount
+			return () => clearTimeout(fetchTimeout);
 		}
 
 		/**
@@ -421,144 +367,183 @@ export function DataProvider({ children }: { children: ReactNode }) {
 		// Use a unique channel name to avoid conflicts between multiple users/sessions
 		const channelName = `global-data-changes-${user?.id || 'anonymous'}`;
 		
-		console.log('[Realtime] 🔌 Setting up real-time subscription...', {
-			channelName,
-			userId: user?.id || 'anonymous',
-			isReady,
-			subscriptionActive: subscriptionActiveRef.current,
-			hasChannel: !!channelRef.current
-		});
-		
-		// DON'T set subscriptionActiveRef to true yet - wait until subscription succeeds
-		// This prevents the early return check from blocking retries if subscription fails
+		// Mark subscription as active BEFORE setting up to prevent race conditions
+		subscriptionActiveRef.current = true;
 		
 		try {
 			// Clean up any existing channel first to prevent duplicate subscriptions
 			if (channelRef.current) {
-				console.log('[Realtime] 🧹 Cleaning up existing channel before creating new one');
 				supabase.removeChannel(channelRef.current);
 				channelRef.current = null;
 			}
 
 			const channel = supabase.channel(channelName, {
 				config: {
-					broadcast: { self: false },
+					broadcast: { self: false }, // Don't receive our own broadcast events
 				},
-			});
-			
-			console.log('[Realtime] 📡 Channel created:', channelName);
-			
-			channel
+			})
+			/**
+			 * REAL-TIME: INSERT events on 'scans' table
+			 * 
+			 * Automatically detects when new scans are inserted into the database.
+			 * Only processes scans with status='Pending Validation' to show in notifications
+			 * and Validate page.
+			 * 
+			 * This ensures:
+			 * - New scans appear instantly in the Validate page without refresh
+			 * - Notification bell updates immediately with new count
+			 * - Dashboard statistics update in real-time
+			 */
 			.on(
 				"postgres_changes",
 				{ 
-					event: "*", 
+					event: "INSERT", 
 					schema: "public", 
 					table: "scans"
 				},
 				async (payload) => {
-					if (payload.new && !payload.old) {
-						console.log('[Realtime] ✅ INSERT event received for scans table:', {
-							scanId: payload.new?.id,
-							status: payload.new?.status,
-							timestamp: new Date().toISOString()
-						});
-						
-						const newScan = payload.new as Partial<Scan>;
-						if (!newScan.id) {
-							console.warn('[Realtime] ⚠️ INSERT event received but scan ID is missing', payload);
-							return;
+					// Process new scans immediately - don't wait for initial fetch
+					// This ensures real-time updates work instantly
+					
+					const newScan = payload.new as Partial<Scan>;
+					if (!newScan.id) {
+						if (process.env.NODE_ENV === 'development') {
+							console.warn("INSERT event received but scan ID is missing");
 						}
+						return;
+					}
 
-						try {
-							console.log('[Realtime] 🔍 Fetching full scan data for ID:', newScan.id);
-							const fullScan = await fetchScanWithProfile(newScan.id);
-							if (fullScan) {
-								console.log('[Realtime] ✅ Scan fetched successfully, adding to state:', {
-									id: fullScan.id,
-									status: fullScan.status,
-									farmer: fullScan.farmer_profile?.full_name || 'Unknown'
-								});
-								setScans((prev) => {
-									const exists = prev.some((s) => s.id === fullScan.id);
-									if (exists) {
-										console.log('[Realtime] ⏭️ Scan already exists in state, skipping:', fullScan.id);
-										return prev;
-									}
-									const updated = [fullScan, ...prev];
-									console.log('[Realtime] ✅ New scan added to state. Total scans:', updated.length);
-									return updated;
-								});
-						} else {
-							console.warn('[Realtime] ⚠️ Failed to fetch scan data, triggering refresh');
-							// Always trigger refresh as fallback, even if initial fetch not done yet
-							if (fetchDataRef.current) {
+					// Only process if status is "Pending Validation" for immediate UI updates
+					// Other scans will be included in the next full fetch
+					if (newScan.status !== "Pending Validation") {
+						// Trigger a silent refresh to ensure all scans are up to date
+						if (fetchDataRef.current && initialFetched.current) {
+							fetchDataRef.current(false);
+						}
+						return;
+					}
+
+					try {
+						// Fetch the full scan with profile data (farmer name, profile picture, etc.)
+						// This ensures we have all necessary data for display in Validate page and notifications
+						const fullScan = await fetchScanWithProfile(newScan.id);
+						if (fullScan && fullScan.status === "Pending Validation") {
+							setScans((prev) => {
+								// Check if scan already exists (prevent duplicates)
+								// This can happen if the same event is received multiple times
+								const exists = prev.some((s) => s.id === fullScan.id);
+								if (exists) {
+									return prev; // Return same reference to prevent re-render
+								}
+								// Add new scan at the beginning (newest first) for better UX
+								return [fullScan, ...prev];
+							});
+						} else if (fullScan && fullScan.status !== "Pending Validation") {
+							// Edge case: Status changed between INSERT event and fetch
+							// Still add it to state, components will filter appropriately
+							setScans((prev) => {
+								const exists = prev.some((s) => s.id === fullScan.id);
+								if (!exists) {
+									return [fullScan, ...prev];
+								}
+								return prev;
+							});
+						} else if (!fullScan) {
+							// Fallback: refresh all data
+							if (fetchDataRef.current && initialFetched.current) {
 								fetchDataRef.current(false);
 							}
 						}
 					} catch (error) {
-						console.error('[Realtime] ❌ Error fetching scan after INSERT event:', error);
-						// Always trigger refresh as fallback, even if initial fetch not done yet
+						console.error("Error fetching scan after INSERT event:", error);
+						// Fallback: refresh all data if fetch fails
+						if (fetchDataRef.current && initialFetched.current) {
+							fetchDataRef.current(false);
+						}
+					}
+				}
+			)
+			/**
+			 * REAL-TIME: UPDATE events on 'scans' table
+			 * 
+			 * Automatically detects when scans are updated in the database.
+			 * Handles two key scenarios:
+			 * 
+			 * 1. Status changed TO 'Pending Validation':
+			 *    - Scan appears in notifications and Validate page
+			 *    - Notification count increases
+			 * 
+			 * 2. Status changed FROM 'Pending Validation' TO 'Validated'/'Corrected':
+			 *    - Scan status is updated in state
+			 *    - Validate page automatically filters it out (only shows 'Pending Validation')
+			 *    - Notification count decreases automatically
+			 *    - No manual refresh needed - UI updates instantly
+			 * 
+			 * This ensures that when an expert marks a scan as Confirmed or Corrected,
+			 * the scan disappears from the Validate page immediately for all users viewing it.
+			 */
+			.on(
+				"postgres_changes",
+				{ 
+					event: "UPDATE", 
+					schema: "public", 
+					table: "scans"
+				},
+				async (payload) => {
+					// Process updates even if initial fetch hasn't completed
+					// This ensures real-time updates work immediately
+					
+					const updatedScan = payload.new as Partial<Scan>;
+					if (!updatedScan.id) return;
+
+					try {
+						// Fetch the full scan with profile data to ensure we have complete information
+						const fullScan = await fetchScanWithProfile(updatedScan.id);
+						if (fullScan) {
+							setScans((prev) => {
+								const index = prev.findIndex((s) => s.id === fullScan.id);
+								
+								if (index === -1) {
+									// Scan doesn't exist in state yet (e.g., page just loaded)
+									// Only add if status is "Pending Validation" (for notifications and Validate page)
+									if (fullScan.status === "Pending Validation") {
+										return [fullScan, ...prev];
+									}
+									return prev; // Don't add non-pending scans to state
+								}
+								
+								// Update existing scan in place
+								// This handles status changes (e.g., 'Pending Validation' → 'Validated'/'Corrected')
+								// The Validate page will automatically filter out non-pending scans
+								const updated = [...prev];
+								updated[index] = fullScan;
+								return updated;
+							});
+						}
+					} catch (error) {
+						console.error("Error fetching scan after UPDATE event:", error);
+						// Fallback: refresh all data if fetch fails
 						if (fetchDataRef.current) {
 							fetchDataRef.current(false);
 						}
 					}
-					} else if (payload.new && payload.old) {
-						console.log('[Realtime] 🔄 UPDATE event received for scans table:', {
-							scanId: payload.new?.id,
-							oldStatus: payload.old?.status,
-							newStatus: payload.new?.status,
-							timestamp: new Date().toISOString()
-						});
-						
-						const updatedScan = payload.new as Partial<Scan>;
-						if (!updatedScan.id) {
-							console.warn('[Realtime] ⚠️ UPDATE event received but scan ID is missing', payload);
-							return;
-						}
+				}
+			)
+			/**
+			 * REAL-TIME: DELETE events on 'scans' table
+			 * 
+			 * Automatically removes scans from state when they're deleted from the database.
+			 * This ensures the Validate page and notifications update immediately.
+			 */
+			.on(
+				"postgres_changes",
+				{ event: "DELETE", schema: "public", table: "scans" },
+				(payload) => {
+					if (!initialFetched.current) return;
 
-						try {
-							const fullScan = await fetchScanWithProfile(updatedScan.id);
-							if (fullScan) {
-								console.log('[Realtime] ✅ Updated scan fetched, updating state:', {
-									id: fullScan.id,
-									status: fullScan.status
-								});
-								setScans((prev) => {
-									const index = prev.findIndex((s) => s.id === fullScan.id);
-									
-									if (index === -1) {
-										if (fullScan.status === "Pending Validation") {
-											console.log('[Realtime] ✅ Adding new pending scan via UPDATE event');
-											return [fullScan, ...prev];
-										}
-										return prev;
-									}
-									
-									const updated = [...prev];
-									updated[index] = fullScan;
-									console.log('[Realtime] ✅ Scan updated in state');
-									return updated;
-								});
-							}
-						} catch (error) {
-							console.error('[Realtime] ❌ Error fetching scan after UPDATE event:', error);
-							if (fetchDataRef.current) {
-								fetchDataRef.current(false);
-							}
-						}
-					} else if (payload.old && !payload.new) {
-						// Handle DELETE events - don't block on initialFetched
-						// DELETE events should work immediately to keep UI in sync
-						const deletedScan = payload.old as { id?: number };
-						if (deletedScan.id) {
-							console.log('[Realtime] 🗑️ DELETE event received for scan:', deletedScan.id);
-							setScans((prev) => {
-								const filtered = prev.filter((s) => s.id !== deletedScan.id);
-								console.log('[Realtime] ✅ Scan removed from state. Remaining scans:', filtered.length);
-								return filtered;
-							});
-						}
+					const deletedScan = payload.old as { id?: number };
+					if (deletedScan.id) {
+						setScans((prev) => prev.filter((s) => s.id !== deletedScan.id));
 					}
 				}
 			)
@@ -579,9 +564,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 				"postgres_changes",
 				{ event: "INSERT", schema: "public", table: "validation_history" },
 				async (payload) => {
-					// Don't block on initialFetched - real-time events should work immediately
-					// Only skip if we're still in the initial loading phase and don't have user yet
-					if (!isReady) return;
+					if (!initialFetched.current) return;
 
 					const newValidation = payload.new as Partial<ValidationHistory>;
 					if (!newValidation.id) return;
@@ -624,8 +607,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 				"postgres_changes",
 				{ event: "UPDATE", schema: "public", table: "validation_history" },
 				async (payload) => {
-					// Don't block on initialFetched - real-time events should work immediately
-					if (!isReady) return;
+					if (!initialFetched.current) return;
 
 					const updatedValidation = payload.new as Partial<ValidationHistory>;
 					if (!updatedValidation.id) return;
@@ -668,8 +650,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 				"postgres_changes",
 				{ event: "DELETE", schema: "public", table: "validation_history" },
 				(payload) => {
-					// Don't block on initialFetched - real-time events should work immediately
-					if (!isReady) return;
+					if (!initialFetched.current) return;
 
 					const deletedValidation = payload.old as { id?: number };
 					if (deletedValidation.id) {
@@ -681,8 +662,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 				"postgres_changes",
 				{ event: "INSERT", schema: "public", table: "profiles" },
 				() => {
-					// Don't block on initialFetched - real-time events should work immediately
-					if (!isReady) return;
+					if (!initialFetched.current) return;
 					// Increment total users count
 					setTotalUsers((prev) => prev + 1);
 				}
@@ -691,59 +671,19 @@ export function DataProvider({ children }: { children: ReactNode }) {
 				"postgres_changes",
 				{ event: "DELETE", schema: "public", table: "profiles" },
 				() => {
-					// Don't block on initialFetched - real-time events should work immediately
-					if (!isReady) return;
+					if (!initialFetched.current) return;
 					// Decrement total users count
 					setTotalUsers((prev) => Math.max(0, prev - 1));
 				}
 			)
 			.subscribe((status, err) => {
-				console.log('[Realtime] 📊 Subscription status changed:', {
-					status,
-					channelName,
-					userId: user?.id || 'anonymous',
-					error: err ? (typeof err === 'string' ? err : JSON.stringify(err)) : null,
-					timestamp: new Date().toISOString(),
-					channelState: channel.state
-				});
-				
 				if (status === "SUBSCRIBED") {
-					// Only mark as active AFTER successful subscription
 					channelRef.current = channel;
+					// subscriptionActiveRef is already set above, but ensure it's true
 					subscriptionActiveRef.current = true;
-					
-					// Clear subscription timeout since we successfully subscribed
-					if (subscriptionTimeoutRef.current) {
-						clearTimeout(subscriptionTimeoutRef.current);
-						subscriptionTimeoutRef.current = null;
+					if (process.env.NODE_ENV === 'development') {
+						console.log("Real-time subscription SUBSCRIBED for scans and validations");
 					}
-					
-					console.log('[Realtime] ✅ SUBSCRIBED - Real-time connection active!', {
-						channelName,
-						userId: user?.id || 'anonymous',
-						channelState: channel.state,
-						listeningTo: ['scans (INSERT/UPDATE/DELETE)', 'validation_history (INSERT/UPDATE/DELETE)', 'profiles (INSERT/DELETE)']
-					});
-					
-					// Set up health check to monitor connection
-					if (healthCheckIntervalRef.current) {
-						clearInterval(healthCheckIntervalRef.current);
-					}
-					healthCheckIntervalRef.current = setInterval(() => {
-						if (channelRef.current && subscriptionActiveRef.current) {
-							const channelState = channelRef.current.state;
-							console.log('[Realtime] 💓 Health check - Channel state:', channelState, {
-								channelName,
-								isActive: subscriptionActiveRef.current
-							});
-							
-							// If channel is closed or errored, try to reconnect
-							if (channelState === 'closed' || channelState === 'errored') {
-								console.warn('[Realtime] ⚠️ Channel state is', channelState, '- subscription may need reconnection');
-								subscriptionActiveRef.current = false;
-							}
-						}
-					}, 60000); // Check every 60 seconds
 				} else if (status === "CHANNEL_ERROR") {
 					// Improved error handling - extract error message from various possible formats
 					let errorMessage = "";
@@ -779,138 +719,58 @@ export function DataProvider({ children }: { children: ReactNode }) {
 						errorStr === "" ||
 						errorMessage === "";
 					
-					// Log errors for debugging
+					// Log errors for debugging (only in development or for critical errors)
 					if (shouldLogError && !isConnectionError) {
-						console.error('[Realtime] ❌ CHANNEL_ERROR:', errorMessage || "Connection issue", {
-							channelName,
-							userId: user?.id || 'anonymous',
-							error: err
-						});
+						if (process.env.NODE_ENV === 'development') {
+							console.error("Error subscribing to real-time data changes:", errorMessage || "Connection issue");
+							if (err && typeof err === "object") {
+								console.error("Full error object:", err);
+							}
+						}
 					}
 					
 					// Check if error is related to Realtime not being enabled
 					if (errorStr.includes("realtime") || errorStr.includes("publication") || errorStr.includes("not enabled") || errorStr.includes("permission")) {
-						console.error('[Realtime] ❌ Realtime may not be enabled on your tables!', {
-							message: 'Please enable Realtime on the scans and validation_history tables in your Supabase dashboard.',
-							sql: [
-								'ALTER PUBLICATION supabase_realtime ADD TABLE scans;',
-								'ALTER PUBLICATION supabase_realtime ADD TABLE validation_history;',
-								'ALTER PUBLICATION supabase_realtime ADD TABLE profiles;'
-							]
-						});
+						if (process.env.NODE_ENV === 'development') {
+							console.warn("Realtime may not be enabled on your tables. Please enable Realtime on the 'scans' and 'validation_history' tables in your Supabase dashboard.");
+							console.warn("Run this SQL in Supabase SQL Editor:");
+							console.warn("   ALTER PUBLICATION supabase_realtime ADD TABLE scans;");
+							console.warn("   ALTER PUBLICATION supabase_realtime ADD TABLE validation_history;");
+						}
 					}
 					
 					// Only mark as inactive if it's a real error (not just a connection close)
 					if (!isConnectionError) {
-						console.warn('[Realtime] ⚠️ Marking subscription as inactive due to error');
 						subscriptionActiveRef.current = false;
 						// Fallback to periodic refresh if real-time fails
 						if (initialFetched.current && fetchDataRef.current) {
-							console.log('[Realtime] 🔄 Triggering data refresh as fallback');
 							fetchDataRef.current();
 						}
-					} else {
-						console.log('[Realtime] 🔄 Connection error detected, Supabase will auto-reconnect');
 					}
 					// For connection errors, let Supabase handle auto-reconnect
 				} else if (status === "TIMED_OUT" || status === "CLOSED") {
-					console.warn('[Realtime] ⚠️ Connection lost:', status, {
-						channelName,
-						userId: user?.id || 'anonymous',
-						message: 'Supabase will attempt to reconnect automatically'
-					});
 					// Connection lost - Supabase will attempt to reconnect automatically
 					subscriptionActiveRef.current = false;
 					// Refresh data when connection is lost to ensure we have latest data
 					if (initialFetched.current && fetchDataRef.current) {
-						console.log('[Realtime] 🔄 Refreshing data after connection loss');
 						fetchDataRef.current(false);
-					}
-				} else {
-					console.log('[Realtime] 📊 Subscription status:', status, {
-						channelName,
-						userId: user?.id || 'anonymous',
-						channelState: channel.state
-					});
-					
-					// If status is something unexpected and channel is not in good state, mark as inactive
-					if (channel.state === 'closed' || channel.state === 'errored') {
-						console.warn('[Realtime] ⚠️ Channel in bad state:', channel.state, '- marking as inactive');
-						subscriptionActiveRef.current = false;
-						if (channelRef.current === channel) {
-							channelRef.current = null;
-						}
 					}
 				}
 			});
-			
-			// Add a timeout to detect if subscription never reaches SUBSCRIBED status
-			// Clear any existing timeout first
-			if (subscriptionTimeoutRef.current) {
-				clearTimeout(subscriptionTimeoutRef.current);
-			}
-			subscriptionTimeoutRef.current = setTimeout(() => {
-				if (channelRef.current !== channel || channel.state !== 'joined') {
-					console.warn('[Realtime] ⚠️ Subscription timeout - channel not subscribed after 10 seconds', {
-						channelName,
-						channelState: channel.state,
-						hasChannelRef: channelRef.current === channel
-					});
-					subscriptionActiveRef.current = false;
-					if (channelRef.current === channel) {
-						channelRef.current = null;
-					}
-					// Try to refresh data as fallback
-					if (initialFetched.current && fetchDataRef.current) {
-						console.log('[Realtime] 🔄 Triggering data refresh as fallback after timeout');
-						fetchDataRef.current(false);
-					}
-				}
-				subscriptionTimeoutRef.current = null;
-			}, 10000); // 10 second timeout
-			
 		} catch (error: unknown) {
-			console.error('[Realtime] ❌ Error setting up real-time subscription:', error, {
-				channelName,
-				userId: user?.id || 'anonymous',
-				errorDetails: error instanceof Error ? error.message : String(error)
-			});
+			console.error("Error setting up real-time subscription:", error);
 			subscriptionActiveRef.current = false;
 			// Fallback to periodic refresh
 			if (initialFetched.current && fetchDataRef.current) {
-				console.log('[Realtime] 🔄 Triggering data refresh as fallback after error');
 				fetchDataRef.current();
 			}
 		}
 
 		return () => {
-			console.log('[Realtime] 🧹 Cleaning up subscription on unmount', {
-				channelName,
-				hasChannel: !!channelRef.current
-			});
-			
-			// Clear initial fetch timeout if it exists
-			if (fetchTimeoutId) {
-				clearTimeout(fetchTimeoutId);
-			}
-			
-			// Clear health check interval
-			if (healthCheckIntervalRef.current) {
-				clearInterval(healthCheckIntervalRef.current);
-				healthCheckIntervalRef.current = null;
-			}
-			
-			// Clear subscription timeout if it exists
-			if (subscriptionTimeoutRef.current) {
-				clearTimeout(subscriptionTimeoutRef.current);
-				subscriptionTimeoutRef.current = null;
-			}
-			
 			if (channelRef.current) {
 				supabase.removeChannel(channelRef.current);
 				channelRef.current = null;
 				subscriptionActiveRef.current = false;
-				console.log('[Realtime] ✅ Channel removed and subscription deactivated');
 			}
 		};
 	// eslint-disable-next-line react-hooks/exhaustive-deps
@@ -961,6 +821,5 @@ export function useData() {
 	}
 	return context;
 }
-
 
 

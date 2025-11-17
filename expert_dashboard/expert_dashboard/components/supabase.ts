@@ -68,14 +68,6 @@ export const supabase = (() => {
 				params: {
 					eventsPerSecond: 10,
 				},
-				// Enable automatic reconnection
-				heartbeatIntervalMs: 30000, // 30 seconds
-				reconnectAfterMs: (tries: number) => {
-					// Exponential backoff: 1s, 2s, 4s, 8s, max 10s
-					const delay = Math.min(1000 * Math.pow(2, tries), 10000);
-					console.log('[Realtime] 🔄 Reconnecting in', delay, 'ms (attempt', tries + 1, ')');
-					return delay;
-				},
 			},
 		}
 	);

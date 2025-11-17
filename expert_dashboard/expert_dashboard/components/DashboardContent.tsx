@@ -138,9 +138,9 @@ function DashboardContent() {
 
 			<div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 md:gap-6">
 				{[
-					{ icon: UsersRound, label: "Total Users", value: totalUsers, color: "text-green-600" },
-					{ icon: Camera, label: "Total Scans", value: totalScans, color: "text-green-600" },
-					{ icon: CheckCircle2, label: "Validated", value: validatedScans, color: "text-green-600" },
+					{ icon: UsersRound, label: "Total Users", value: totalUsers, color: "text-emerald-600" },
+					{ icon: Camera, label: "Total Scans", value: totalScans, color: "text-emerald-600" },
+					{ icon: CheckCircle2, label: "Validated", value: validatedScans, color: "text-emerald-600" },
 					{ icon: AlertCircle, label: "Pending", value: pendingValidations, color: "text-amber-600" }
 				].map((s, idx) => (
 					<StatCard key={s.label} icon={s.icon} label={s.label} value={s.value} color={s.color} index={idx} />
