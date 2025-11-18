@@ -114,6 +114,12 @@ function getRangeEnd(range: Range, customEnd?: Date) {
   const end = new Date();
   if (range === "daily") {
     end.setHours(23, 59, 59, 999);
+  } else if (range === "weekly") {
+    // For weekly, end should be end of today (current day)
+    end.setHours(23, 59, 59, 999);
+  } else if (range === "monthly") {
+    // For monthly, end should be end of today (current day)
+    end.setHours(23, 59, 59, 999);
   }
   return end;
 }
@@ -336,11 +342,16 @@ export default function ReportsPage() {
 
   const rangeStart = useMemo(() => {
     try {
-      if (range === "custom" && customStartDate) {
-        const customStart = new Date(customStartDate);
-        if (!isNaN(customStart.getTime())) {
-          return getRangeStart(range, customStart);
+      if (range === "custom") {
+        // For custom range, require both start and end dates
+        if (customStartDate && customStartDate.trim() !== "") {
+          const customStart = new Date(customStartDate);
+          if (!isNaN(customStart.getTime())) {
+            return getRangeStart(range, customStart);
+          }
         }
+        // If custom range is selected but dates aren't valid, fall back to today
+        return normalizeToStartOfDay(new Date());
       }
       return getRangeStart(range);
     } catch {
@@ -351,16 +362,25 @@ export default function ReportsPage() {
   
   const rangeEnd = useMemo(() => {
     try {
-      if (range === "custom" && customEndDate) {
-        const customEnd = new Date(customEndDate);
-        if (!isNaN(customEnd.getTime())) {
-          return getRangeEnd(range, customEnd);
+      if (range === "custom") {
+        // For custom range, require both start and end dates
+        if (customEndDate && customEndDate.trim() !== "") {
+          const customEnd = new Date(customEndDate);
+          if (!isNaN(customEnd.getTime())) {
+            return getRangeEnd(range, customEnd);
+          }
         }
+        // If custom range is selected but dates aren't valid, fall back to end of today
+        const end = new Date();
+        end.setHours(23, 59, 59, 999);
+        return end;
       }
       return getRangeEnd(range);
     } catch {
       // Fallback to current time if date parsing fails
-      return new Date();
+      const end = new Date();
+      end.setHours(23, 59, 59, 999);
+      return end;
     }
   }, [range, customEndDate]);
 
@@ -383,14 +403,25 @@ export default function ReportsPage() {
   const filteredScans = useMemo(() => {
     if (!scans || scans.length === 0) return [];
     
+    // Ensure rangeStart and rangeEnd are valid Date objects
+    if (!rangeStart || !rangeEnd || isNaN(rangeStart.getTime()) || isNaN(rangeEnd.getTime())) {
+      return [];
+    }
+    
     return scans.filter((scan) => {
       if (!scan.created_at) return false;
       try {
         const createdAt = new Date(scan.created_at);
         // Ensure valid date
         if (isNaN(createdAt.getTime())) return false;
-        // Compare dates properly (rangeStart is start of day, rangeEnd is end of day or current time)
-        return createdAt >= rangeStart && createdAt <= rangeEnd;
+        
+        // Compare dates properly - ensure we're comparing Date objects correctly
+        // rangeStart is normalized to start of day (00:00:00.000)
+        // rangeEnd is set to end of day (23:59:59.999) or current time
+        const isAfterStart = createdAt.getTime() >= rangeStart.getTime();
+        const isBeforeEnd = createdAt.getTime() <= rangeEnd.getTime();
+        
+        return isAfterStart && isBeforeEnd;
       } catch {
         return false;
       }

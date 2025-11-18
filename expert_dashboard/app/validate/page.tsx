@@ -19,7 +19,7 @@ import Image from "next/image";
 // Displays date and time (hours:minutes AM/PM) matching the actual scan time from device
 const formatScanDate = (dateString: string): string => {
 	try {
-		// Parse as UTC to get exact timestamp from database
+		// Parse the date string - ensure it's treated as UTC if no timezone is specified
 		const date = new Date(dateString);
 		if (isNaN(date.getTime())) return 'Invalid Date';
 		
@@ -29,12 +29,19 @@ const formatScanDate = (dateString: string): string => {
 		const day = date.getUTCDate();
 		const year = date.getUTCFullYear();
 		
+		// Get UTC hours (0-23)
 		let hours = date.getUTCHours();
 		const minutes = date.getUTCMinutes();
+		
+		// Determine AM/PM BEFORE converting to 12-hour format
+		// This is critical: check the original 24-hour value
 		const ampm = hours >= 12 ? 'PM' : 'AM';
+		
+		// Convert to 12-hour format (1-12)
 		hours = hours % 12;
-		hours = hours ? hours : 12; // 0 should be 12
-		const minutesStr = minutes < 10 ? `0${minutes}` : minutes;
+		hours = hours || 12; // Convert 0 to 12 (midnight/noon)
+		
+		const minutesStr = minutes < 10 ? `0${minutes}` : `${minutes}`;
 		
 		return `${month} ${day}, ${year} - ${hours}:${minutesStr} ${ampm}`;
 	} catch {
@@ -111,6 +118,12 @@ export default function ValidatePage() {
 		return decisionValue !== undefined && decisionValue !== null && decisionValue.trim() !== '';
 	}, [decision]);
 
+	// Helper function to check if Confirm button should be disabled
+	// Confirm is disabled when a diagnosis is selected (expert wants to correct, not confirm)
+	const isConfirmDisabled = useCallback((scanId: number): boolean => {
+		return hasDecision(scanId);
+	}, [hasDecision]);
+
 	/**
 	 * REAL-TIME VALIDATION: Mark scan as Confirmed or Corrected
 	 * 
@@ -149,8 +162,9 @@ export default function ValidatePage() {
 			return;
 		}
 
-		const expertValidation = action === "confirm" ? selectedScan.ai_prediction : corrected || selectedScan.ai_prediction;
-		if (!expertValidation) {
+		// For confirm action, use AI prediction; for correct, use the selected diagnosis
+		const expertValidation = action === "confirm" ? selectedScan.ai_prediction : corrected;
+		if (!expertValidation || expertValidation.trim() === "") {
 			toast.error("Unable to determine validation result.");
 			return;
 		}
@@ -159,6 +173,24 @@ export default function ValidatePage() {
 		const timestamp = new Date().toISOString();
 		const originalStatus = selectedScan.status;
 		let scanUpdated = false;
+
+		// Validate user ID is a valid UUID string
+		if (!user.id || typeof user.id !== 'string' || user.id.trim() === '') {
+			toast.error("Invalid user session. Please sign in again.");
+			return;
+		}
+
+		// Validate scan ID is a valid number
+		if (!scanId || typeof scanId !== 'number' || isNaN(scanId)) {
+			toast.error("Invalid scan ID.");
+			return;
+		}
+
+		// Validate scan_uuid exists and is a valid UUID string
+		if (!selectedScan.scan_uuid || typeof selectedScan.scan_uuid !== 'string' || selectedScan.scan_uuid.trim() === '') {
+			toast.error("Scan UUID is missing. Cannot create validation history.");
+			return;
+		}
 
 		const applyScanUpdate = async (payload: Record<string, unknown>) => {
 			const { error } = await supabase.from("scans").update(payload).eq("id", scanId);
@@ -183,32 +215,63 @@ export default function ValidatePage() {
 
 			// Create validation history - this triggers Supabase Realtime INSERT event
 			// DataContext will also update the scan status via this event
+			// Ensure all fields are properly typed and validated
 			const insertPayload = {
-				scan_id: scanId,
-				expert_id: user.id,
-				ai_prediction: selectedScan.ai_prediction,
-				expert_validation: expertValidation,
-				status,
-				validated_at: timestamp,
-				expert_comment: note,
+				scan_id: selectedScan.scan_uuid, // UUID string - matches database schema
+				expert_id: user.id.trim(), // string (UUID) - ensure it's trimmed
+				ai_prediction: selectedScan.ai_prediction || '', // string - ensure not null
+				expert_validation: expertValidation.trim(), // string - ensure trimmed
+				status, // 'Validated' | 'Corrected'
+				validated_at: timestamp, // ISO string
+				expert_comment: note || null, // string | null
 			};
 
-			const { error: historyError } = await supabase.from("validation_history").insert(insertPayload);
+			// Validate payload before insert
+			if (!insertPayload.ai_prediction || insertPayload.ai_prediction.trim() === '') {
+				toast.error("AI prediction is missing. Cannot create validation history.");
+				throw new Error("AI prediction is required");
+			}
+
+			if (!insertPayload.expert_validation || insertPayload.expert_validation.trim() === '') {
+				toast.error("Expert validation is missing. Cannot create validation history.");
+				throw new Error("Expert validation is required");
+			}
+
+			const { error: historyError, data: historyData } = await supabase
+				.from("validation_history")
+				.insert(insertPayload)
+				.select();
 
 			if (historyError) {
+				// Log detailed error for debugging
+				console.error("Error creating validation history:", {
+					error: historyError,
+					payload: insertPayload,
+					scanId,
+					expertId: user.id,
+				});
+
+				// Handle unique constraint violation (duplicate validation)
 				if ((historyError as { code?: string }).code === "23505") {
+					// Try to update existing validation history
 					const { error: updateHistoryError } = await supabase
 						.from("validation_history")
 						.update(insertPayload)
-						.eq("scan_id", scanId)
-						.eq("expert_id", user.id);
+						.eq("scan_id", selectedScan.scan_uuid)
+						.eq("expert_id", user.id.trim());
 
 					if (updateHistoryError) {
-						console.error("Error updating validation history:", updateHistoryError);
+						console.error("Error updating validation history:", {
+							error: updateHistoryError,
+							scanId,
+							expertId: user.id,
+						});
 						throw updateHistoryError;
 					}
 				} else {
-					console.error("Error creating validation history:", historyError);
+					// For other errors, throw with detailed message
+					const errorMessage = buildSupabaseErrorMessage(isSupabaseApiError(historyError) ? historyError : null);
+					console.error("Error creating validation history:", errorMessage);
 					throw historyError;
 				}
 			}
@@ -887,8 +950,9 @@ export default function ValidatePage() {
 												</Button>
 												<Button 
 													onClick={() => onConfirm(parseInt(detailId))}
-													disabled={processingScanId === parseInt(detailId)}
+													disabled={isConfirmDisabled(parseInt(detailId)) || processingScanId === parseInt(detailId)}
 													className="text-base font-semibold bg-[var(--primary)] text-white hover:bg-[var(--primary-600)] active:bg-[var(--primary-700)] disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg transition-all duration-200"
+													title={isConfirmDisabled(parseInt(detailId)) ? "Confirm is disabled when a diagnosis is selected. Use Correct instead." : "Confirm the AI prediction is correct"}
 												>
 													{processingScanId === parseInt(detailId) ? 'Processing...' : 'Confirm'}
 												</Button>
@@ -897,6 +961,7 @@ export default function ValidatePage() {
 													onClick={() => onReject(parseInt(detailId))}
 													disabled={!hasDecision(parseInt(detailId)) || processingScanId === parseInt(detailId)}
 													className="text-base font-semibold text-gray-700 border-2 border-gray-300 hover:bg-gray-50 hover:border-gray-400 active:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+													title={!hasDecision(parseInt(detailId)) ? "Please select a diagnosis first" : "Correct the AI prediction with your selected diagnosis"}
 												>
 													{processingScanId === parseInt(detailId) ? 'Processing...' : 'Correct'}
 												</Button>

@@ -15,23 +15,31 @@ import { useUser } from "@/components/UserContext";
 import { useData } from "@/components/DataContext";
 import Image from "next/image";
 
-// Accurate date formatter - shows local time without timezone shifts
+// Accurate date formatter - shows UTC time from database (matching stored timestamp)
 const formatHistoryDate = (dateString: string): string => {
 	try {
 		const date = new Date(dateString);
 		if (isNaN(date.getTime())) return 'Invalid Date';
 		
+		// Use UTC methods to display exact database timestamp
 		const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-		const month = monthNames[date.getMonth()];
-		const day = date.getDate();
-		const year = date.getFullYear();
+		const month = monthNames[date.getUTCMonth()];
+		const day = date.getUTCDate();
+		const year = date.getUTCFullYear();
 		
-		let hours = date.getHours();
-		const minutes = date.getMinutes();
+		// Get UTC hours (0-23)
+		let hours = date.getUTCHours();
+		const minutes = date.getUTCMinutes();
+		
+		// Determine AM/PM BEFORE converting to 12-hour format
+		// This is critical: check the original 24-hour value (0-23)
 		const ampm = hours >= 12 ? 'PM' : 'AM';
+		
+		// Convert to 12-hour format (1-12)
 		hours = hours % 12;
-		hours = hours ? hours : 12; // 0 should be 12
-		const minutesStr = minutes < 10 ? `0${minutes}` : minutes;
+		hours = hours || 12; // Convert 0 to 12 (midnight/noon)
+		
+		const minutesStr = minutes < 10 ? `0${minutes}` : `${minutes}`;
 		
 		return `${month} ${day}, ${year} - ${hours}:${minutesStr} ${ampm}`;
 	} catch {

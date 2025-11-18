@@ -9,14 +9,32 @@ import { useUser } from "./UserContext";
 import { useData } from "./DataContext";
 import Image from "next/image";
 
-const DASHBOARD_DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
-	year: "numeric",
-	month: "2-digit",
-	day: "2-digit",
-	hour: "2-digit",
-	minute: "2-digit",
-	timeZone: "UTC",
-});
+// Format timestamp from database (UTC) to readable format with correct AM/PM
+const formatDate = (dateString: string): string => {
+	try {
+		const date = new Date(dateString);
+		if (isNaN(date.getTime())) return 'Invalid Date';
+		
+		// Use UTC methods to display exact database timestamp
+		const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+		const month = monthNames[date.getUTCMonth()];
+		const day = date.getUTCDate();
+		const year = date.getUTCFullYear();
+		
+		let hours = date.getUTCHours();
+		const minutes = date.getUTCMinutes();
+		// Determine AM/PM BEFORE converting to 12-hour format
+		const ampm = hours >= 12 ? 'PM' : 'AM';
+		// Convert to 12-hour format
+		hours = hours % 12;
+		hours = hours || 12; // Convert 0 to 12
+		const minutesStr = minutes < 10 ? `0${minutes}` : `${minutes}`;
+		
+		return `${month} ${day}, ${year} - ${hours}:${minutesStr} ${ampm}`;
+	} catch {
+		return 'Invalid Date';
+	}
+};
 
 // Memoized helper functions outside component
 const formatScanType = (type: string) => {
@@ -114,9 +132,7 @@ function DashboardContent() {
 		return { totalScans: total, validatedScans: validated, pendingValidations: pending, recentScans: recent };
 	}, [scans]);
 
-	const formatDate = useMemo(() => {
-		return (dateString: string) => DASHBOARD_DATE_FORMATTER.format(new Date(dateString));
-	}, []);
+	// formatDate is now defined above as a standalone function
 
 	if (loading) {
 		return <LoadingSkeleton />;

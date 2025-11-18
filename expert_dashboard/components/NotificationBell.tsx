@@ -138,12 +138,19 @@ export default function NotificationBell() {
 
 			// Format as "HH:MM AM/PM" using the exact timestamp from database
 			// Use UTC to match database timestamp exactly
+			// Get UTC hours (0-23)
 			let hours = date.getUTCHours();
 			const minutes = date.getUTCMinutes();
+			
+			// Determine AM/PM BEFORE converting to 12-hour format
+			// This is critical: check the original 24-hour value (0-23)
 			const ampm = hours >= 12 ? 'PM' : 'AM';
+			
+			// Convert to 12-hour format (1-12)
 			hours = hours % 12;
-			hours = hours ? hours : 12; // 0 should be 12
-			const minutesStr = minutes < 10 ? `0${minutes}` : minutes;
+			hours = hours || 12; // Convert 0 to 12 (midnight/noon)
+			
+			const minutesStr = minutes < 10 ? `0${minutes}` : `${minutes}`;
 			
 			return `${hours}:${minutesStr} ${ampm}`;
 		} catch {
