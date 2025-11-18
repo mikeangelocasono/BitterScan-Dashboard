@@ -5,6 +5,24 @@ import { supabase, validateSupabaseClient } from "./supabase";
 import { Scan, ValidationHistory, isSupabaseApiError } from "../types";
 import { useUser } from "./UserContext";
 
+// Type definitions for Supabase Realtime payloads
+type RealtimePayload<T = Record<string, unknown>> = {
+	new: T | null;
+	old: T | null;
+	eventType: 'INSERT' | 'UPDATE' | 'DELETE';
+	schema: string;
+	table: string;
+};
+
+// Type for scans table Realtime payload
+type ScanRealtimePayload = RealtimePayload<Partial<Scan>>;
+
+// Type for validation_history table Realtime payload
+type ValidationHistoryRealtimePayload = RealtimePayload<Partial<ValidationHistory>>;
+
+// Type for profiles table Realtime payload
+type ProfileRealtimePayload = RealtimePayload<{ id?: string }>;
+
 type DataContextValue = {
 	scans: Scan[];
 	validationHistory: ValidationHistory[];
@@ -18,7 +36,7 @@ type DataContextValue = {
 const DataContext = createContext<DataContextValue | undefined>(undefined);
 
 export function DataProvider({ children }: { children: ReactNode }) {
-	const { user } = useUser();
+	const { user, loading: userLoading } = useUser();
 	const [scans, setScans] = useState<Scan[]>([]);
 	const [validationHistory, setValidationHistory] = useState<ValidationHistory[]>([]);
 	const [totalUsers, setTotalUsers] = useState(0);
@@ -29,16 +47,23 @@ export function DataProvider({ children }: { children: ReactNode }) {
 	const fetchDataRef = useRef<typeof fetchData | null>(null);
 	const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 	const subscriptionActiveRef = useRef(false);
+	const subscriptionStatusRef = useRef<'SUBSCRIBED' | 'SUBSCRIBING' | 'CLOSED' | 'TIMED_OUT' | 'CHANNEL_ERROR' | null>(null);
 	const userRef = useRef(user);
+	const userLoadingRef = useRef(userLoading);
 	const healthCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
 	const subscriptionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+	const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+	const reconnectAttemptsRef = useRef(0);
+	const maxReconnectAttempts = 5;
+	const isSubscribingRef = useRef(false); // Track if we're currently in the process of subscribing
 
 	const isReady = useMemo(() => Boolean(user?.id), [user?.id]);
 	
 	// Keep user ref updated for timeout checks
 	useEffect(() => {
 		userRef.current = user;
-	}, [user]);
+		userLoadingRef.current = userLoading;
+	}, [user, userLoading]);
 
 	const fetchData = useCallback(
 		async (showSpinner = false) => {
@@ -273,7 +298,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
 			console.log('[Realtime] 🧹 User not ready, cleaning up subscription', {
 				userId: user?.id || 'none',
 				hasChannel: !!channelRef.current,
-				subscriptionActive: subscriptionActiveRef.current
+				subscriptionActive: subscriptionActiveRef.current,
+				userLoading: userLoading
 			});
 			
 			// Clear health check interval
@@ -288,29 +314,51 @@ export function DataProvider({ children }: { children: ReactNode }) {
 				subscriptionTimeoutRef.current = null;
 			}
 			
+			// Clear reconnect timeout
+			if (reconnectTimeoutRef.current) {
+				clearTimeout(reconnectTimeoutRef.current);
+				reconnectTimeoutRef.current = null;
+			}
+			
+			// Reset reconnect attempts
+			reconnectAttemptsRef.current = 0;
+			
 			if (channelRef.current) {
 				supabase.removeChannel(channelRef.current);
 				channelRef.current = null;
 				subscriptionActiveRef.current = false;
+				subscriptionStatusRef.current = null;
 			}
 			if (initialFetched.current) {
 				initialFetched.current = false;
 			}
-			// Set loading to false if user is not ready after a timeout
-			// This prevents infinite loading if user context never resolves
-			// Match UserContext timeout (6s) + 1s buffer
-			const timeoutId = setTimeout(() => {
-				// Check current state using ref to avoid stale closure
-				if (!userRef.current?.id && !initialFetched.current) {
-					if (process.env.NODE_ENV === 'development') {
-						console.warn('[DataContext] User not ready after timeout - clearing loading state');
-					}
-					setLoading(false);
-					setError('Unable to load user session. Please refresh the page or check your connection.');
-				}
-			}, 7000); // 7 second timeout (6s UserContext + 1s buffer)
 			
-			return () => clearTimeout(timeoutId);
+			// Only show error if UserContext is still loading after timeout
+			// If UserContext has resolved with no user, that's fine - user just needs to log in
+			// Only show error if UserContext is stuck in loading state
+			if (userLoading) {
+				// Set loading to false if user context is still loading after a timeout
+				// This prevents infinite loading if user context never resolves
+				// Match UserContext timeout (6s) + 1s buffer
+				const timeoutId = setTimeout(() => {
+					// Check current state using ref to avoid stale closure
+					// Only show error if UserContext is still loading and user is not ready
+					if (userLoadingRef.current && !userRef.current?.id && !initialFetched.current) {
+						if (process.env.NODE_ENV === 'development') {
+							console.warn('[DataContext] UserContext still loading after timeout - showing error');
+						}
+						setLoading(false);
+						setError('Unable to load user session. Please refresh the page or check your connection.');
+					}
+				}, 7000); // 7 second timeout (6s UserContext + 1s buffer)
+				
+				return () => clearTimeout(timeoutId);
+			} else {
+				// UserContext has resolved, but no user - this is fine, just clear loading
+				// User needs to log in, but this is not an error condition
+				setLoading(false);
+				setError(null);
+			}
 		}
 
 		// User is ready - proceed with subscription setup
@@ -339,19 +387,22 @@ export function DataProvider({ children }: { children: ReactNode }) {
 			return;
 		}
 
-		// Prevent multiple subscriptions - but only if we have an active channel
-		// Check both the ref AND if we actually have a subscribed channel
-		if (subscriptionActiveRef.current && channelRef.current) {
+		// Prevent multiple subscriptions - but only if we have an active and SUBSCRIBED channel
+		// Check both the ref AND if we actually have a subscribed channel with confirmed subscription status
+		if (subscriptionActiveRef.current && channelRef.current && subscriptionStatusRef.current === 'SUBSCRIBED') {
 			const channelState = channelRef.current.state;
-			// Only skip if channel is actually subscribed
-			if (channelState === 'joined' || channelState === 'joining') {
+			// Only skip if channel is actually joined AND subscription status is SUBSCRIBED
+			if (channelState === 'joined') {
 				const channelName = `global-data-changes-${user?.id || 'anonymous'}`;
-				console.log('[Realtime] ⏭️ Subscription already active, skipping setup', {
-					channelName,
-					hasChannel: !!channelRef.current,
-					channelState,
-					initialFetched: initialFetched.current
-				});
+				if (process.env.NODE_ENV === 'development') {
+					console.log('[Realtime] ⏭️ Subscription already active and subscribed, skipping setup', {
+						channelName,
+						hasChannel: !!channelRef.current,
+						channelState,
+						subscriptionStatus: subscriptionStatusRef.current,
+						initialFetched: initialFetched.current
+					});
+				}
 				// Subscription already active, but ensure initial fetch happens if not done
 				if (!initialFetched.current && fetchDataRef.current && userRef.current?.id && !isFetchingRef.current) {
 					// Use requestIdleCallback or setTimeout for non-blocking fetch
@@ -365,13 +416,24 @@ export function DataProvider({ children }: { children: ReactNode }) {
 				return;
 			} else {
 				// Channel exists but not in good state - clean it up and recreate
-				console.log('[Realtime] ⚠️ Channel exists but not in good state, cleaning up:', channelState);
+				console.log('[Realtime] ⚠️ Channel exists but not in good state, cleaning up:', {
+					channelState,
+					subscriptionStatus: subscriptionStatusRef.current
+				});
 				if (channelRef.current) {
 					supabase.removeChannel(channelRef.current);
 					channelRef.current = null;
 				}
 				subscriptionActiveRef.current = false;
+				subscriptionStatusRef.current = null;
+				reconnectAttemptsRef.current = 0; // Reset reconnect attempts when cleaning up
 			}
+		} else if (subscriptionActiveRef.current && !channelRef.current) {
+			// Subscription marked as active but no channel - reset
+			console.log('[Realtime] ⚠️ Subscription marked active but no channel, resetting');
+			subscriptionActiveRef.current = false;
+			subscriptionStatusRef.current = null;
+			reconnectAttemptsRef.current = 0;
 		}
 
 		// Start initial fetch if not done yet (but don't block subscription setup)
@@ -421,74 +483,135 @@ export function DataProvider({ children }: { children: ReactNode }) {
 		// Use a unique channel name to avoid conflicts between multiple users/sessions
 		const channelName = `global-data-changes-${user?.id || 'anonymous'}`;
 		
-		console.log('[Realtime] 🔌 Setting up real-time subscription...', {
-			channelName,
-			userId: user?.id || 'anonymous',
-			isReady,
-			subscriptionActive: subscriptionActiveRef.current,
-			hasChannel: !!channelRef.current
-		});
+		// Don't attempt to reconnect if we've exceeded max attempts
+		if (reconnectAttemptsRef.current >= maxReconnectAttempts) {
+			console.warn('[Realtime] ⚠️ Max reconnection attempts reached, falling back to periodic refresh', {
+				attempts: reconnectAttemptsRef.current,
+				maxAttempts: maxReconnectAttempts
+			});
+			// Fallback to periodic refresh
+			if (initialFetched.current && fetchDataRef.current) {
+				fetchDataRef.current(false);
+			}
+			return;
+		}
+		
+		// Prevent multiple simultaneous subscription attempts
+		if (isSubscribingRef.current) {
+			if (process.env.NODE_ENV === 'development') {
+				console.log('[Realtime] ⏭️ Subscription already in progress, skipping');
+			}
+			return;
+		}
+		
+		isSubscribingRef.current = true;
+		
+		if (process.env.NODE_ENV === 'development') {
+			console.log('[Realtime] 🔌 Setting up real-time subscription...', {
+				channelName,
+				userId: user?.id || 'anonymous',
+				isReady,
+				subscriptionActive: subscriptionActiveRef.current,
+				hasChannel: !!channelRef.current,
+				reconnectAttempt: reconnectAttemptsRef.current
+			});
+		}
 		
 		// DON'T set subscriptionActiveRef to true yet - wait until subscription succeeds
 		// This prevents the early return check from blocking retries if subscription fails
 		
 		try {
 			// Clean up any existing channel first to prevent duplicate subscriptions
+			// This is critical to avoid binding mismatch errors
 			if (channelRef.current) {
-				console.log('[Realtime] 🧹 Cleaning up existing channel before creating new one');
-				supabase.removeChannel(channelRef.current);
+				if (process.env.NODE_ENV === 'development') {
+					console.log('[Realtime] 🧹 Cleaning up existing channel before creating new one');
+				}
+				try {
+					supabase.removeChannel(channelRef.current);
+				} catch (cleanupErr) {
+					// Ignore cleanup errors - channel might already be removed
+					if (process.env.NODE_ENV === 'development') {
+						console.warn('[Realtime] Warning during channel cleanup:', cleanupErr);
+					}
+				}
 				channelRef.current = null;
+				subscriptionActiveRef.current = false;
+				subscriptionStatusRef.current = null;
 			}
 
-			const channel = supabase.channel(channelName, {
+			// Create channel with proper configuration
+			// Use a unique channel name with timestamp to avoid binding conflicts
+			const uniqueChannelName = `${channelName}-${Date.now()}`;
+			const channel = supabase.channel(uniqueChannelName, {
 				config: {
+					// Explicitly configure the channel to avoid binding mismatch
 					broadcast: { self: false },
+					presence: { key: '' },
 				},
 			});
 			
-			console.log('[Realtime] 📡 Channel created:', channelName);
+			if (process.env.NODE_ENV === 'development') {
+				console.log('[Realtime] 📡 Channel created:', uniqueChannelName);
+			}
 			
+			// Build channel subscriptions - chain all events before subscribing
 			channel
+			// Subscribe to INSERT events on scans table
 			.on(
 				"postgres_changes",
 				{ 
-					event: "*", 
+					event: "INSERT", 
 					schema: "public", 
 					table: "scans"
 				},
-				async (payload) => {
-					if (payload.new && !payload.old) {
+				async (payload: ScanRealtimePayload) => {
+					const newScan = payload.new;
+					if (!newScan) return;
+					
+					const scanId = newScan.id;
+					const scanStatus = newScan.status;
+					
+					if (process.env.NODE_ENV === 'development') {
 						console.log('[Realtime] ✅ INSERT event received for scans table:', {
-							scanId: payload.new?.id,
-							status: payload.new?.status,
+							scanId,
+							status: scanStatus,
 							timestamp: new Date().toISOString()
 						});
-						
-						const newScan = payload.new as Partial<Scan>;
-						if (!newScan.id) {
-							console.warn('[Realtime] ⚠️ INSERT event received but scan ID is missing', payload);
-							return;
-						}
+					}
+					
+					if (!scanId || typeof scanId !== 'number') {
+						console.warn('[Realtime] ⚠️ INSERT event received but scan ID is missing or invalid', payload);
+						return;
+					}
 
-						try {
-							console.log('[Realtime] 🔍 Fetching full scan data for ID:', newScan.id);
-							const fullScan = await fetchScanWithProfile(newScan.id);
-							if (fullScan) {
+					try {
+						if (process.env.NODE_ENV === 'development') {
+						console.log('[Realtime] 🔍 Fetching full scan data for ID:', scanId);
+					}
+						const fullScan = await fetchScanWithProfile(scanId);
+						if (fullScan) {
+							if (process.env.NODE_ENV === 'development') {
 								console.log('[Realtime] ✅ Scan fetched successfully, adding to state:', {
 									id: fullScan.id,
 									status: fullScan.status,
 									farmer: fullScan.farmer_profile?.full_name || 'Unknown'
 								});
-								setScans((prev) => {
-									const exists = prev.some((s) => s.id === fullScan.id);
-									if (exists) {
+							}
+							setScans((prev) => {
+								const exists = prev.some((s) => s.id === fullScan.id);
+								if (exists) {
+									if (process.env.NODE_ENV === 'development') {
 										console.log('[Realtime] ⏭️ Scan already exists in state, skipping:', fullScan.id);
-										return prev;
 									}
-									const updated = [fullScan, ...prev];
+									return prev;
+								}
+								const updated = [fullScan, ...prev];
+								if (process.env.NODE_ENV === 'development') {
 									console.log('[Realtime] ✅ New scan added to state. Total scans:', updated.length);
-									return updated;
-								});
+								}
+								return updated;
+							});
 						} else {
 							console.warn('[Realtime] ⚠️ Failed to fetch scan data, triggering refresh');
 							// Always trigger refresh as fallback, even if initial fetch not done yet
@@ -503,62 +626,104 @@ export function DataProvider({ children }: { children: ReactNode }) {
 							fetchDataRef.current(false);
 						}
 					}
-					} else if (payload.new && payload.old) {
+				}
+			)
+			// Subscribe to UPDATE events on scans table
+			.on(
+				"postgres_changes",
+				{ 
+					event: "UPDATE", 
+					schema: "public", 
+					table: "scans"
+				},
+				async (payload: ScanRealtimePayload) => {
+					const updatedScan = payload.new;
+					const oldScan = payload.old;
+					if (!updatedScan) return;
+					
+					const scanId = updatedScan.id;
+					const oldStatus = oldScan?.status;
+					const newStatus = updatedScan.status;
+					
+					if (process.env.NODE_ENV === 'development') {
 						console.log('[Realtime] 🔄 UPDATE event received for scans table:', {
-							scanId: payload.new?.id,
-							oldStatus: payload.old?.status,
-							newStatus: payload.new?.status,
+							scanId,
+							oldStatus,
+							newStatus,
 							timestamp: new Date().toISOString()
 						});
-						
-						const updatedScan = payload.new as Partial<Scan>;
-						if (!updatedScan.id) {
-							console.warn('[Realtime] ⚠️ UPDATE event received but scan ID is missing', payload);
-							return;
-						}
+					}
+					
+					if (!scanId || typeof scanId !== 'number') {
+						console.warn('[Realtime] ⚠️ UPDATE event received but scan ID is missing or invalid', payload);
+						return;
+					}
 
-						try {
-							const fullScan = await fetchScanWithProfile(updatedScan.id);
-							if (fullScan) {
+					try {
+						const fullScan = await fetchScanWithProfile(scanId);
+						if (fullScan) {
+							if (process.env.NODE_ENV === 'development') {
 								console.log('[Realtime] ✅ Updated scan fetched, updating state:', {
 									id: fullScan.id,
 									status: fullScan.status
 								});
-								setScans((prev) => {
-									const index = prev.findIndex((s) => s.id === fullScan.id);
-									
-									if (index === -1) {
-										if (fullScan.status === "Pending Validation") {
-											console.log('[Realtime] ✅ Adding new pending scan via UPDATE event');
-											return [fullScan, ...prev];
-										}
-										return prev;
-									}
-									
-									const updated = [...prev];
-									updated[index] = fullScan;
-									console.log('[Realtime] ✅ Scan updated in state');
-									return updated;
-								});
 							}
-						} catch (error) {
-							console.error('[Realtime] ❌ Error fetching scan after UPDATE event:', error);
-							if (fetchDataRef.current) {
-								fetchDataRef.current(false);
-							}
-						}
-					} else if (payload.old && !payload.new) {
-						// Handle DELETE events - don't block on initialFetched
-						// DELETE events should work immediately to keep UI in sync
-						const deletedScan = payload.old as { id?: number };
-						if (deletedScan.id) {
-							console.log('[Realtime] 🗑️ DELETE event received for scan:', deletedScan.id);
 							setScans((prev) => {
-								const filtered = prev.filter((s) => s.id !== deletedScan.id);
-								console.log('[Realtime] ✅ Scan removed from state. Remaining scans:', filtered.length);
-								return filtered;
+								const index = prev.findIndex((s) => s.id === fullScan.id);
+								
+								if (index === -1) {
+									if (fullScan.status === "Pending Validation") {
+										if (process.env.NODE_ENV === 'development') {
+											console.log('[Realtime] ✅ Adding new pending scan via UPDATE event');
+										}
+										return [fullScan, ...prev];
+									}
+									return prev;
+								}
+								
+								const updated = [...prev];
+								updated[index] = fullScan;
+								if (process.env.NODE_ENV === 'development') {
+									console.log('[Realtime] ✅ Scan updated in state');
+								}
+								return updated;
 							});
 						}
+					} catch (error) {
+						console.error('[Realtime] ❌ Error fetching scan after UPDATE event:', error);
+						if (fetchDataRef.current) {
+							fetchDataRef.current(false);
+						}
+					}
+				}
+			)
+			// Subscribe to DELETE events on scans table
+			.on(
+				"postgres_changes",
+				{ 
+					event: "DELETE", 
+					schema: "public", 
+					table: "scans"
+				},
+				(payload: ScanRealtimePayload) => {
+					const deletedScan = payload.old;
+					if (!deletedScan) return;
+					
+					const scanId = deletedScan.id;
+					
+					// Handle DELETE events - don't block on initialFetched
+					// DELETE events should work immediately to keep UI in sync
+					if (scanId && typeof scanId === 'number') {
+						if (process.env.NODE_ENV === 'development') {
+							console.log('[Realtime] 🗑️ DELETE event received for scan:', scanId);
+						}
+						setScans((prev) => {
+							const filtered = prev.filter((s) => s.id !== scanId);
+							if (process.env.NODE_ENV === 'development') {
+								console.log('[Realtime] ✅ Scan removed from state. Remaining scans:', filtered.length);
+							}
+							return filtered;
+						});
 					}
 				}
 			)
@@ -578,13 +743,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
 			.on(
 				"postgres_changes",
 				{ event: "INSERT", schema: "public", table: "validation_history" },
-				async (payload) => {
+				async (payload: ValidationHistoryRealtimePayload) => {
 					// Don't block on initialFetched - real-time events should work immediately
 					// Only skip if we're still in the initial loading phase and don't have user yet
 					if (!isReady) return;
 
-					const newValidation = payload.new as Partial<ValidationHistory>;
-					if (!newValidation.id) return;
+					const newValidation = payload.new;
+					if (!newValidation || !newValidation.id) return;
 
 					// Fetch the full validation with relations (expert profile, scan details, etc.)
 					const fullValidation = await fetchValidationWithRelations(newValidation.id);
@@ -623,12 +788,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
 			.on(
 				"postgres_changes",
 				{ event: "UPDATE", schema: "public", table: "validation_history" },
-				async (payload) => {
+				async (payload: ValidationHistoryRealtimePayload) => {
 					// Don't block on initialFetched - real-time events should work immediately
 					if (!isReady) return;
 
-					const updatedValidation = payload.new as Partial<ValidationHistory>;
-					if (!updatedValidation.id) return;
+					const updatedValidation = payload.new;
+					if (!updatedValidation || !updatedValidation.id) return;
 
 					// Fetch the full validation with relations
 					const fullValidation = await fetchValidationWithRelations(updatedValidation.id);
@@ -667,12 +832,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
 			.on(
 				"postgres_changes",
 				{ event: "DELETE", schema: "public", table: "validation_history" },
-				(payload) => {
+				(payload: ValidationHistoryRealtimePayload) => {
 					// Don't block on initialFetched - real-time events should work immediately
 					if (!isReady) return;
 
-					const deletedValidation = payload.old as { id?: number };
-					if (deletedValidation.id) {
+					const deletedValidation = payload.old;
+					if (deletedValidation && deletedValidation.id) {
 						setValidationHistory((prev) => prev.filter((v) => v.id !== deletedValidation.id));
 					}
 				}
@@ -698,19 +863,30 @@ export function DataProvider({ children }: { children: ReactNode }) {
 				}
 			)
 			.subscribe((status, err) => {
-				console.log('[Realtime] 📊 Subscription status changed:', {
-					status,
-					channelName,
-					userId: user?.id || 'anonymous',
-					error: err ? (typeof err === 'string' ? err : JSON.stringify(err)) : null,
-					timestamp: new Date().toISOString(),
-					channelState: channel.state
-				});
+				// Update subscription status ref for tracking
+				subscriptionStatusRef.current = status as typeof subscriptionStatusRef.current;
+				
+				if (process.env.NODE_ENV === 'development') {
+					console.log('[Realtime] 📊 Subscription status changed:', {
+						status,
+						channelName,
+						userId: user?.id || 'anonymous',
+						error: err ? (typeof err === 'string' ? err : JSON.stringify(err)) : null,
+						timestamp: new Date().toISOString(),
+						channelState: channel.state,
+						previousStatus: subscriptionStatusRef.current
+					});
+				}
 				
 				if (status === "SUBSCRIBED") {
 					// Only mark as active AFTER successful subscription
 					channelRef.current = channel;
 					subscriptionActiveRef.current = true;
+					subscriptionStatusRef.current = 'SUBSCRIBED';
+					isSubscribingRef.current = false; // Reset subscription flag
+					
+					// Reset reconnect attempts on successful subscription
+					reconnectAttemptsRef.current = 0;
 					
 					// Clear subscription timeout since we successfully subscribed
 					if (subscriptionTimeoutRef.current) {
@@ -718,12 +894,21 @@ export function DataProvider({ children }: { children: ReactNode }) {
 						subscriptionTimeoutRef.current = null;
 					}
 					
-					console.log('[Realtime] ✅ SUBSCRIBED - Real-time connection active!', {
-						channelName,
-						userId: user?.id || 'anonymous',
-						channelState: channel.state,
-						listeningTo: ['scans (INSERT/UPDATE/DELETE)', 'validation_history (INSERT/UPDATE/DELETE)', 'profiles (INSERT/DELETE)']
-					});
+					// Clear any pending reconnect timeout
+					if (reconnectTimeoutRef.current) {
+						clearTimeout(reconnectTimeoutRef.current);
+						reconnectTimeoutRef.current = null;
+					}
+					
+					if (process.env.NODE_ENV === 'development') {
+						console.log('[Realtime] ✅ SUBSCRIBED - Real-time connection active!', {
+							channelName: uniqueChannelName,
+							userId: user?.id || 'anonymous',
+							channelState: channel.state,
+							subscriptionStatus: subscriptionStatusRef.current,
+							listeningTo: ['scans (INSERT/UPDATE/DELETE)', 'validation_history (INSERT/UPDATE/DELETE)', 'profiles (INSERT/DELETE)']
+						});
+					}
 					
 					// Set up health check to monitor connection
 					if (healthCheckIntervalRef.current) {
@@ -732,22 +917,38 @@ export function DataProvider({ children }: { children: ReactNode }) {
 					healthCheckIntervalRef.current = setInterval(() => {
 						if (channelRef.current && subscriptionActiveRef.current) {
 							const channelState = channelRef.current.state;
-							console.log('[Realtime] 💓 Health check - Channel state:', channelState, {
-								channelName,
-								isActive: subscriptionActiveRef.current
-							});
+							if (process.env.NODE_ENV === 'development') {
+								console.log('[Realtime] 💓 Health check - Channel state:', channelState, {
+									channelName,
+									isActive: subscriptionActiveRef.current
+								});
+							}
 							
-							// If channel is closed or errored, try to reconnect
+							// If channel is closed or errored, trigger reconnection
 							if (channelState === 'closed' || channelState === 'errored') {
-								console.warn('[Realtime] ⚠️ Channel state is', channelState, '- subscription may need reconnection');
+								console.warn('[Realtime] ⚠️ Channel state is', channelState, '- triggering reconnection');
 								subscriptionActiveRef.current = false;
+								subscriptionStatusRef.current = null;
+								
+								// Trigger reconnection by clearing channel and letting useEffect recreate it
+								if (channelRef.current) {
+									supabase.removeChannel(channelRef.current);
+									channelRef.current = null;
+								}
+								
+								// Force re-render to trigger subscription setup
+								if (fetchDataRef.current) {
+									fetchDataRef.current(false);
+								}
 							}
 						}
-					}, 60000); // Check every 60 seconds
+					}, 30000); // Check every 30 seconds (more frequent for better reliability)
 				} else if (status === "CHANNEL_ERROR") {
+					subscriptionStatusRef.current = 'CHANNEL_ERROR';
+					isSubscribingRef.current = false; // Reset subscription flag on error
+					
 					// Improved error handling - extract error message from various possible formats
 					let errorMessage = "";
-					const shouldLogError = true;
 					
 					if (err) {
 						if (typeof err === "string") {
@@ -779,13 +980,66 @@ export function DataProvider({ children }: { children: ReactNode }) {
 						errorStr === "" ||
 						errorMessage === "";
 					
-					// Log errors for debugging
-					if (shouldLogError && !isConnectionError) {
+					// Check for binding mismatch error (this should be fixed by using separate events)
+					const isBindingMismatchError = 
+						errorStr.includes("mismatch") ||
+						errorStr.includes("binding") ||
+						errorStr.includes("server and client");
+					
+					// Log errors for debugging (but suppress connection errors and binding mismatch if already fixed)
+					if (!isConnectionError && !isBindingMismatchError) {
 						console.error('[Realtime] ❌ CHANNEL_ERROR:', errorMessage || "Connection issue", {
 							channelName,
 							userId: user?.id || 'anonymous',
-							error: err
+							error: err,
+							channelState: channel.state,
+							reconnectAttempt: reconnectAttemptsRef.current
 						});
+					} else if (isBindingMismatchError) {
+						// Binding mismatch - this can happen if channel configuration doesn't match
+						// Clean up completely and retry with a fresh channel
+						console.warn('[Realtime] ⚠️ Binding mismatch detected - cleaning up and will retry', {
+							channelName: uniqueChannelName,
+							userId: user?.id || 'anonymous',
+							note: 'This may indicate Realtime configuration issues. Ensuring clean channel setup.'
+						});
+						
+						// Clean up the errored channel immediately
+						try {
+							supabase.removeChannel(channel);
+						} catch (cleanupError) {
+							// Ignore cleanup errors
+						}
+						
+						// Reset all subscription state
+						subscriptionActiveRef.current = false;
+						subscriptionStatusRef.current = null;
+						isSubscribingRef.current = false;
+						if (channelRef.current === channel) {
+							channelRef.current = null;
+						}
+						
+						// Reset reconnect attempts to allow fresh retry
+						reconnectAttemptsRef.current = 0;
+						
+						// Clear any pending timeouts
+						if (subscriptionTimeoutRef.current) {
+							clearTimeout(subscriptionTimeoutRef.current);
+							subscriptionTimeoutRef.current = null;
+						}
+						if (reconnectTimeoutRef.current) {
+							clearTimeout(reconnectTimeoutRef.current);
+							reconnectTimeoutRef.current = null;
+						}
+						
+						// Trigger a refresh after a delay to allow Supabase to recover
+						// This will cause useEffect to retry with a fresh channel
+						setTimeout(() => {
+							if (fetchDataRef.current && initialFetched.current) {
+								fetchDataRef.current(false);
+							}
+						}, 3000); // Increased delay to ensure cleanup completes
+						return;
 					}
 					
 					// Check if error is related to Realtime not being enabled
@@ -796,47 +1050,139 @@ export function DataProvider({ children }: { children: ReactNode }) {
 								'ALTER PUBLICATION supabase_realtime ADD TABLE scans;',
 								'ALTER PUBLICATION supabase_realtime ADD TABLE validation_history;',
 								'ALTER PUBLICATION supabase_realtime ADD TABLE profiles;'
-							]
+							],
+							channelState: channel.state
+						});
+						// Don't attempt reconnection for configuration errors
+						subscriptionActiveRef.current = false;
+						subscriptionStatusRef.current = null;
+						isSubscribingRef.current = false;
+						return;
+					}
+					
+					// Attempt reconnection for recoverable errors (but not binding mismatch)
+					if (!isBindingMismatchError && reconnectAttemptsRef.current < maxReconnectAttempts) {
+						reconnectAttemptsRef.current += 1;
+						const reconnectDelay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current - 1), 10000);
+						
+						console.log('[Realtime] 🔄 Scheduling reconnection attempt', reconnectAttemptsRef.current, 'of', maxReconnectAttempts, 'in', reconnectDelay, 'ms');
+						
+						// Clean up current channel
+						try {
+							supabase.removeChannel(channel);
+						} catch (cleanupError) {
+							// Ignore cleanup errors
+						}
+						if (channelRef.current === channel) {
+							channelRef.current = null;
+						}
+						subscriptionActiveRef.current = false;
+						
+						// Schedule reconnection with a delay to avoid race conditions
+						reconnectTimeoutRef.current = setTimeout(() => {
+							reconnectTimeoutRef.current = null;
+							isSubscribingRef.current = false; // Reset flag before retry
+							// Force re-render to trigger subscription setup
+							if (fetchDataRef.current) {
+								fetchDataRef.current(false);
+							}
+						}, reconnectDelay);
+					} else {
+						// Max attempts reached - fallback to periodic refresh
+						console.warn('[Realtime] ⚠️ Max reconnection attempts reached, falling back to periodic refresh');
+						subscriptionActiveRef.current = false;
+						subscriptionStatusRef.current = null;
+						isSubscribingRef.current = false;
+						if (initialFetched.current && fetchDataRef.current) {
+							fetchDataRef.current(false);
+						}
+					}
+				} else if (status === "TIMED_OUT" || status === "CLOSED") {
+					subscriptionStatusRef.current = status;
+					isSubscribingRef.current = false; // Reset subscription flag
+					
+					// CLOSED status is often temporary - Supabase will attempt to reconnect automatically
+					// Only log warning for TIMED_OUT or if CLOSED persists
+					if (status === "TIMED_OUT") {
+						console.warn('[Realtime] ⚠️ Connection timed out:', {
+							channelName,
+							userId: user?.id || 'anonymous',
+							message: 'Attempting to reconnect...',
+							channelState: channel.state,
+							reconnectAttempt: reconnectAttemptsRef.current
+						});
+					} else if (process.env.NODE_ENV === 'development') {
+						// CLOSED is often temporary, only log in dev
+						console.log('[Realtime] 🔄 Connection closed - Supabase will auto-reconnect', {
+							channelName,
+							channelState: channel.state
 						});
 					}
 					
-					// Only mark as inactive if it's a real error (not just a connection close)
-					if (!isConnectionError) {
-						console.warn('[Realtime] ⚠️ Marking subscription as inactive due to error');
+					// For CLOSED, let Supabase handle auto-reconnection
+					// Only manually reconnect for TIMED_OUT or if we're not already reconnecting
+					if (status === "TIMED_OUT" && reconnectAttemptsRef.current < maxReconnectAttempts && !reconnectTimeoutRef.current) {
+						reconnectAttemptsRef.current += 1;
+						const reconnectDelay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current - 1), 10000);
+						
+						console.log('[Realtime] 🔄 Scheduling reconnection attempt', reconnectAttemptsRef.current, 'of', maxReconnectAttempts, 'in', reconnectDelay, 'ms');
+						
+						// Clean up current channel
+						try {
+							if (channelRef.current) {
+								supabase.removeChannel(channelRef.current);
+							}
+						} catch (cleanupError) {
+							// Ignore cleanup errors
+						}
+						channelRef.current = null;
 						subscriptionActiveRef.current = false;
-						// Fallback to periodic refresh if real-time fails
+						
+						// Refresh data immediately to ensure UI is up to date
 						if (initialFetched.current && fetchDataRef.current) {
-							console.log('[Realtime] 🔄 Triggering data refresh as fallback');
-							fetchDataRef.current();
+							fetchDataRef.current(false);
+						}
+						
+						// Schedule reconnection with delay
+						reconnectTimeoutRef.current = setTimeout(() => {
+							reconnectTimeoutRef.current = null;
+							isSubscribingRef.current = false; // Reset flag before retry
+							// Force re-render to trigger subscription setup
+							if (fetchDataRef.current) {
+								fetchDataRef.current(false);
+							}
+						}, reconnectDelay);
+					} else if (status === "CLOSED") {
+						// For CLOSED, don't immediately mark as inactive - let Supabase auto-reconnect
+						// Only mark inactive if it persists
+						if (channel.state === 'closed' && channelRef.current === channel) {
+							// Channel is closed and not recovering - mark inactive
+							subscriptionActiveRef.current = false;
+							// Supabase will attempt auto-reconnect, so don't block it
 						}
 					} else {
-						console.log('[Realtime] 🔄 Connection error detected, Supabase will auto-reconnect');
-					}
-					// For connection errors, let Supabase handle auto-reconnect
-				} else if (status === "TIMED_OUT" || status === "CLOSED") {
-					console.warn('[Realtime] ⚠️ Connection lost:', status, {
-						channelName,
-						userId: user?.id || 'anonymous',
-						message: 'Supabase will attempt to reconnect automatically'
-					});
-					// Connection lost - Supabase will attempt to reconnect automatically
-					subscriptionActiveRef.current = false;
-					// Refresh data when connection is lost to ensure we have latest data
-					if (initialFetched.current && fetchDataRef.current) {
-						console.log('[Realtime] 🔄 Refreshing data after connection loss');
-						fetchDataRef.current(false);
+						// Max attempts reached - fallback to periodic refresh
+						console.warn('[Realtime] ⚠️ Max reconnection attempts reached, falling back to periodic refresh');
+						subscriptionActiveRef.current = false;
+						subscriptionStatusRef.current = null;
+						if (initialFetched.current && fetchDataRef.current) {
+							fetchDataRef.current(false);
+						}
 					}
 				} else {
+					subscriptionStatusRef.current = status as typeof subscriptionStatusRef.current;
 					console.log('[Realtime] 📊 Subscription status:', status, {
 						channelName,
 						userId: user?.id || 'anonymous',
-						channelState: channel.state
+						channelState: channel.state,
+						subscriptionStatus: subscriptionStatusRef.current
 					});
 					
 					// If status is something unexpected and channel is not in good state, mark as inactive
 					if (channel.state === 'closed' || channel.state === 'errored') {
 						console.warn('[Realtime] ⚠️ Channel in bad state:', channel.state, '- marking as inactive');
 						subscriptionActiveRef.current = false;
+						subscriptionStatusRef.current = null;
 						if (channelRef.current === channel) {
 							channelRef.current = null;
 						}
@@ -850,44 +1196,100 @@ export function DataProvider({ children }: { children: ReactNode }) {
 				clearTimeout(subscriptionTimeoutRef.current);
 			}
 			subscriptionTimeoutRef.current = setTimeout(() => {
-				if (channelRef.current !== channel || channel.state !== 'joined') {
-					console.warn('[Realtime] ⚠️ Subscription timeout - channel not subscribed after 10 seconds', {
-						channelName,
+				// Check both channel state AND subscription status
+				// Only trigger timeout if channel is still the current one and not subscribed
+				if (channelRef.current === channel && subscriptionStatusRef.current !== 'SUBSCRIBED') {
+					isSubscribingRef.current = false; // Reset subscription flag on timeout
+					
+					console.warn('[Realtime] ⚠️ Subscription timeout - channel not fully subscribed after 20 seconds', {
+						channelName: uniqueChannelName,
 						channelState: channel.state,
-						hasChannelRef: channelRef.current === channel
+						subscriptionStatus: subscriptionStatusRef.current,
+						hasChannelRef: channelRef.current === channel,
+						expectedStatus: 'SUBSCRIBED',
+						note: 'This might be due to network issues or Supabase Realtime not being enabled. The app will continue with periodic refreshes.'
 					});
-					subscriptionActiveRef.current = false;
-					if (channelRef.current === channel) {
-						channelRef.current = null;
+					
+					// Only mark inactive if channel is definitely not joining
+					if (channel.state === 'closed' || channel.state === 'errored') {
+						subscriptionActiveRef.current = false;
+						subscriptionStatusRef.current = null;
+						
+						// Clean up the errored channel
+						try {
+							supabase.removeChannel(channel);
+						} catch (cleanupError) {
+							// Ignore cleanup errors
+						}
+						
+						if (channelRef.current === channel) {
+							channelRef.current = null;
+						}
+						
+						// Reset reconnect attempts to allow fresh retry
+						reconnectAttemptsRef.current = 0;
 					}
+					
 					// Try to refresh data as fallback
 					if (initialFetched.current && fetchDataRef.current) {
-						console.log('[Realtime] 🔄 Triggering data refresh as fallback after timeout');
+						if (process.env.NODE_ENV === 'development') {
+							console.log('[Realtime] 🔄 Triggering data refresh as fallback after timeout');
+						}
 						fetchDataRef.current(false);
 					}
 				}
 				subscriptionTimeoutRef.current = null;
-			}, 10000); // 10 second timeout
+			}, 20000); // 20 second timeout (increased to allow more time for subscription)
 			
 		} catch (error: unknown) {
+			isSubscribingRef.current = false; // Reset subscription flag on error
 			console.error('[Realtime] ❌ Error setting up real-time subscription:', error, {
-				channelName,
+				channelName: uniqueChannelName,
 				userId: user?.id || 'anonymous',
 				errorDetails: error instanceof Error ? error.message : String(error)
 			});
 			subscriptionActiveRef.current = false;
+			subscriptionStatusRef.current = null;
+			
+			// Clean up channel if it was created
+			if (channelRef.current === channel) {
+				try {
+					supabase.removeChannel(channel);
+				} catch (cleanupErr) {
+					// Ignore cleanup errors
+				}
+				channelRef.current = null;
+			}
+			
+			// Reset reconnect attempts to allow fresh retry
+			reconnectAttemptsRef.current = 0;
+			
+			// Clear any pending timeouts
+			if (subscriptionTimeoutRef.current) {
+				clearTimeout(subscriptionTimeoutRef.current);
+				subscriptionTimeoutRef.current = null;
+			}
+			if (reconnectTimeoutRef.current) {
+				clearTimeout(reconnectTimeoutRef.current);
+				reconnectTimeoutRef.current = null;
+			}
+			
 			// Fallback to periodic refresh
 			if (initialFetched.current && fetchDataRef.current) {
-				console.log('[Realtime] 🔄 Triggering data refresh as fallback after error');
+				if (process.env.NODE_ENV === 'development') {
+					console.log('[Realtime] 🔄 Triggering data refresh as fallback after error');
+				}
 				fetchDataRef.current();
 			}
 		}
 
 		return () => {
-			console.log('[Realtime] 🧹 Cleaning up subscription on unmount', {
-				channelName,
-				hasChannel: !!channelRef.current
-			});
+			if (process.env.NODE_ENV === 'development') {
+				console.log('[Realtime] 🧹 Cleaning up subscription on unmount', {
+					channelName,
+					hasChannel: !!channelRef.current
+				});
+			}
 			
 			// Clear initial fetch timeout if it exists
 			if (fetchTimeoutId) {
@@ -906,15 +1308,36 @@ export function DataProvider({ children }: { children: ReactNode }) {
 				subscriptionTimeoutRef.current = null;
 			}
 			
+			// Clear reconnect timeout if it exists
+			if (reconnectTimeoutRef.current) {
+				clearTimeout(reconnectTimeoutRef.current);
+				reconnectTimeoutRef.current = null;
+			}
+			
+			// Reset reconnect attempts and subscription flag
+			reconnectAttemptsRef.current = 0;
+			isSubscribingRef.current = false;
+			
+			// Clean up channel - ensure proper removal to prevent binding mismatch
 			if (channelRef.current) {
-				supabase.removeChannel(channelRef.current);
+				try {
+					supabase.removeChannel(channelRef.current);
+				} catch (cleanupErr) {
+					// Ignore cleanup errors - channel might already be removed
+					if (process.env.NODE_ENV === 'development') {
+						console.warn('[Realtime] Warning during channel cleanup on unmount:', cleanupErr);
+					}
+				}
 				channelRef.current = null;
 				subscriptionActiveRef.current = false;
-				console.log('[Realtime] ✅ Channel removed and subscription deactivated');
+				subscriptionStatusRef.current = null;
+				if (process.env.NODE_ENV === 'development') {
+					console.log('[Realtime] ✅ Channel removed and subscription deactivated');
+				}
 			}
 		};
 	// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [isReady, user?.id]); // Only depend on isReady and user.id - fetchData is accessed via ref to prevent loops
+	}, [isReady, user?.id, userLoading]); // Depend on isReady, user.id, and userLoading - fetchData is accessed via ref to prevent loops
 
 	// Removed visibility change listener - real-time subscriptions handle updates automatically
 	// This was causing notifications to only appear when tab became visible

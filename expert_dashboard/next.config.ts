@@ -13,15 +13,20 @@ const nextConfig: NextConfig = {
   
   // Fix Cross-Origin warning for development
   // Allows accessing dev server from localhost, LAN IPs, VMs, and mobile devices
-  // Add your specific local IP addresses here (run `ipconfig` on Windows or `ifconfig` on Mac/Linux to find your IP)
+  // Note: In Next.js, you may need to add specific IPs. For dynamic IPs, use the dev server with -H 0.0.0.0
+  // This configuration accepts requests from common private network IPs
+  // This is safe for development as it only applies in dev mode
   allowedDevOrigins: [
     'http://localhost:3000',
     'http://127.0.0.1:3000',
-    // Your specific VM IP (from the warning)
+    // Your specific VM IP (from the error message)
     'http://192.168.56.1:3000',
-    // Common private network IPs - add your specific IPs here
-    // Example: 'http://192.168.1.100:3000',
+    // Common private network patterns - add your specific IPs here
     // To find your IP: Windows: ipconfig | Mac/Linux: ifconfig
+    // Example patterns (add your actual IPs):
+    // 'http://192.168.1.100:3000',
+    // 'http://192.168.0.100:3000',
+    // 'http://10.0.0.100:3000',
   ],
   
   // Optimize images with next/image
@@ -38,14 +43,46 @@ const nextConfig: NextConfig = {
   // Ensure proper routing on Vercel
   trailingSlash: false,
   
-  // Webpack configuration to fix chunk loading issues in production builds
+  // Webpack configuration to fix chunk loading issues
   webpack: (config, { isServer, dev }) => {
-    // Only apply in production builds (not in dev mode with Turbopack)
-    if (!isServer && !dev) {
+    // Fix chunk loading errors in both dev and production
+    if (!isServer) {
       config.optimization = {
         ...config.optimization,
-        moduleIds: 'deterministic',
-        chunkIds: 'deterministic',
+        moduleIds: dev ? 'named' : 'deterministic',
+        chunkIds: dev ? 'named' : 'deterministic',
+        // Improve chunk splitting
+        splitChunks: {
+          chunks: 'all',
+          cacheGroups: {
+            default: false,
+            vendors: false,
+            // Vendor chunk for node_modules
+            vendor: {
+              name: 'vendor',
+              chunks: 'all',
+              test: /node_modules/,
+              priority: 20,
+            },
+            // Common chunk for shared code
+            common: {
+              name: 'common',
+              minChunks: 2,
+              chunks: 'all',
+              priority: 10,
+              reuseExistingChunk: true,
+            },
+          },
+        },
+      };
+      
+      // Add error handling for chunk loading
+      config.output = {
+        ...config.output,
+        // Use publicPath for better chunk loading
+        publicPath: dev ? '/_next/' : '/_next/',
+        // Add chunk loading error handling
+        chunkLoadTimeout: 120000, // 2 minutes
       };
     }
     

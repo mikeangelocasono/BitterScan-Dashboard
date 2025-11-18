@@ -68,14 +68,19 @@ export const supabase = (() => {
 				params: {
 					eventsPerSecond: 10,
 				},
-				// Enable automatic reconnection
-				heartbeatIntervalMs: 30000, // 30 seconds
+				// Enable automatic reconnection with improved settings
+				heartbeatIntervalMs: 30000, // 30 seconds - keep connection alive
 				reconnectAfterMs: (tries: number) => {
-					// Exponential backoff: 1s, 2s, 4s, 8s, max 10s
-					const delay = Math.min(1000 * Math.pow(2, tries), 10000);
-					console.log('[Realtime] 🔄 Reconnecting in', delay, 'ms (attempt', tries + 1, ')');
+					// Exponential backoff: 1s, 2s, 4s, 8s, max 30s
+					// More aggressive reconnection for better reliability
+					const delay = Math.min(1000 * Math.pow(2, tries), 30000);
+					if (process.env.NODE_ENV === 'development') {
+						console.log('[Realtime] 🔄 Reconnecting in', delay, 'ms (attempt', tries + 1, ')');
+					}
 					return delay;
 				},
+				// Timeout settings for better connection stability
+				timeout: 20000, // 20 seconds timeout for operations
 			},
 		}
 	);

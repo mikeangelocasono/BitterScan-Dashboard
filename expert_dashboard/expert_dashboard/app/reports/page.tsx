@@ -1,13 +1,12 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { useMemo, useState, useCallback, useEffect } from "react";
+import { useMemo, useState, useCallback } from "react";
 import AppShell from "@/components/AppShell";
 import AuthGuard from "@/components/AuthGuard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Loader2, AlertCircle, TrendingUp, Camera, CheckCircle2, Download, Calendar } from "lucide-react";
-import { supabase } from "@/components/supabase";
 import {
   LineChart,
   Line,
@@ -112,8 +111,16 @@ function getRangeEnd(range: Range, customEnd?: Date) {
     return end;
   }
   const end = new Date();
+  // For daily, weekly, and monthly, ensure we include the entire end day
   if (range === "daily") {
     end.setHours(23, 59, 59, 999);
+  } else if (range === "weekly" || range === "monthly") {
+    // For weekly and monthly, end is current time (already set above)
+    // But ensure we don't go beyond current time
+    const now = new Date();
+    if (end > now) {
+      return now;
+    }
   }
   return end;
 }
@@ -311,91 +318,102 @@ export default function ReportsPage() {
   const [customStartDate, setCustomStartDate] = useState<string>("");
   const [customEndDate, setCustomEndDate] = useState<string>("");
   const [showCustomPicker, setShowCustomPicker] = useState(false);
-  const [totalScansCount, setTotalScansCount] = useState<number>(0);
-  const [totalScansLoading, setTotalScansLoading] = useState<boolean>(true);
 
-  // Fetch total scans count from Supabase on page load
-  useEffect(() => {
-    let isMounted = true;
-
-    const fetchTotalScans = async () => {
-      try {
-        setTotalScansLoading(true);
-        // Fetch total count from Supabase using count query
-        const { count, error: countError } = await supabase
-          .from("scans")
-          .select("*", { count: "exact", head: true });
-
-        if (!isMounted) return;
-
-        if (countError) {
-          console.error("Error fetching total scans count:", countError);
-          // Fallback to scans.length if count query fails
-          setTotalScansCount(scans?.length || 0);
-        } else {
-          setTotalScansCount(count || 0);
-        }
-      } catch (err) {
-        if (!isMounted) return;
-        console.error("Error fetching total scans:", err);
-        // Fallback to scans.length on error
-        setTotalScansCount(scans?.length || 0);
-      } finally {
-        if (isMounted) {
-          setTotalScansLoading(false);
-        }
-      }
-    };
-
-    // Only fetch if not loading (data is ready)
-    if (!loading) {
-      fetchTotalScans();
-    }
-
-    return () => {
-      isMounted = false;
-    };
-  }, [loading, scans?.length]);
-
+  // Calculate date range start - updates when range or customStartDate changes
   const rangeStart = useMemo(() => {
     try {
       const customStart = customStartDate ? new Date(customStartDate) : undefined;
-      return getRangeStart(range, customStart);
-    } catch {
+      // Validate custom start date
+      if (range === "custom" && customStart && isNaN(customStart.getTime())) {
+        throw new Error("Invalid custom start date");
+      }
+      const start = getRangeStart(range, customStart);
+      return start;
+    } catch (error) {
+      console.error('[Reports] Error calculating rangeStart:', error);
       // Fallback to daily if date parsing fails
       return normalizeToStartOfDay(new Date());
     }
   }, [range, customStartDate]);
   
+  // Calculate date range end - updates when range or customEndDate changes
   const rangeEnd = useMemo(() => {
     try {
       const customEnd = customEndDate ? new Date(customEndDate) : undefined;
-      return getRangeEnd(range, customEnd);
-    } catch {
+      // Validate custom end date
+      if (range === "custom" && customEnd) {
+        if (isNaN(customEnd.getTime())) {
+          throw new Error("Invalid custom end date");
+        }
+        // Ensure end date is not before start date
+        if (customStartDate) {
+          const customStart = new Date(customStartDate);
+          if (customEnd < customStart) {
+            // If end is before start, use start date as end date
+            const end = new Date(customStart);
+            end.setHours(23, 59, 59, 999);
+            return end;
+          }
+        }
+      }
+      const end = getRangeEnd(range, customEnd);
+      return end;
+    } catch (error) {
+      console.error('[Reports] Error calculating rangeEnd:', error);
       // Fallback to current time if date parsing fails
       return new Date();
     }
-  }, [range, customEndDate]);
+  }, [range, customEndDate, customStartDate]);
 
+  // Filter scans based on selected date range
+  // This memoized value automatically updates when range, custom dates, or scans change
+  // Total Scans count is derived from filteredScans.length, ensuring accurate counts per filter
   const filteredScans = useMemo(() => {
-    if (!scans || scans.length === 0) return [];
+    if (!scans || scans.length === 0) {
+      return [];
+    }
     
-    return scans.filter((scan) => {
+    // Convert rangeStart and rangeEnd to timestamps for precise comparison
+    const startTime = rangeStart.getTime();
+    const endTime = rangeEnd.getTime();
+    
+    // Ensure valid date range
+    if (startTime > endTime) {
+      return [];
+    }
+    
+    const filtered = scans.filter((scan) => {
       if (!scan.created_at) return false;
       try {
         const createdAt = new Date(scan.created_at);
         // Ensure valid date
         if (isNaN(createdAt.getTime())) return false;
-        // Compare dates properly (rangeStart is start of day, rangeEnd is end of day or current time)
-        return createdAt >= rangeStart && createdAt <= rangeEnd;
+        
+        // Use timestamp comparison for precise filtering
+        const scanTime = createdAt.getTime();
+        // Include scans that fall within the range (inclusive of both boundaries)
+        return scanTime >= startTime && scanTime <= endTime;
       } catch {
         return false;
       }
     });
+    
+    return filtered;
   }, [scans, rangeStart, rangeEnd]);
 
+  // Filter validation history based on selected date range
+  // This ensures validation activity charts show data for the correct time period
   const filteredValidations = useMemo(() => {
     if (!validationHistory || validationHistory.length === 0) return [];
+    
+    // Convert rangeStart and rangeEnd to timestamps for precise comparison
+    const startTime = rangeStart.getTime();
+    const endTime = rangeEnd.getTime();
+    
+    // Ensure valid date range
+    if (startTime > endTime) {
+      return [];
+    }
     
     return validationHistory.filter((record) => {
       if (!record.validated_at) return false;
@@ -403,8 +421,11 @@ export default function ReportsPage() {
         const validatedAt = new Date(record.validated_at);
         // Ensure valid date
         if (isNaN(validatedAt.getTime())) return false;
-        // Compare dates properly
-        return validatedAt >= rangeStart && validatedAt <= rangeEnd;
+        
+        // Use timestamp comparison for precise filtering
+        const validationTime = validatedAt.getTime();
+        // Include validations that fall within the range (inclusive of both boundaries)
+        return validationTime >= startTime && validationTime <= endTime;
       } catch {
         return false;
       }
@@ -508,6 +529,12 @@ export default function ReportsPage() {
       name,
       value: counts[name as keyof typeof counts] || 0,
     }));
+  }, [filteredScans]);
+
+  // Calculate Total Scans count - this updates automatically when filteredScans changes
+  // Using filteredScans directly (not just length) to ensure React detects array changes
+  const totalScansCount = useMemo(() => {
+    return filteredScans.length;
   }, [filteredScans]);
 
   // CSV Export function
@@ -929,45 +956,48 @@ export default function ReportsPage() {
             </div>
           </div>
 
+          {/* Metrics cards - Total Scans updates automatically based on filteredScans.length */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[
-              {
-                icon: TrendingUp,
-                label: "AI Accuracy Rate",
-                value: `${aiAccuracyRate}%`,
-                color: "text-emerald-600",
-                bgColor: "bg-emerald-50",
-              },
-              {
-                icon: Camera,
-                label: "Total Scans",
-                value: totalScansLoading ? "..." : totalScansCount.toLocaleString("en-US"),
-                color: "text-green-600",
-                bgColor: "bg-green-50",
-              },
-              {
-                icon: CheckCircle2,
-                label: "Total Validated",
-                value: validatedScansCount.toLocaleString("en-US"),
-                color: "text-green-600",
-                bgColor: "bg-green-50",
-              },
-            ].map((metric, idx) => {
-              const Icon = metric.icon;
-              return (
-                <Card key={idx} className="shadow-sm hover:shadow-lg transition-all duration-200 border border-gray-200">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base font-semibold text-gray-700">{metric.label}</CardTitle>
-                  </CardHeader>
-                  <CardContent className="flex items-center justify-between pt-0">
-                    <p className="text-4xl font-bold text-gray-900">{metric.value}</p>
-                    <div className={`${metric.bgColor} p-3 rounded-lg`}>
-                      <Icon className={`h-6 w-6 ${metric.color} flex-shrink-0`} />
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
+            {/* AI Accuracy Rate Card */}
+            <Card key="ai-accuracy" className="shadow-sm hover:shadow-lg transition-all duration-200 border border-gray-200">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base font-semibold text-gray-700">AI Accuracy Rate</CardTitle>
+              </CardHeader>
+              <CardContent className="flex items-center justify-between pt-0">
+                <p className="text-4xl font-bold text-gray-900">{aiAccuracyRate}%</p>
+                <div className="bg-emerald-50 p-3 rounded-lg">
+                  <TrendingUp className="h-6 w-6 text-emerald-600 flex-shrink-0" />
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Total Scans Card - Directly uses filteredScans.length to ensure it updates */}
+            <Card key={`total-scans-${range}-${totalScansCount}`} className="shadow-sm hover:shadow-lg transition-all duration-200 border border-gray-200">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base font-semibold text-gray-700">Total Scans</CardTitle>
+              </CardHeader>
+              <CardContent className="flex items-center justify-between pt-0">
+                <p className="text-4xl font-bold text-gray-900">
+                  {totalScansCount.toLocaleString("en-US")}
+                </p>
+                <div className="bg-green-50 p-3 rounded-lg">
+                  <Camera className="h-6 w-6 text-green-600 flex-shrink-0" />
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Total Validated Card */}
+            <Card key="total-validated" className="shadow-sm hover:shadow-lg transition-all duration-200 border border-gray-200">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base font-semibold text-gray-700">Total Validated</CardTitle>
+              </CardHeader>
+              <CardContent className="flex items-center justify-between pt-0">
+                <p className="text-4xl font-bold text-gray-900">{validatedScansCount.toLocaleString("en-US")}</p>
+                <div className="bg-green-50 p-3 rounded-lg">
+                  <CheckCircle2 className="h-6 w-6 text-green-600 flex-shrink-0" />
+                </div>
+              </CardContent>
+            </Card>
           </div>
 
           <ChartCard title={`AI Accuracy Rate • ${RANGE_LABELS[range]}`}>

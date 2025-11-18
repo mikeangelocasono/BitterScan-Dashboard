@@ -68,6 +68,13 @@ export const supabase = (() => {
 				params: {
 					eventsPerSecond: 10,
 				},
+				// Enable heartbeat to keep connection alive
+				heartbeatIntervalMs: 30000, // 30 seconds
+				// Enable reconnect with exponential backoff
+				reconnectAfterMs: (tries: number) => {
+					// Exponential backoff: 1s, 2s, 4s, 8s, max 10s
+					return Math.min(1000 * Math.pow(2, tries), 10000);
+				},
 			},
 		}
 	);

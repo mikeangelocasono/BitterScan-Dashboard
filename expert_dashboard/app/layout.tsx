@@ -6,6 +6,7 @@ import { DataProvider } from "@/components/DataContext";
 import { NotificationProvider } from "@/components/NotificationContext";
 import { Toaster } from "@/components/Toaster";
 import ErrorBoundaryWrapper from "@/components/ErrorBoundaryWrapper";
+import ChunkErrorHandler from "@/components/ChunkErrorHandler";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -29,6 +30,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${inter.variable} antialiased bg-[var(--background)]`} style={{ fontFamily: 'var(--font-inter), ui-sans-serif, system-ui, sans-serif' }}>
+        <ChunkErrorHandler />
         <ErrorBoundaryWrapper>
           <UserProvider>
             <DataProvider>

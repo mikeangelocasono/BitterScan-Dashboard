@@ -311,56 +311,38 @@ export default function ReportsPage() {
   const [customStartDate, setCustomStartDate] = useState<string>("");
   const [customEndDate, setCustomEndDate] = useState<string>("");
   const [showCustomPicker, setShowCustomPicker] = useState(false);
-  const [totalScansCount, setTotalScansCount] = useState<number>(0);
-  const [totalScansLoading, setTotalScansLoading] = useState<boolean>(true);
 
-  // Fetch total scans count from Supabase on page load
+  // Validate custom date range
   useEffect(() => {
-    let isMounted = true;
-
-    const fetchTotalScans = async () => {
-      try {
-        setTotalScansLoading(true);
-        // Fetch total count from Supabase using count query
-        const { count, error: countError } = await supabase
-          .from("scans")
-          .select("*", { count: "exact", head: true });
-
-        if (!isMounted) return;
-
-        if (countError) {
-          console.error("Error fetching total scans count:", countError);
-          // Fallback to scans.length if count query fails
-          setTotalScansCount(scans?.length || 0);
-        } else {
-          setTotalScansCount(count || 0);
-        }
-      } catch (err) {
-        if (!isMounted) return;
-        console.error("Error fetching total scans:", err);
-        // Fallback to scans.length on error
-        setTotalScansCount(scans?.length || 0);
-      } finally {
-        if (isMounted) {
-          setTotalScansLoading(false);
-        }
+    if (range === "custom" && customStartDate && customEndDate) {
+      const start = new Date(customStartDate);
+      const end = new Date(customEndDate);
+      const today = new Date().toISOString().split('T')[0];
+      
+      // Ensure dates are not in the future
+      if (customEndDate > today) {
+        setCustomEndDate(today);
+        return;
       }
-    };
-
-    // Only fetch if not loading (data is ready)
-    if (!loading) {
-      fetchTotalScans();
+      
+      // Swap dates if start is after end (only if both dates are valid)
+      if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && start > end) {
+        const temp = customStartDate;
+        setCustomStartDate(customEndDate);
+        setCustomEndDate(temp);
+      }
     }
-
-    return () => {
-      isMounted = false;
-    };
-  }, [loading, scans?.length]);
+  }, [range, customStartDate, customEndDate]);
 
   const rangeStart = useMemo(() => {
     try {
-      const customStart = customStartDate ? new Date(customStartDate) : undefined;
-      return getRangeStart(range, customStart);
+      if (range === "custom" && customStartDate) {
+        const customStart = new Date(customStartDate);
+        if (!isNaN(customStart.getTime())) {
+          return getRangeStart(range, customStart);
+        }
+      }
+      return getRangeStart(range);
     } catch {
       // Fallback to daily if date parsing fails
       return normalizeToStartOfDay(new Date());
@@ -369,13 +351,34 @@ export default function ReportsPage() {
   
   const rangeEnd = useMemo(() => {
     try {
-      const customEnd = customEndDate ? new Date(customEndDate) : undefined;
-      return getRangeEnd(range, customEnd);
+      if (range === "custom" && customEndDate) {
+        const customEnd = new Date(customEndDate);
+        if (!isNaN(customEnd.getTime())) {
+          return getRangeEnd(range, customEnd);
+        }
+      }
+      return getRangeEnd(range);
     } catch {
       // Fallback to current time if date parsing fails
       return new Date();
     }
   }, [range, customEndDate]);
+
+  // Format date range for display
+  const dateRangeLabel = useMemo(() => {
+    if (range === "custom" && customStartDate && customEndDate) {
+      try {
+        const start = new Date(customStartDate);
+        const end = new Date(customEndDate);
+        const startFormatted = start.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+        const endFormatted = end.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+        return `${startFormatted} - ${endFormatted}`;
+      } catch {
+        return RANGE_LABELS[range];
+      }
+    }
+    return RANGE_LABELS[range];
+  }, [range, customStartDate, customEndDate]);
 
   const filteredScans = useMemo(() => {
     if (!scans || scans.length === 0) return [];
@@ -393,6 +396,11 @@ export default function ReportsPage() {
       }
     });
   }, [scans, rangeStart, rangeEnd]);
+
+  // Calculate total scans count from filtered data (not all-time)
+  const totalScansCount = useMemo(() => {
+    return filteredScans.length;
+  }, [filteredScans]);
 
   const filteredValidations = useMemo(() => {
     if (!validationHistory || validationHistory.length === 0) return [];
@@ -514,6 +522,8 @@ export default function ReportsPage() {
   const generateCSV = useCallback(() => {
     const headers = [
       "Date Range",
+      "Start Date",
+      "End Date",
       "Total Scans",
       "Total Validated",
       "AI Accuracy Rate (%)",
@@ -539,8 +549,13 @@ export default function ReportsPage() {
       return acc;
     }, {} as Record<string, number>);
 
+    const startDateStr = rangeStart.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    const endDateStr = rangeEnd.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+
     const row = [
-      RANGE_LABELS[range],
+      dateRangeLabel,
+      startDateStr,
+      endDateStr,
       filteredScans.length,
       validatedScansCount,
       aiAccuracyRate.toFixed(1),
@@ -556,13 +571,15 @@ export default function ReportsPage() {
       ripenessCounts["Overripe"] || 0,
     ];
 
-    const csvContent = [
+    // Add BOM for UTF-8 to ensure proper Excel compatibility
+    const BOM = '\uFEFF';
+    const csvContent = BOM + [
       headers.join(","),
-      row.map((cell) => `"${cell}"`).join(","),
+      row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","),
     ].join("\n");
 
     return csvContent;
-  }, [range, filteredScans, validatedScansCount, aiAccuracyRate, diseaseDistribution, ripenessDistribution]);
+  }, [range, dateRangeLabel, rangeStart, rangeEnd, filteredScans, validatedScansCount, aiAccuracyRate, diseaseDistribution, ripenessDistribution]);
 
   const downloadCSV = useCallback((csvContent: string) => {
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
@@ -598,134 +615,271 @@ export default function ReportsPage() {
       return acc;
     }, {} as Record<string, number>);
 
+    // Format dates for display
+    const startDateStr = rangeStart.toLocaleDateString("en-US", { 
+      month: "long", 
+      day: "numeric", 
+      year: "numeric" 
+    });
+    const endDateStr = rangeEnd.toLocaleDateString("en-US", { 
+      month: "long", 
+      day: "numeric", 
+      year: "numeric" 
+    });
+    const generatedDate = new Date().toLocaleDateString("en-US", { 
+      month: "long", 
+      day: "numeric", 
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit"
+    });
+
     // Build scans trend table
-    const scansTrendRows = scansTrend.map(item => 
-      `<tr><td>${item.period}</td><td>${item.scans}</td></tr>`
-    ).join('');
+    const scansTrendRows = scansTrend.length > 0 
+      ? scansTrend.map(item => 
+          `<tr>
+            <td style="padding: 8px; border: 1px solid #ddd;">${item.period}</td>
+            <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${item.scans.toLocaleString()}</td>
+          </tr>`
+        ).join('')
+      : '<tr><td colspan="2" style="padding: 8px; text-align: center; color: #666;">No data available</td></tr>';
 
     // Build validation activity table
-    const validationActivityRows = validationActivity.map(item => 
-      `<tr><td>${item.period}</td><td>${item.validated}</td><td>${item.corrected}</td></tr>`
-    ).join('');
+    const validationActivityRows = validationActivity.length > 0
+      ? validationActivity.map(item => 
+          `<tr>
+            <td style="padding: 8px; border: 1px solid #ddd;">${item.period}</td>
+            <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${item.validated.toLocaleString()}</td>
+            <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${item.corrected.toLocaleString()}</td>
+          </tr>`
+        ).join('')
+      : '<tr><td colspan="3" style="padding: 8px; text-align: center; color: #666;">No data available</td></tr>';
+
+    // Calculate percentages for disease distribution
+    const totalDiseaseScans = diseaseDistribution.reduce((sum, item) => sum + item.value, 0);
+    const diseaseRows = diseaseDistribution.map(item => {
+      const percentage = totalDiseaseScans > 0 ? ((item.value / totalDiseaseScans) * 100).toFixed(1) : "0.0";
+      return `<tr>
+        <td style="padding: 8px; border: 1px solid #ddd;">${item.name}</td>
+        <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${item.value.toLocaleString()}</td>
+        <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${percentage}%</td>
+      </tr>`;
+    }).join('');
+
+    // Calculate percentages for ripeness distribution
+    const totalRipenessScans = ripenessDistribution.reduce((sum, item) => sum + item.value, 0);
+    const ripenessRows = ripenessDistribution.map(item => {
+      const percentage = totalRipenessScans > 0 ? ((item.value / totalRipenessScans) * 100).toFixed(1) : "0.0";
+      return `<tr>
+        <td style="padding: 8px; border: 1px solid #ddd;">${item.name}</td>
+        <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${item.value.toLocaleString()}</td>
+        <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${percentage}%</td>
+      </tr>`;
+    }).join('');
 
     const htmlContent = `
       <!DOCTYPE html>
       <html>
         <head>
-          <title>BitterScan Report - ${RANGE_LABELS[range]}</title>
+          <title>BitterScan Analytics Report - ${dateRangeLabel}</title>
           <meta charset="UTF-8">
           <style>
-            * { color: #000000 !important; }
-            body { 
-              font-family: Arial, sans-serif; 
-              padding: 20px; 
-              color: #000000; 
-              background: #ffffff;
+            * { 
+              margin: 0;
+              padding: 0;
+              box-sizing: border-box;
             }
-            h1 { 
-              color: #000000 !important; 
-              border-bottom: 2px solid #000000; 
-              padding-bottom: 10px; 
-              margin-bottom: 20px;
-              font-size: 24px;
+            body { 
+              font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+              padding: 40px 30px; 
+              color: #1a1a1a; 
+              background: #ffffff;
+              line-height: 1.6;
+            }
+            .header {
+              border-bottom: 3px solid #388E3C;
+              padding-bottom: 20px;
+              margin-bottom: 30px;
+            }
+            .header h1 {
+              color: #388E3C;
+              font-size: 32px;
+              font-weight: 700;
+              margin-bottom: 10px;
+            }
+            .header .subtitle {
+              color: #666;
+              font-size: 14px;
+              margin-top: 5px;
+            }
+            .report-info {
+              background: #f8f9fa;
+              padding: 15px 20px;
+              border-radius: 6px;
+              margin-bottom: 30px;
+              border-left: 4px solid #388E3C;
+            }
+            .report-info p {
+              margin: 5px 0;
+              color: #333;
+              font-size: 14px;
+            }
+            .report-info strong {
+              color: #1a1a1a;
+              font-weight: 600;
             }
             h2 { 
-              color: #000000 !important; 
-              margin-top: 30px; 
-              margin-bottom: 15px;
-              font-size: 18px;
-              border-bottom: 1px solid #cccccc;
-              padding-bottom: 5px;
+              color: #388E3C; 
+              margin-top: 35px; 
+              margin-bottom: 18px;
+              font-size: 20px;
+              font-weight: 600;
+              border-bottom: 2px solid #e0e0e0;
+              padding-bottom: 8px;
             }
-            p { color: #000000 !important; margin: 8px 0; }
+            .metrics-grid {
+              display: grid;
+              grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+              gap: 20px;
+              margin: 25px 0;
+            }
+            .metric-card {
+              background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+              border: 2px solid #e0e0e0;
+              border-radius: 8px;
+              padding: 20px;
+              text-align: center;
+              box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            }
+            .metric-label {
+              font-size: 13px;
+              color: #666;
+              font-weight: 500;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              margin-bottom: 10px;
+            }
+            .metric-value {
+              font-size: 36px;
+              font-weight: 700;
+              color: #388E3C;
+              line-height: 1.2;
+            }
             table { 
               width: 100%; 
               border-collapse: collapse; 
-              margin: 20px 0; 
+              margin: 25px 0;
               page-break-inside: avoid;
-            }
-            th, td { 
-              border: 1px solid #000000; 
-              padding: 10px; 
-              text-align: left; 
-              color: #000000 !important;
+              box-shadow: 0 1px 3px rgba(0,0,0,0.1);
             }
             th { 
-              background-color: #f0f0f0 !important; 
-              color: #000000 !important; 
-              font-weight: bold;
+              background: linear-gradient(135deg, #388E3C 0%, #2F7A33 100%);
+              color: #ffffff;
+              padding: 12px 15px;
+              text-align: left;
+              font-weight: 600;
+              font-size: 13px;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            th:last-child {
+              text-align: right;
+            }
+            td { 
+              border: 1px solid #e0e0e0;
+              padding: 10px 15px;
+              color: #333;
+              font-size: 14px;
             }
             tr:nth-child(even) { 
-              background-color: #f9f9f9; 
+              background-color: #f8f9fa;
             }
-            .metric-container {
-              display: flex;
-              flex-wrap: wrap;
-              gap: 30px;
-              margin: 20px 0;
-            }
-            .metric { 
-              display: inline-block; 
-              margin: 10px 0;
-              padding: 15px;
-              border: 1px solid #000000;
-              min-width: 150px;
-            }
-            .metric-label { 
-              font-weight: bold; 
-              color: #000000 !important; 
-              font-size: 14px;
-              margin-bottom: 5px;
-            }
-            .metric-value { 
-              font-size: 28px; 
-              color: #000000 !important; 
-              font-weight: bold;
+            tr:hover {
+              background-color: #f0f7f1;
             }
             .section {
-              margin-bottom: 30px;
+              margin-bottom: 40px;
               page-break-inside: avoid;
             }
+            .section:last-child {
+              margin-bottom: 0;
+            }
+            .footer {
+              margin-top: 50px;
+              padding-top: 20px;
+              border-top: 1px solid #e0e0e0;
+              text-align: center;
+              color: #666;
+              font-size: 12px;
+            }
             @media print { 
-              body { margin: 0; padding: 15px; }
-              .no-print { display: none; }
-              @page { margin: 1cm; }
+              body { 
+                margin: 0; 
+                padding: 20px 15px;
+              }
+              .no-print { 
+                display: none; 
+              }
+              @page { 
+                margin: 1.5cm;
+                size: A4;
+              }
+              h2 {
+                page-break-after: avoid;
+              }
+              .section {
+                page-break-inside: avoid;
+              }
             }
           </style>
         </head>
         <body>
-          <h1>BitterScan Analytics Report</h1>
-          <div class="section">
-            <p><strong>Date Range:</strong> ${RANGE_LABELS[range]}</p>
-            <p><strong>Generated:</strong> ${new Date().toLocaleString()}</p>
+          <div class="header">
+            <h1>BitterScan Analytics Report</h1>
+            <div class="subtitle">Comprehensive Insights into Scan Activity and AI Performance</div>
+          </div>
+
+          <div class="report-info">
+            <p><strong>Report Period:</strong> ${dateRangeLabel}</p>
+            <p><strong>Date Range:</strong> ${startDateStr} to ${endDateStr}</p>
+            <p><strong>Generated On:</strong> ${generatedDate}</p>
           </div>
           
           <div class="section">
-            <h2>Summary Metrics</h2>
-            <div class="metric-container">
-              <div class="metric">
+            <h2>Executive Summary</h2>
+            <div class="metrics-grid">
+              <div class="metric-card">
                 <div class="metric-label">Total Scans</div>
                 <div class="metric-value">${filteredScans.length.toLocaleString()}</div>
               </div>
-              <div class="metric">
+              <div class="metric-card">
                 <div class="metric-label">Total Validated</div>
                 <div class="metric-value">${validatedScansCount.toLocaleString()}</div>
               </div>
-              <div class="metric">
+              <div class="metric-card">
                 <div class="metric-label">AI Accuracy Rate</div>
                 <div class="metric-value">${aiAccuracyRate.toFixed(1)}%</div>
               </div>
             </div>
+            <p style="margin-top: 20px; color: #555; font-size: 14px; line-height: 1.8;">
+              This report provides a comprehensive analysis of scan activity and AI performance metrics 
+              for the selected time period. The data includes all scan types (leaf disease detection 
+              and fruit maturity assessment) processed through the BitterScan system.
+            </p>
           </div>
 
           ${scansTrend.length > 0 ? `
           <div class="section">
-            <h2>Scans Trend - ${RANGE_LABELS[range]}</h2>
+            <h2>Scans Trend Analysis</h2>
+            <p style="margin-bottom: 15px; color: #555; font-size: 14px;">
+              The following table shows the distribution of scans across the selected time period, 
+              providing insights into scan activity patterns.
+            </p>
             <table>
               <thead>
                 <tr>
                   <th>Period</th>
-                  <th>Number of Scans</th>
+                  <th style="text-align: right;">Number of Scans</th>
                 </tr>
               </thead>
               <tbody>
@@ -737,13 +891,17 @@ export default function ReportsPage() {
 
           ${validationActivity.length > 0 ? `
           <div class="section">
-            <h2>Validation Activity - ${RANGE_LABELS[range]}</h2>
+            <h2>Validation Activity</h2>
+            <p style="margin-bottom: 15px; color: #555; font-size: 14px;">
+              This section tracks expert validation activities, showing the number of scans that 
+              were validated as correct versus those that required correction.
+            </p>
             <table>
               <thead>
                 <tr>
                   <th>Period</th>
-                  <th>Validated</th>
-                  <th>Corrected</th>
+                  <th style="text-align: right;">Validated</th>
+                  <th style="text-align: right;">Corrected</th>
                 </tr>
               </thead>
               <tbody>
@@ -754,49 +912,55 @@ export default function ReportsPage() {
           ` : ''}
 
           <div class="section">
-            <h2>Disease Distribution</h2>
+            <h2>Disease Distribution Analysis</h2>
+            <p style="margin-bottom: 15px; color: #555; font-size: 14px;">
+              Distribution of leaf disease detection results across all disease types identified 
+              during the selected period.
+            </p>
             <table>
               <thead>
                 <tr>
                   <th>Disease Type</th>
-                  <th>Count</th>
+                  <th style="text-align: right;">Count</th>
+                  <th style="text-align: right;">Percentage</th>
                 </tr>
               </thead>
               <tbody>
-                <tr><td>Cercospora</td><td>${diseaseCounts["Cercospora"] || 0}</td></tr>
-                <tr><td>Yellow Mosaic Virus</td><td>${diseaseCounts["Yellow Mosaic Virus"] || 0}</td></tr>
-                <tr><td>Healthy</td><td>${diseaseCounts["Healthy"] || 0}</td></tr>
-                <tr><td>Unknown</td><td>${diseaseCounts["Unknown"] || 0}</td></tr>
-                <tr><td>Fusarium Wilt</td><td>${diseaseCounts["Fusarium Wilt"] || 0}</td></tr>
-                <tr><td>Downy Mildew</td><td>${diseaseCounts["Downy Mildew"] || 0}</td></tr>
+                ${diseaseRows}
               </tbody>
             </table>
           </div>
 
           <div class="section">
-            <h2>Ripeness Distribution</h2>
+            <h2>Fruit Ripeness Distribution</h2>
+            <p style="margin-bottom: 15px; color: #555; font-size: 14px;">
+              Distribution of fruit maturity assessment results, showing the breakdown of 
+              ripeness levels detected during the selected period.
+            </p>
             <table>
               <thead>
                 <tr>
                   <th>Ripeness Level</th>
-                  <th>Count</th>
+                  <th style="text-align: right;">Count</th>
+                  <th style="text-align: right;">Percentage</th>
                 </tr>
               </thead>
               <tbody>
-                <tr><td>Unknown</td><td>${ripenessCounts["Unknown"] || 0}</td></tr>
-                <tr><td>Immature</td><td>${ripenessCounts["Immature"] || 0}</td></tr>
-                <tr><td>Mature</td><td>${ripenessCounts["Mature"] || 0}</td></tr>
-                <tr><td>Overmature</td><td>${ripenessCounts["Overmature"] || 0}</td></tr>
-                <tr><td>Overripe</td><td>${ripenessCounts["Overripe"] || 0}</td></tr>
+                ${ripenessRows}
               </tbody>
             </table>
+          </div>
+
+          <div class="footer">
+            <p>This report was generated automatically by the BitterScan Expert Dashboard.</p>
+            <p>For questions or support, please contact your system administrator.</p>
           </div>
 
           <script>
             window.onload = function() {
               setTimeout(function() {
                 window.print();
-              }, 250);
+              }, 500);
             };
           </script>
         </body>
@@ -805,7 +969,7 @@ export default function ReportsPage() {
 
     printWindow.document.write(htmlContent);
     printWindow.document.close();
-  }, [range, filteredScans, validatedScansCount, aiAccuracyRate, diseaseDistribution, ripenessDistribution, scansTrend, validationActivity]);
+  }, [range, dateRangeLabel, rangeStart, rangeEnd, filteredScans, validatedScansCount, aiAccuracyRate, diseaseDistribution, ripenessDistribution, scansTrend, validationActivity]);
 
   if (loading) {
     return (
@@ -873,7 +1037,7 @@ export default function ReportsPage() {
                 onClick={() => {
                   setRange("custom");
                   setShowCustomPicker(true);
-                  if (!customStartDate) {
+                  if (!customStartDate || !customEndDate) {
                     const today = new Date();
                     const weekAgo = new Date(today);
                     weekAgo.setDate(today.getDate() - 7);
@@ -886,23 +1050,28 @@ export default function ReportsPage() {
                 Custom
               </Button>
               {showCustomPicker && range === "custom" && (
-                <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 shadow-sm">
+                <div className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 shadow-sm">
                   <input
                     type="date"
                     value={customStartDate}
                     onChange={(e) => setCustomStartDate(e.target.value)}
-                    className="text-sm border border-gray-300 rounded px-2 py-1"
-                    max={customEndDate || undefined}
+                    className="text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-transparent"
+                    max={customEndDate || new Date().toISOString().split('T')[0]}
                   />
-                  <span className="text-gray-500">to</span>
+                  <span className="text-gray-500 font-medium">to</span>
                   <input
                     type="date"
                     value={customEndDate}
                     onChange={(e) => setCustomEndDate(e.target.value)}
-                    className="text-sm border border-gray-300 rounded px-2 py-1"
+                    className="text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-transparent"
                     min={customStartDate || undefined}
                     max={new Date().toISOString().split('T')[0]}
                   />
+                  {customStartDate && customEndDate && (
+                    <span className="text-xs text-gray-600 ml-2">
+                      ({dateRangeLabel})
+                    </span>
+                  )}
                 </div>
               )}
               <Button
@@ -941,7 +1110,7 @@ export default function ReportsPage() {
               {
                 icon: Camera,
                 label: "Total Scans",
-                value: totalScansLoading ? "..." : totalScansCount.toLocaleString("en-US"),
+                value: totalScansCount.toLocaleString("en-US"),
                 color: "text-green-600",
                 bgColor: "bg-green-50",
               },
@@ -970,7 +1139,7 @@ export default function ReportsPage() {
             })}
           </div>
 
-          <ChartCard title={`AI Accuracy Rate • ${RANGE_LABELS[range]}`}>
+          <ChartCard title={`AI Accuracy Rate • ${dateRangeLabel}`}>
             {(() => {
               let level = "Needs Improvement";
               let color = "#ef4444";
@@ -1066,7 +1235,7 @@ export default function ReportsPage() {
           </ChartCard>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <ChartCard title={`Scans Trend • ${RANGE_LABELS[range]}`}>
+            <ChartCard title={`Scans Trend • ${dateRangeLabel}`}>
               {scansTrend.length > 0 ? (
                 <ResponsiveContainer width="100%" height={300}>
                   <LineChart data={scansTrend} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
@@ -1095,13 +1264,13 @@ export default function ReportsPage() {
                 </ResponsiveContainer>
               ) : (
                 <div className="flex h-[300px] flex-col items-center justify-center rounded-2xl border border-dashed border-emerald-200/70 bg-white/80 px-6 text-center text-sm text-emerald-700">
-                  <p className="font-medium">No scan trend data for {RANGE_LABELS[range].toLowerCase()} yet.</p>
+                  <p className="font-medium">No scan trend data for {dateRangeLabel.toLowerCase()} yet.</p>
                   <p className="mt-1 text-xs text-emerald-600">New scans will populate this chart automatically.</p>
                 </div>
               )}
             </ChartCard>
 
-            <ChartCard title={`Validated Activity • ${RANGE_LABELS[range]}`}>
+            <ChartCard title={`Validated Activity • ${dateRangeLabel}`}>
               {validationActivity.length > 0 ? (
                 <motion.div
                   initial={{ opacity: 0, y: 16 }}
@@ -1173,7 +1342,7 @@ export default function ReportsPage() {
                 </motion.div>
               ) : (
                 <div className="flex h-[300px] flex-col items-center justify-center rounded-2xl border border-dashed border-emerald-200/70 bg-white/80 px-6 text-center text-sm text-emerald-700">
-                  <p className="font-medium">No validation activity data for {RANGE_LABELS[range].toLowerCase()} yet.</p>
+                  <p className="font-medium">No validation activity data for {dateRangeLabel.toLowerCase()} yet.</p>
                   <p className="mt-1 text-xs text-emerald-600">Validation activities will populate this chart automatically.</p>
                 </div>
               )}
@@ -1188,7 +1357,7 @@ export default function ReportsPage() {
                 <CardTitle className="text-xl font-bold text-gray-900">
                   Disease Distribution
                 </CardTitle>
-                <p className="text-sm text-gray-600 mt-2">Leaf disease scan analysis for {RANGE_LABELS[range].toLowerCase()}</p>
+                <p className="text-sm text-gray-600 mt-2">Leaf disease scan analysis for {dateRangeLabel.toLowerCase()}</p>
               </CardHeader>
               <CardContent>
                 <div className="space-y-6">
@@ -1295,7 +1464,7 @@ export default function ReportsPage() {
                 <CardTitle className="text-xl font-bold text-gray-900">
                   Ripeness Distribution
                 </CardTitle>
-                <p className="text-sm text-gray-600 mt-2">Fruit maturity scan analysis for {RANGE_LABELS[range].toLowerCase()}</p>
+                <p className="text-sm text-gray-600 mt-2">Fruit maturity scan analysis for {dateRangeLabel.toLowerCase()}</p>
               </CardHeader>
               <CardContent>
                 <div className="space-y-6">
