@@ -520,6 +520,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
 		// DON'T set subscriptionActiveRef to true yet - wait until subscription succeeds
 		// This prevents the early return check from blocking retries if subscription fails
 		
+		// Declare uniqueChannelName before try block so it's accessible in catch block
+		// Initialize with base channelName, will be updated with timestamp when channel is created
+		let uniqueChannelName = channelName;
+		
 		try {
 			// Clean up any existing channel first to prevent duplicate subscriptions
 			// This is critical to avoid binding mismatch errors
@@ -542,7 +546,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
 			// Create channel with proper configuration
 			// Use a unique channel name with timestamp to avoid binding conflicts
-			const uniqueChannelName = `${channelName}-${Date.now()}`;
+			uniqueChannelName = `${channelName}-${Date.now()}`;
 			const channel = supabase.channel(uniqueChannelName, {
 				config: {
 					// Explicitly configure the channel to avoid binding mismatch
@@ -1252,9 +1256,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
 			subscriptionStatusRef.current = null;
 			
 			// Clean up channel if it was created
-			if (channelRef.current === channel) {
+			// Note: channel may not exist if error occurred before channel creation
+			if (channelRef.current) {
 				try {
-					supabase.removeChannel(channel);
+					supabase.removeChannel(channelRef.current);
 				} catch (cleanupErr) {
 					// Ignore cleanup errors
 				}
