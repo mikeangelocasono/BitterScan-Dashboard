@@ -2,7 +2,7 @@
 
 import { ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { supabase, validateSupabaseClient } from "./supabase";
-import { Scan, ValidationHistory, isSupabaseApiError } from "../types";
+import { Scan, ValidationHistory, isSupabaseApiError, UserProfile } from "../types";
 import { useUser } from "./UserContext";
 
 // Type definitions for Supabase Realtime payloads
@@ -22,6 +22,66 @@ type ValidationHistoryRealtimePayload = RealtimePayload<Partial<ValidationHistor
 
 // Type for profiles table Realtime payload
 type ProfileRealtimePayload = RealtimePayload<{ id?: string }>;
+
+// Database row types (raw Supabase responses)
+type DatabaseProfile = {
+	id: string;
+	username: string;
+	full_name: string;
+	email: string;
+	profile_picture?: string | null;
+	role: string;
+	created_at: string;
+	updated_at: string;
+};
+
+type DatabaseLeafDiseaseScan = {
+	id: number;
+	farmer_id: string;
+	scan_uuid: string;
+	image_url: string;
+	disease_detected: string;
+	solution?: string | null;
+	recommendation?: string | null;
+	confidence?: number | string | null;
+	status: 'Pending Validation' | 'Validated' | 'Corrected';
+	created_at: string;
+	updated_at: string;
+};
+
+type DatabaseFruitRipenessScan = {
+	id: number;
+	farmer_id: string;
+	scan_uuid: string;
+	image_url: string;
+	ripeness_stage: string;
+	harvest_recommendation?: string | null;
+	confidence?: number | string | null;
+	status: 'Pending Validation' | 'Validated' | 'Corrected';
+	created_at: string;
+	updated_at: string;
+};
+
+type DatabaseValidationHistory = {
+	id: number;
+	scan_id: string;
+	scan_type: 'leaf_disease' | 'fruit_maturity';
+	expert_id: string;
+	expert_name?: string | null;
+	ai_prediction: string;
+	expert_validation?: string | null;
+	expert_comment?: string | null;
+	status: 'Validated' | 'Corrected';
+	validated_at: string;
+};
+
+// Error object type for logging
+type ErrorLogObject = {
+	message?: string;
+	details?: string;
+	hint?: string;
+	code?: string | number;
+};
 
 type DataContextValue = {
 	scans: Scan[];
@@ -145,12 +205,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
 				}
 
 				// Create a map of farmer profiles for quick lookup
-				const profileMap = new Map(
-					(allProfiles || []).map((profile: any) => [profile.id, profile])
+				const profileMap = new Map<string, DatabaseProfile>(
+					(allProfiles || []).map((profile: DatabaseProfile) => [profile.id, profile])
 				);
 
 				// Transform and merge scans from both tables, joining with profiles
-				const leafScans = (leafScansResponse.data || []).map((scan: any) => {
+				const leafScans = (leafScansResponse.data || []).map((scan: DatabaseLeafDiseaseScan) => {
 					const farmerProfile = scan.farmer_id ? profileMap.get(scan.farmer_id) : null;
 					return {
 						...scan,
@@ -158,11 +218,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
 						ai_prediction: scan.disease_detected, // Map for backward compatibility
 						solution: scan.solution,
 						recommended_products: scan.recommendation, // Map for backward compatibility
-						farmer_profile: farmerProfile || undefined,
+						farmer_profile: farmerProfile ? {
+							id: farmerProfile.id,
+							username: farmerProfile.username,
+							full_name: farmerProfile.full_name,
+							email: farmerProfile.email,
+							profile_picture: farmerProfile.profile_picture || '',
+						} : undefined,
 					};
 				});
 
-				const fruitScans = (fruitScansResponse.data || []).map((scan: any) => {
+				const fruitScans = (fruitScansResponse.data || []).map((scan: DatabaseFruitRipenessScan) => {
 					const farmerProfile = scan.farmer_id ? profileMap.get(scan.farmer_id) : null;
 					return {
 						...scan,
@@ -170,7 +236,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
 						ai_prediction: scan.ripeness_stage, // Map for backward compatibility
 						solution: scan.harvest_recommendation, // Map for backward compatibility
 						recommended_products: undefined, // Fruit scans don't have recommended products
-						farmer_profile: farmerProfile || undefined,
+						farmer_profile: farmerProfile ? {
+							id: farmerProfile.id,
+							username: farmerProfile.username,
+							full_name: farmerProfile.full_name,
+							email: farmerProfile.email,
+							profile_picture: farmerProfile.profile_picture || '',
+						} : undefined,
 					};
 				});
 
@@ -185,12 +257,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
 				let validations = validationsResponse.data || [];
 
 				// Join expert profiles with validations
-				validations = validations.map((validation: any) => {
+				validations = validations.map((validation: DatabaseValidationHistory) => {
 					const expertProfile = validation.expert_id ? profileMap.get(validation.expert_id) : null;
 					
 					// Try to find scan by scan_uuid (scan_id in validation_history is UUID)
 					const scanUuid = String(validation.scan_id).trim();
-					const relatedScan = allScans.find((s: any) => s.scan_uuid === scanUuid);
+					const relatedScan = allScans.find((s: Scan) => s.scan_uuid === scanUuid);
 					
 					return {
 						...validation,
@@ -269,12 +341,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
 				}
 				// Enhanced error logging
 				if (err && typeof err === 'object') {
+					const errorObj = err as ErrorLogObject;
 					console.error("Error fetching dashboard data:", {
 						error: err,
-						message: (err as any).message || 'Unknown error',
-						details: (err as any).details || 'No details',
-						hint: (err as any).hint || 'No hint',
-						code: (err as any).code || 'No code',
+						message: errorObj.message || 'Unknown error',
+						details: errorObj.details || 'No details',
+						hint: errorObj.hint || 'No hint',
+						code: errorObj.code || 'No code',
 					});
 				} else {
 					console.error("Error fetching dashboard data:", err);
@@ -296,8 +369,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
 	// Tries both tables based on scan_type or scan_uuid
 	const fetchScanWithProfile = useCallback(async (scanId: number, scanType?: 'leaf_disease' | 'fruit_maturity', scanUuid?: string): Promise<Scan | null> => {
 		try {
-			let scanData: any = null;
-			let scanError: any = null;
+			let scanData: DatabaseLeafDiseaseScan | DatabaseFruitRipenessScan | null = null;
+			let scanError: unknown = null;
 
 			// If we have scan_type, fetch from the specific table
 			if (scanType === 'leaf_disease') {
@@ -780,9 +853,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
 					schema: "public", 
 					table: "leaf_disease_scans"
 				},
-				async (payload: ScanRealtimePayload) => {
-					const newScan = payload.new as any;
-					if (!newScan) return;
+				async (payload: ScanRealtimePayload): Promise<void> => {
+					const newScan = payload.new as Partial<Scan> | null;
+					if (!newScan || !newScan.id) return;
 					
 					const scanId = newScan.id;
 					
@@ -850,9 +923,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
 					schema: "public", 
 					table: "fruit_ripeness_scans"
 				},
-				async (payload: ScanRealtimePayload) => {
-					const newScan = payload.new as any;
-					if (!newScan) return;
+				async (payload: ScanRealtimePayload): Promise<void> => {
+					const newScan = payload.new as Partial<Scan> | null;
+					if (!newScan || !newScan.id) return;
 					
 					const scanId = newScan.id;
 					
@@ -920,9 +993,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
 					schema: "public", 
 					table: "leaf_disease_scans"
 				},
-				async (payload: ScanRealtimePayload) => {
-					const updatedScan = payload.new as any;
-					if (!updatedScan) return;
+				async (payload: ScanRealtimePayload): Promise<void> => {
+					const updatedScan = payload.new as Partial<Scan> | null;
+					if (!updatedScan || !updatedScan.id) return;
 					
 					const scanId = updatedScan.id;
 					
@@ -988,9 +1061,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
 					schema: "public", 
 					table: "fruit_ripeness_scans"
 				},
-				async (payload: ScanRealtimePayload) => {
-					const updatedScan = payload.new as any;
-					if (!updatedScan) return;
+				async (payload: ScanRealtimePayload): Promise<void> => {
+					const updatedScan = payload.new as Partial<Scan> | null;
+					if (!updatedScan || !updatedScan.id) return;
 					
 					const scanId = updatedScan.id;
 					
@@ -1056,9 +1129,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
 					schema: "public", 
 					table: "leaf_disease_scans"
 				},
-				(payload: ScanRealtimePayload) => {
-					const deletedScan = payload.old as any;
-					if (!deletedScan) return;
+				(payload: ScanRealtimePayload): void => {
+					const deletedScan = payload.old as Partial<Scan> | null;
+					if (!deletedScan || !deletedScan.id) return;
 					
 					const scanId = deletedScan.id;
 					
@@ -1084,9 +1157,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
 					schema: "public", 
 					table: "fruit_ripeness_scans"
 				},
-				(payload: ScanRealtimePayload) => {
-					const deletedScan = payload.old as any;
-					if (!deletedScan) return;
+				(payload: ScanRealtimePayload): void => {
+					const deletedScan = payload.old as Partial<Scan> | null;
+					if (!deletedScan || !deletedScan.id) return;
 					
 					const scanId = deletedScan.id;
 					

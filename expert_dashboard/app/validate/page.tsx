@@ -34,6 +34,16 @@ type SupabaseUpdateResponse = {
 	error: unknown | null;
 };
 
+// Type for console.log debug object
+type DebugLogObject = {
+	detailId: string | null;
+	scan_id: number;
+	scan_uuid: string;
+	scan_type: 'leaf_disease' | 'fruit_maturity';
+	imageUrl: string | null;
+	hasImageUrl: boolean;
+};
+
 // Error throttling to prevent console spam
 // Track errors silently - only log once per unique image error
 const errorThrottle = new Map<string, boolean>();
@@ -155,17 +165,17 @@ const extractErrorDetails = (error: unknown): Record<string, string | number | n
 			const errorObj: GenericErrorObject = {
 				message: typeof errorRecord.message === 'string' ? errorRecord.message : undefined,
 				error: typeof errorRecord.error === 'string' ? errorRecord.error : undefined,
-				code: typeof errorRecord.code === 'string' || typeof errorRecord.code === 'number' ? errorRecord.code : undefined,
+				code: (typeof errorRecord.code === 'string' || typeof errorRecord.code === 'number') ? errorRecord.code : undefined,
 				details: typeof errorRecord.details === 'string' ? errorRecord.details : undefined,
 				hint: typeof errorRecord.hint === 'string' ? errorRecord.hint : undefined,
-				status: typeof errorRecord.status === 'string' || typeof errorRecord.status === 'number' ? errorRecord.status : undefined,
+				status: (typeof errorRecord.status === 'string' || typeof errorRecord.status === 'number') ? errorRecord.status : undefined,
 			};
 			const extracted: Record<string, string | number | null> = {
 				message: errorObj.message || errorObj.error || "Non-standard error object",
-				code: errorObj.code || null,
+				code: (errorObj.code !== undefined) ? errorObj.code : null,
 				details: errorObj.details || null,
 				hint: errorObj.hint || null,
-				status: errorObj.status ? String(errorObj.status) : null,
+				status: (errorObj.status !== undefined) ? String(errorObj.status) : null,
 				errorType: "Object",
 			};
 			
@@ -268,14 +278,15 @@ export default function ValidatePage() {
 			const selectedScan = scans.find((scan: Scan) => scan.id.toString() === detailId);
 			if (selectedScan) {
 				const imageUrl = getScanImageUrlWithFallback(selectedScan);
-				console.log('[Validate Page] Selected scan changed:', {
+				const debugLog: DebugLogObject = {
 					detailId,
 					scan_id: selectedScan.id,
 					scan_uuid: selectedScan.scan_uuid,
 					scan_type: selectedScan.scan_type,
 					imageUrl,
 					hasImageUrl: !!imageUrl
-				});
+				};
+				console.log('[Validate Page] Selected scan changed:', debugLog);
 			}
 		}
 	}, [detailId, scans]);
@@ -285,7 +296,7 @@ export default function ValidatePage() {
 		if (detailId) {
 			document.body.style.overflow = 'hidden';
 			// Fix dialog wrapper sizing for larger modals
-			const timer: NodeJS.Timeout = setTimeout(() => {
+			const timer: NodeJS.Timeout = setTimeout((): void => {
 				const dialogWrapper = document.querySelector('[data-open="true"]');
 				if (dialogWrapper) {
 					(dialogWrapper as HTMLElement).style.maxWidth = '72rem'; // 6xl = 72rem
@@ -402,7 +413,7 @@ export default function ValidatePage() {
 						.from("leaf_disease_scans")
 						.select("disease_detected")
 						.eq("scan_uuid", scanUuid)
-						.single();
+						.single<LeafDiseaseScanResponse>();
 
 					if (error) {
 						const errorDetails = extractErrorDetails(error);
@@ -436,7 +447,7 @@ export default function ValidatePage() {
 						.from("fruit_ripeness_scans")
 						.select("ripeness_stage")
 						.eq("scan_uuid", scanUuid)
-						.single();
+						.single<FruitRipenessScanResponse>();
 
 					if (error) {
 						const errorDetails = extractErrorDetails(error);
@@ -763,7 +774,7 @@ export default function ValidatePage() {
 										? 'bg-[var(--primary)] text-white shadow-sm' 
 										: 'text-gray-700 hover:bg-gray-50'
 								}`} 
-								onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+								onClick={(e: React.MouseEvent<HTMLButtonElement>): void => {
 									e.preventDefault();
 									setTab('leaf');
 								}}
@@ -776,7 +787,7 @@ export default function ValidatePage() {
 										? 'bg-[var(--primary)] text-white shadow-sm' 
 										: 'text-gray-700 hover:bg-gray-50'
 								}`} 
-								onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+								onClick={(e: React.MouseEvent<HTMLButtonElement>): void => {
 									e.preventDefault();
 									setTab('fruit');
 								}}
@@ -798,7 +809,7 @@ export default function ValidatePage() {
 										? 'bg-[var(--primary)] text-white' 
 										: 'text-gray-700 hover:bg-gray-50'
 								}`}
-								onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+								onClick={(e: React.MouseEvent<HTMLButtonElement>): void => {
 									e.preventDefault();
 									setDateRangeType('daily');
 									setStartDate("");
@@ -813,7 +824,7 @@ export default function ValidatePage() {
 										? 'bg-[var(--primary)] text-white' 
 										: 'text-gray-700 hover:bg-gray-50'
 								}`}
-								onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+								onClick={(e: React.MouseEvent<HTMLButtonElement>): void => {
 									e.preventDefault();
 									setDateRangeType('weekly');
 									setStartDate("");
@@ -828,7 +839,7 @@ export default function ValidatePage() {
 										? 'bg-[var(--primary)] text-white' 
 										: 'text-gray-700 hover:bg-gray-50'
 								}`}
-								onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+								onClick={(e: React.MouseEvent<HTMLButtonElement>): void => {
 									e.preventDefault();
 									setDateRangeType('monthly');
 									setStartDate("");
@@ -843,11 +854,11 @@ export default function ValidatePage() {
 										? 'bg-[var(--primary)] text-white' 
 										: 'text-gray-700 hover:bg-gray-50'
 								}`}
-								onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+								onClick={(e: React.MouseEvent<HTMLButtonElement>): void => {
 									e.preventDefault();
 									setDateRangeType('custom');
 									if (!startDate || !endDate) {
-										const today = new Date().toISOString().split('T')[0];
+										const today: string = new Date().toISOString().split('T')[0];
 										const weekAgo = new Date();
 										weekAgo.setDate(weekAgo.getDate() - 7);
 										setStartDate(weekAgo.toISOString().split('T')[0]);
@@ -863,7 +874,7 @@ export default function ValidatePage() {
 								<input 
 									type="date" 
 									value={startDate}
-									onChange={(e: React.ChangeEvent<HTMLInputElement>) => setStartDate(e.target.value)}
+									onChange={(e: React.ChangeEvent<HTMLInputElement>): void => setStartDate(e.target.value)}
 									max={endDate || undefined}
 									className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent"
 								/>
@@ -871,7 +882,7 @@ export default function ValidatePage() {
 								<input 
 									type="date" 
 									value={endDate}
-									onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEndDate(e.target.value)}
+									onChange={(e: React.ChangeEvent<HTMLInputElement>): void => setEndDate(e.target.value)}
 									min={startDate || undefined}
 									max={new Date().toISOString().split('T')[0]}
 									className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent"
@@ -882,7 +893,7 @@ export default function ValidatePage() {
 							<Button 
 								variant="ghost" 
 								size="sm"
-								onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+								onClick={(e: React.MouseEvent<HTMLButtonElement>): void => {
 									e.preventDefault();
 									setDateRangeType('none');
 									setStartDate("");
@@ -903,7 +914,7 @@ export default function ValidatePage() {
 								<p className="text-red-600 font-medium">{error}</p>
 								<Button 
 									variant="outline" 
-									onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+									onClick={(e: React.MouseEvent<HTMLButtonElement>): void => {
 										e.preventDefault();
 										refreshData(true);
 									}}
@@ -951,7 +962,7 @@ export default function ValidatePage() {
 										return (
 											<Tr 
 												key={uniqueKey}
-												onClick={() => setDetailId(scan.id.toString())}
+												onClick={(): void => setDetailId(scan.id.toString())}
 												className="cursor-pointer hover:bg-gray-50 transition-colors duration-150"
 											>
 											<Td>
@@ -980,7 +991,7 @@ export default function ValidatePage() {
 																loading="lazy"
 																priority={false}
 																unoptimized={true}
-																onError={(e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+																onError={(e: React.SyntheticEvent<HTMLImageElement, Event>): void => {
 																	// Silently handle image loading errors - log once per unique image
 																	throttledErrorLog(thumbErrorKey, `[Validate Page] Thumbnail not available:`, {
 																		scan_id: scan.id,
@@ -1003,7 +1014,7 @@ export default function ValidatePage() {
 																width={32}
 																height={32}
 																className="w-8 h-8 rounded-full object-cover flex-shrink-0"
-																onError={(e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+																onError={(e: React.SyntheticEvent<HTMLImageElement, Event>): void => {
 																	e.currentTarget.style.display = 'none';
 																}}
 															/>
@@ -1026,11 +1037,11 @@ export default function ValidatePage() {
 												<Td>
 													<span className="text-sm text-gray-600">{formatDate(scan.created_at)}</span>
 												</Td>
-												<Td className="text-right" onClick={(e: React.MouseEvent<HTMLTableCellElement>) => e.stopPropagation()}>
+												<Td className="text-right" onClick={(e: React.MouseEvent<HTMLTableCellElement>): void => e.stopPropagation()}>
 													<Button
 														variant="outline"
 														size="sm"
-														onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+														onClick={(e: React.MouseEvent<HTMLButtonElement>): void => {
 															e.preventDefault();
 															e.stopPropagation();
 															setDetailId(scan.id.toString());
@@ -1049,15 +1060,15 @@ export default function ValidatePage() {
 						</div>
 					)}
 
-					<Dialog open={!!detailId} onOpenChange={(open: boolean) => {
+					<Dialog open={!!detailId} onOpenChange={(open: boolean): void => {
 						if (!open) {
 							// Reset image URL attempts when dialog closes
 							if (detailId) {
 								const scan = scans.find((s: Scan) => s.id.toString() === detailId);
 								if (scan) {
 									const attemptKey = scan.scan_uuid || scan.id.toString();
-									setImageUrlAttempts((prev: Record<string, number>) => {
-										const next = { ...prev };
+									setImageUrlAttempts((prev: Record<string, number>): Record<string, number> => {
+										const next: Record<string, number> = { ...prev };
 										delete next[attemptKey];
 										return next;
 									});
@@ -1077,7 +1088,7 @@ export default function ValidatePage() {
 											<p className="text-sm text-gray-500">The scan you&apos;re looking for may have been removed or doesn&apos;t exist.</p>
 											<Button 
 												variant="outline" 
-												onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+												onClick={(e: React.MouseEvent<HTMLButtonElement>): void => {
 													e.preventDefault();
 													setDetailId(null);
 												}}
@@ -1104,7 +1115,7 @@ export default function ValidatePage() {
 											</DialogHeader>
 											<button 
 												aria-label="Close" 
-												onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+												onClick={(e: React.MouseEvent<HTMLButtonElement>): void => {
 													e.preventDefault();
 													setDetailId(null);
 												}} 
@@ -1135,7 +1146,7 @@ export default function ValidatePage() {
 																	width={56}
 																	height={56}
 																	className="w-14 h-14 rounded-full object-cover border-2 border-gray-300 shadow-sm"
-																	onError={(e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+																	onError={(e: React.SyntheticEvent<HTMLImageElement, Event>): void => {
 																		e.currentTarget.style.display = 'none';
 																	}}
 																/>
@@ -1206,10 +1217,10 @@ export default function ValidatePage() {
 																			height={450}
 																			className="w-full h-full object-contain"
 																			unoptimized={true}
-																			onError={(e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+																			onError={(e: React.SyntheticEvent<HTMLImageElement, Event>): void => {
 																				// Try next URL if available
 																				if (attemptIndex < allUrls.length - 1) {
-																					setImageUrlAttempts((prev: Record<string, number>) => ({
+																					setImageUrlAttempts((prev: Record<string, number>): Record<string, number> => ({
 																						...prev,
 																						[attemptKey]: attemptIndex + 1
 																					}));
@@ -1267,11 +1278,11 @@ export default function ValidatePage() {
 																					parent.appendChild(placeholder);
 																				}
 																			}}
-																			onLoad={() => {
+																			onLoad={(): void => {
 																				// Remove error state and reset attempts if image loads successfully
 																				errorThrottle.delete(errorKey);
-																				setImageUrlAttempts(prev => {
-																					const next = { ...prev };
+																				setImageUrlAttempts((prev: Record<string, number>): Record<string, number> => {
+																					const next: Record<string, number> = { ...prev };
 																					delete next[attemptKey];
 																					return next;
 																				});
@@ -1377,7 +1388,7 @@ export default function ValidatePage() {
 															{selectedScan.scan_type === 'leaf_disease' ? (
 																<select 
 																	value={decision[detailId!] ?? ''} 
-																	onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setDecision({...decision, [detailId!]: e.target.value})} 
+																	onChange={(e: React.ChangeEvent<HTMLSelectElement>): void => setDecision({...decision, [detailId!]: e.target.value})} 
 																	className="w-full rounded-lg border-2 border-gray-300 px-4 py-3 text-base font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white shadow-sm transition-all"
 																>
 																	<option value="">Select diagnosis</option>
@@ -1391,7 +1402,7 @@ export default function ValidatePage() {
 															) : (
 																<select 
 																	value={decision[detailId!] ?? ''} 
-																	onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setDecision({...decision, [detailId!]: e.target.value})} 
+																	onChange={(e: React.ChangeEvent<HTMLSelectElement>): void => setDecision({...decision, [detailId!]: e.target.value})} 
 																	className="w-full rounded-lg border-2 border-gray-300 px-4 py-3 text-base font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white shadow-sm transition-all"
 																>
 																	<option value="">Select ripeness stage</option>
@@ -1408,7 +1419,7 @@ export default function ValidatePage() {
 															<label className="block text-sm font-semibold text-gray-900">Expert Notes (Optional)</label>
 															<textarea 
 																value={notes[detailId!] ?? ''} 
-																onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setNotes({...notes, [detailId!]: e.target.value})} 
+																onChange={(e: React.ChangeEvent<HTMLTextAreaElement>): void => setNotes({...notes, [detailId!]: e.target.value})} 
 																placeholder="Add your expert analysis, observations, or additional comments..." 
 																className="w-full rounded-lg border-2 border-gray-300 px-4 py-3 text-base text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 resize-none shadow-sm transition-all"
 																rows={4}
@@ -1424,7 +1435,7 @@ export default function ValidatePage() {
 											<DialogFooter className="flex flex-row items-center justify-end gap-3 sm:gap-3">
 												<Button 
 													variant="outline" 
-													onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+													onClick={(e: React.MouseEvent<HTMLButtonElement>): void => {
 														e.preventDefault();
 														setDetailId(null);
 													}}
@@ -1433,7 +1444,7 @@ export default function ValidatePage() {
 													Cancel
 												</Button>
 												<Button 
-													onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+													onClick={(e: React.MouseEvent<HTMLButtonElement>): void => {
 														e.preventDefault();
 														onConfirm(parseInt(detailId));
 													}}
@@ -1445,7 +1456,7 @@ export default function ValidatePage() {
 												</Button>
 												<Button 
 													variant="outline" 
-													onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+													onClick={(e: React.MouseEvent<HTMLButtonElement>): void => {
 														e.preventDefault();
 														onReject(parseInt(detailId));
 													}}
