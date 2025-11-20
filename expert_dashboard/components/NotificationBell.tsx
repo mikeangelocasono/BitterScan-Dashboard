@@ -257,9 +257,13 @@ export default function NotificationBell() {
 										// Check if this scan is unread
 										const isUnread = !isScanRead(scan.id);
 
+										// Use scan_uuid as key if available, otherwise combine scan_type and id for uniqueness
+										// This ensures unique keys even when both tables have scans with the same numeric ID
+										const uniqueKey = scan.scan_uuid || `${scan.scan_type}-${scan.id}`;
+
 										return (
 											<button
-												key={scan.id}
+												key={uniqueKey}
 												onClick={() => handleNotificationClick(scan.id)}
 												className={`w-full text-left p-4 transition-all duration-200 ${
 													isUnread 

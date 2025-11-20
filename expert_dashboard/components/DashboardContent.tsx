@@ -121,18 +121,45 @@ function DashboardContent() {
 	}, [profile?.role, user?.user_metadata?.role]);
 
 	const { totalScans, validatedScans, pendingValidations, recentScans } = useMemo(() => {
+		// Early return if scans is null/undefined or empty
+		if (!scans || scans.length === 0) {
+			return { 
+				totalScans: 0, 
+				validatedScans: 0, 
+				pendingValidations: 0, 
+				recentScans: [] 
+			};
+		}
+		
 		// Get latest values from database
 		const total = scans.length; // Total Scans
-		const pending = scans.filter(scan => scan.status === 'Pending Validation').length; // Pending
 		
-		// Calculate Validated: Total Scans - Pending
-		const validated = total - pending;
+		// Count pending scans (status === 'Pending Validation')
+		const pending = scans.filter(scan => scan.status === 'Pending Validation').length;
 		
-		const recent = scans.slice(0, 5);
-		return { totalScans: total, validatedScans: validated, pendingValidations: pending, recentScans: recent };
+		// Calculate Validated: Count scans where status !== "Pending Validation"
+		// This includes scans with status "Validated", "Corrected", or any other non-pending status
+		const validated = scans.filter(scan => {
+			return scan.status && scan.status !== 'Pending Validation';
+		}).length;
+		
+		// Get recent scans sorted by date (most recent first), limit to 5
+		const recent = [...scans]
+			.sort((a, b) => {
+				// Sort by created_at descending (newest first)
+				const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+				const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+				return dateB - dateA;
+			})
+			.slice(0, 5);
+		
+		return { 
+			totalScans: total, 
+			validatedScans: validated, 
+			pendingValidations: pending, 
+			recentScans: recent 
+		};
 	}, [scans]);
-
-	// formatDate is now defined above as a standalone function
 
 	if (loading) {
 		return <LoadingSkeleton />;
@@ -140,6 +167,11 @@ function DashboardContent() {
 
 	if (error) {
 		return <ErrorDisplay error={error} />;
+	}
+
+	// Ensure scans is defined before rendering
+	if (!scans) {
+		return <LoadingSkeleton />;
 	}
 
 	return (
@@ -185,49 +217,54 @@ function DashboardContent() {
 										<Th className="whitespace-nowrap">Scan Type</Th>
 										<Th className="whitespace-nowrap">AI Prediction</Th>
 										<Th className="whitespace-nowrap">Status</Th>
-										<Th className="whitespace-nowrap">Timestamp</Th>
+										<Th className="whitespace-nowrap">Date & Time</Th>
 									</Tr>
 								</Thead>
 								<Tbody>
-									{recentScans.map((scan) => (
-										<Tr key={scan.id}>
-											<Td className="whitespace-nowrap">
-												<div className="flex items-center gap-2">
-													{scan.farmer_profile?.profile_picture ? (
-														<Image 
-															src={scan.farmer_profile.profile_picture} 
-															alt="Profile" 
-															width={32}
-															height={32}
-															className="w-8 h-8 rounded-full object-cover"
-															loading="lazy"
-															priority={false}
-															onError={(e) => {
-																e.currentTarget.style.display = 'none';
-															}}
-														/>
-													) : (
-														<div className="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center text-xs font-medium">
-															{scan.farmer_profile?.full_name?.charAt(0) || scan.farmer_profile?.username?.charAt(0) || '?'}
+									{recentScans.map((scan) => {
+										// Use scan_uuid as key if available, otherwise combine scan_type and id for uniqueness
+										const uniqueKey = scan.scan_uuid || `${scan.scan_type}-${scan.id}`;
+										
+										return (
+											<Tr key={uniqueKey}>
+												<Td className="whitespace-nowrap">
+													<div className="flex items-center gap-2">
+														{scan.farmer_profile?.profile_picture ? (
+															<Image 
+																src={scan.farmer_profile.profile_picture} 
+																alt="Profile" 
+																width={32}
+																height={32}
+																className="w-8 h-8 rounded-full object-cover"
+																loading="lazy"
+																priority={false}
+																onError={(e) => {
+																	e.currentTarget.style.display = 'none';
+																}}
+															/>
+														) : (
+															<div className="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center text-xs font-medium">
+																{scan.farmer_profile?.full_name?.charAt(0) || scan.farmer_profile?.username?.charAt(0) || '?'}
+															</div>
+														)}
+														<div className="font-medium text-sm">
+															{scan.farmer_profile?.full_name || scan.farmer_profile?.username || 'Unknown Farmer'}
 														</div>
-													)}
-													<div className="font-medium text-sm">
-														{scan.farmer_profile?.full_name || scan.farmer_profile?.username || 'Unknown Farmer'}
 													</div>
-												</div>
-											</Td>
-											<Td>{formatScanType(scan.scan_type)}</Td>
-											<Td className="max-w-xs truncate">{scan.ai_prediction}</Td>
-											<Td>
-												<span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium ${getStatusColor(scan.status)}`}>
-													{scan.status}
-												</span>
-											</Td>
-											<Td className="whitespace-nowrap text-gray-500">
-												{formatDate(scan.created_at)}
-											</Td>
-										</Tr>
-									))}
+												</Td>
+												<Td>{scan.scan_type ? formatScanType(scan.scan_type) : 'N/A'}</Td>
+												<Td className="max-w-xs truncate">{scan.ai_prediction || 'N/A'}</Td>
+												<Td>
+													<span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium ${getStatusColor(scan.status)}`}>
+														{scan.status}
+													</span>
+												</Td>
+												<Td className="whitespace-nowrap text-gray-500">
+													{scan.created_at ? formatDate(scan.created_at) : 'N/A'}
+												</Td>
+											</Tr>
+										);
+									})}
 								</Tbody>
 							</Table>
 						</div>

@@ -721,8 +721,8 @@ export default function HistoryPage() {
 															<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">Confidence Level</label>
 															<p className="text-sm font-medium text-gray-900">
 																{typeof record.scan.confidence === 'number' 
-																	? `${record.scan.confidence.toFixed(1)}%` 
-																	: `${parseFloat(String(record.scan.confidence)).toFixed(1)}%`}
+																	? `${record.scan.confidence}%` 
+																	: `${String(record.scan.confidence)}%`}
 															</p>
 														</div>
 													)}

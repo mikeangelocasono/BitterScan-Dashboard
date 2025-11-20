@@ -10,10 +10,11 @@ import { useMemo, useState, useCallback, useEffect } from "react";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import toast from "react-hot-toast";
 import { supabase } from "@/components/supabase";
-import { Loader2, AlertCircle, Trash2, X } from "lucide-react";
+import { Loader2, AlertCircle, Trash2, X, Download } from "lucide-react";
 import { useUser } from "@/components/UserContext";
 import { useData } from "@/components/DataContext";
 import Image from "next/image";
+import { getScanImageUrlWithFallback } from "@/utils/imageUtils";
 
 // Accurate date formatter - shows UTC time from database (matching stored timestamp)
 const formatHistoryDate = (dateString: string): string => {
@@ -97,6 +98,33 @@ export default function HistoryPage() {
 		return { start: null, end: null };
 	}, [startDate, endDate]);
 
+	// Filter scans based on date range (for stats calculation)
+	const filteredScans = useMemo(() => {
+		if (dateRangeType === 'none') {
+			return scans;
+		}
+		
+		const { start, end } = getDateRange(dateRangeType);
+		if (!start || !end) {
+			return scans;
+		}
+		
+		const startTime = start.getTime();
+		const endTime = end.getTime();
+		
+		return scans.filter(scan => {
+			if (!scan.created_at) return false;
+			try {
+				const scanDate = new Date(scan.created_at);
+				if (isNaN(scanDate.getTime())) return false;
+				const scanTime = scanDate.getTime();
+				return scanTime >= startTime && scanTime <= endTime;
+			} catch {
+				return false;
+			}
+		});
+	}, [scans, dateRangeType, getDateRange]);
+
 	// Filter validation history based on date range
 	const filtered = useMemo(() => {
 		if (dateRangeType === 'none') {
@@ -108,9 +136,19 @@ export default function HistoryPage() {
 			return validationHistory;
 		}
 		
+		const startTime = start.getTime();
+		const endTime = end.getTime();
+		
 		return validationHistory.filter(record => {
-			const recordDate = new Date(record.validated_at);
-			return recordDate >= start && recordDate <= end;
+			if (!record.validated_at) return false;
+			try {
+				const recordDate = new Date(record.validated_at);
+				if (isNaN(recordDate.getTime())) return false;
+				const recordTime = recordDate.getTime();
+				return recordTime >= startTime && recordTime <= endTime;
+			} catch {
+				return false;
+			}
 		});
 	}, [validationHistory, dateRangeType, getDateRange]);
 
@@ -180,48 +218,102 @@ export default function HistoryPage() {
 
 		setDeleteLoading(true);
 		try {
+			// Get the scan UUID from the record (scan_id is now UUID in validation_history)
+			const scanUuid = record.scan_id;
+			const scanId = record.scan?.id; // Numeric ID for updating scan table
+
+			// Delete the validation history record using the numeric ID
 			const { error: deleteError } = await supabase
 				.from('validation_history')
 				.delete()
 				.eq('id', record.id);
 
-			if (deleteError) throw deleteError;
+			if (deleteError) {
+				if (process.env.NODE_ENV === 'development') {
+					console.error('Delete error:', deleteError);
+				}
+				throw deleteError;
+			}
 
-			// Optionally revert scan status to pending if it was validated
-			if (record.scan_id && (record.status === 'Validated' || record.status === 'Corrected')) {
-				await supabase
-					.from('scans')
-					.update({
-						status: 'Pending Validation',
-						expert_comment: null,
-						updated_at: new Date().toISOString()
-					})
-					.eq('id', record.scan_id);
+			// Close detail modal if the deleted record is being viewed
+			if (detailIdx !== null && detailIdx === deleteIdx) {
+				setDetailIdx(null);
+			}
+
+			// Revert scan status to pending if it was validated
+			// Check if scan's current status is NOT "Pending Validation" (i.e., it was validated)
+			if (scanUuid && record.scan && record.scan.status && record.scan.status !== 'Pending Validation') {
+				// Determine which table to update based on scan_type
+				const tableName = record.scan.scan_type === 'leaf_disease' 
+					? 'leaf_disease_scans' 
+					: 'fruit_ripeness_scans';
+				
+				// Try using scan_uuid first (UUID field)
+				if (record.scan.scan_uuid) {
+					const { error: scanUpdateError } = await supabase
+						.from(tableName)
+						.update({
+							status: 'Pending Validation',
+							expert_comment: null,
+							updated_at: new Date().toISOString()
+						})
+						.eq('scan_uuid', record.scan.scan_uuid);
+					
+					if (scanUpdateError) {
+						if (process.env.NODE_ENV === 'development') {
+							console.error('Error reverting scan status:', scanUpdateError);
+						}
+						// Don't throw - deletion was successful, scan update is optional
+					}
+				} else if (scanId) {
+					// Fallback to numeric ID
+					const { error: scanUpdateError } = await supabase
+						.from(tableName)
+						.update({
+							status: 'Pending Validation',
+							expert_comment: null,
+							updated_at: new Date().toISOString()
+						})
+						.eq('id', scanId);
+					
+					if (scanUpdateError) {
+						if (process.env.NODE_ENV === 'development') {
+							console.error('Error reverting scan status:', scanUpdateError);
+						}
+						// Don't throw - deletion was successful, scan update is optional
+					}
+				}
 			}
 
 			toast.success("Validation record deleted successfully");
 			setDeleteIdx(null);
+			
+			// Refresh data to ensure UI is in sync (realtime will also update, but this ensures consistency)
 			await refreshData();
 		} catch (err: unknown) {
-			console.error('Error deleting validation:', err);
-			toast.error('Failed to delete validation record');
+			if (process.env.NODE_ENV === 'development') {
+				console.error('Error deleting validation:', err);
+			}
+			const errorMessage = err instanceof Error ? err.message : 'Failed to delete validation record';
+			toast.error(errorMessage);
 		} finally {
 			setDeleteLoading(false);
 		}
-	}, [deleteIdx, filtered, user, refreshData]);
+	}, [deleteIdx, filtered, user, refreshData, detailIdx]);
 
-	// Calculate statistics from real data
-	// Total Scans: Total number of scans in the database
-	const totalRecords = scans.length;
+	// Calculate statistics from filtered data (respects date range filters)
+	// Total Scans: Total number of scans in the filtered date range
+	const totalRecords = filteredScans.length;
 	
-	// Total Validated: Count of all validated scans (including both "Validated" and "Corrected" status)
+	// Total Validated: Count of all scans that are NOT "Pending Validation"
+	// A scan is considered validated if its status is NOT "Pending Validation"
+	// This includes scans with status "Validated", "Confirmed", "Corrected", or any other non-pending status
 	const totalValidated = useMemo(() => {
-		return scans.filter(scan => scan.status === 'Validated' || scan.status === 'Corrected').length;
-	}, [scans]);
+		return filteredScans.filter(scan => scan.status !== 'Pending Validation').length;
+	}, [filteredScans]);
 	
 	// Validation Rate: Percentage of scans that have been validated
 	// Formula: (Total Validated Scans / Total Scans) × 100
-	// Total Validated Scans includes both confirmed and corrected scans
 	const validationRate = useMemo(() => {
 		if (totalRecords === 0) return '0.0';
 		const rate = (totalValidated / totalRecords) * 100;
@@ -229,7 +321,10 @@ export default function HistoryPage() {
 	}, [totalValidated, totalRecords]);
 	
 	// Expert Corrections: Number of scans that were corrected by experts
-	const correctedRecords = scans.filter(scan => scan.status === 'Corrected').length;
+	// Count from filtered validation_history based on date range
+	const correctedRecords = useMemo(() => {
+		return filtered.filter(v => v.status === 'Corrected').length;
+	}, [filtered]);
 
 	return (
 		<AuthGuard>
@@ -453,26 +548,49 @@ export default function HistoryPage() {
 											URL.revokeObjectURL(url);
 											toast.success(`CSV exported (${filtered.length} records)`);
 										} catch (error: unknown) {
-											console.error('Error exporting CSV:', error);
+											if (process.env.NODE_ENV === 'development') {
+												console.error('Error exporting CSV:', error);
+											}
 											toast.error('Failed to export CSV');
 										}
 									}}
+									className="flex items-center gap-2"
 								>
+									<Download className="h-4 w-4" />
 									Export CSV
 								</Button>
 								<Button 
 									size="sm"
 									onClick={() => {
-										// Add print-specific class to body
-										document.body.classList.add('printing');
-										window.print();
-										// Remove class after print dialog closes
-										setTimeout(() => {
-											document.body.classList.remove('printing');
-										}, 1000);
+										// Temporarily show all records for printing
+										const wasShowAll = showAll;
+										if (!wasShowAll && filtered.length > 5) {
+											setShowAll(true);
+											// Wait for React to re-render with all records
+											setTimeout(() => {
+												// Add print-specific class to body
+												document.body.classList.add('printing');
+												window.print();
+												
+												// Remove class and restore state after print dialog closes
+												setTimeout(() => {
+													document.body.classList.remove('printing');
+													setShowAll(wasShowAll);
+												}, 1000);
+											}, 200);
+										} else {
+											// Already showing all or less than 5 records
+											document.body.classList.add('printing');
+											window.print();
+											setTimeout(() => {
+												document.body.classList.remove('printing');
+											}, 1000);
+										}
 									}}
+									className="flex items-center gap-2"
 								>
-									Export PDF
+									<Download className="h-4 w-4" />
+									Generate Report
 								</Button>
 							</div>
 						</CardHeader>
@@ -650,7 +768,7 @@ export default function HistoryPage() {
 							<div className="py-4">
 								<p className="text-gray-600">
 									Are you sure you want to delete this validation record? This action cannot be undone.
-									{deleteIdx !== null && filtered[deleteIdx]?.scan_id && (
+									{deleteIdx !== null && filtered[deleteIdx]?.scan?.status && filtered[deleteIdx].scan.status !== 'Pending Validation' && (
 										<span className="block mt-2 text-sm text-amber-600">
 											The associated scan will be reverted to &quot;Pending Validation&quot; status.
 										</span>
@@ -674,11 +792,11 @@ export default function HistoryPage() {
 
 					{/* View Details Dialog */}
 					<Dialog open={detailIdx !== null} onOpenChange={() => setDetailIdx(null)}>
-						<DialogContent className="sm:max-w-3xl p-0 overflow-hidden bg-white max-h-[90vh] flex flex-col">
+						<DialogContent className="sm:max-w-4xl p-0 overflow-hidden bg-white max-h-[90vh] flex flex-col">
 							{/* Header */}
-							<div className="flex items-center justify-between px-6 py-5 border-b border-gray-200 bg-white sticky top-0 z-10">
+							<div className="flex items-center justify-between px-6 py-5 border-b border-gray-200 bg-gradient-to-r from-white to-gray-50 sticky top-0 z-10">
 								<DialogHeader className="p-0">
-									<DialogTitle className="text-xl font-semibold text-gray-900">Validation Details</DialogTitle>
+									<DialogTitle className="text-xl font-bold text-gray-900">Validation Record Details</DialogTitle>
 								</DialogHeader>
 								<button 
 									aria-label="Close" 
@@ -690,107 +808,190 @@ export default function HistoryPage() {
 							</div>
 
 							{/* Scrollable Content */}
-							<div className="px-6 py-6 overflow-y-auto flex-1">
+							<div className="px-6 py-6 overflow-y-auto flex-1 bg-gray-50" style={{ maxHeight: 'calc(90vh - 180px)' }}>
 								{detailIdx !== null && filtered[detailIdx] && (() => {
 									const record = filtered[detailIdx];
 									const isFruitMaturity = record.scan?.scan_type === 'fruit_maturity';
+									const expertName = record.expert_profile?.full_name || record.expert_profile?.username || 'Unknown Expert';
+									
 									return (
 										<div className="space-y-6">
-											{/* Scan Type & Status Section */}
-											<div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-												<div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-													<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Scan Type</label>
-													<p className="text-sm font-semibold text-gray-900">
-														{record.scan ? formatScanType(record.scan.scan_type) : 'N/A'}
-													</p>
-												</div>
-												<div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-													<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Status</label>
-													<Badge color={getStatusColor(record.status)} className="mt-1">{record.status}</Badge>
-												</div>
-											</div>
-
-											{/* Scan Result Details */}
-											{record.scan && (
-												<div className="space-y-5 bg-white rounded-lg border border-gray-200 p-5">
-													<h2 className="text-base font-semibold text-gray-900 border-b border-gray-200 pb-2">Scan Results</h2>
-													
-													{/* Disease / Fruit Ripeness */}
-													<div className="space-y-2">
-														<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">
-															{isFruitMaturity ? 'Fruit Ripeness' : 'Disease / Diagnosis'}
-														</label>
-														<p className="text-sm font-medium text-gray-900 leading-relaxed">{record.ai_prediction || 'N/A'}</p>
-													</div>
-
-													{/* Confidence Level */}
-													{record.scan.confidence !== null && record.scan.confidence !== undefined && (
+											{/* Validation Information Card */}
+											<Card className="shadow-md border border-gray-200 bg-white">
+												<CardHeader className="pb-4 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-white">
+													<CardTitle className="text-lg font-semibold text-gray-900">Validation Information</CardTitle>
+												</CardHeader>
+												<CardContent className="pt-6 space-y-4">
+													<div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
 														<div className="space-y-2">
-															<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">Confidence Level</label>
-															<p className="text-sm font-medium text-gray-900">
-																{typeof record.scan.confidence === 'number' 
-																	? `${record.scan.confidence.toFixed(1)}%` 
-																	: `${parseFloat(String(record.scan.confidence)).toFixed(1)}%`}
+															<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">Validated By</label>
+															<p className="text-sm font-semibold text-gray-900">{expertName}</p>
+														</div>
+														<div className="space-y-2">
+															<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">Status</label>
+															<Badge color={getStatusColor(record.status)} className="mt-1">{record.status}</Badge>
+														</div>
+														<div className="space-y-2">
+															<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">Date & Time Validated</label>
+															<p className="text-sm font-medium text-gray-900">{formatDate(record.validated_at)}</p>
+														</div>
+														<div className="space-y-2">
+															<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">Scan Type</label>
+															<p className="text-sm font-semibold text-gray-900">
+																{record.scan ? formatScanType(record.scan.scan_type) : 'N/A'}
 															</p>
 														</div>
-													)}
-
-													{/* Treatment / Solution / Harvest Recommendation */}
-													{record.scan.solution && (
-														<div className="space-y-2">
-															<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">
-																{isFruitMaturity ? 'Harvest Recommendation' : 'Treatment / Solution'}
-															</label>
-															<p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{record.scan.solution}</p>
-														</div>
-													)}
-
-													{/* Recommended Products */}
-													{record.scan.recommended_products && (
-														<div className="space-y-2">
-															<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">Recommended Products</label>
-															<p className="text-sm text-gray-700 leading-relaxed">{record.scan.recommended_products}</p>
-														</div>
-													)}
-												</div>
-											)}
-
-											{/* Scan Image */}
-											{record.scan?.image_url && (
-												<div className="space-y-3 bg-white rounded-lg border border-gray-200 p-5">
-													<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">Scan Image</label>
-													<div className="mt-2 bg-gray-50 rounded-lg p-3 border border-gray-200">
-														<Image 
-															src={record.scan.image_url} 
-															alt="Scan preview" 
-															width={800}
-															height={400}
-															className="w-full max-h-[400px] object-contain rounded-lg"
-															onError={(e) => { 
-																e.currentTarget.style.display = 'none';
-																const parent = e.currentTarget.parentElement;
-																if (parent) {
-																	parent.innerHTML = '<p class="text-sm text-gray-500 text-center py-8">Image failed to load</p>';
-																}
-															}}
-														/>
 													</div>
-												</div>
+												</CardContent>
+											</Card>
+
+											{/* Scan Information Card */}
+											{record.scan && (
+												<Card className="shadow-md border border-gray-200 bg-white">
+													<CardHeader className="pb-4 border-b border-gray-200 bg-gradient-to-r from-emerald-50/50 to-white">
+														<CardTitle className="text-lg font-semibold text-gray-900">Scan Information</CardTitle>
+													</CardHeader>
+													<CardContent className="pt-6 space-y-4">
+														<div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+															<div className="space-y-2">
+																<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">Date Scanned</label>
+																<p className="text-sm font-medium text-gray-900">{formatDate(record.scan.created_at)}</p>
+															</div>
+															{record.scan.confidence !== null && record.scan.confidence !== undefined && (
+																<div className="space-y-2">
+																	<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">AI Confidence</label>
+																	<p className="text-sm font-semibold text-blue-600">
+																		{typeof record.scan.confidence === 'number' 
+																			? `${record.scan.confidence}%` 
+																			: `${String(record.scan.confidence)}%`}
+																	</p>
+																</div>
+															)}
+														</div>
+													</CardContent>
+												</Card>
 											)}
 
-											{/* Expert Comment */}
-											<div className="space-y-3 bg-white rounded-lg border border-gray-200 p-5">
-												<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">Expert Comment</label>
-												{record.expert_validation ? (
-													<p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap bg-gray-50 rounded-lg p-4 border border-gray-200">
-														{record.expert_validation}
-													</p>
-												) : (
-													<p className="text-sm text-gray-400 italic bg-gray-50 rounded-lg p-4 border border-gray-200">
-														No comment provided by the expert.
-													</p>
-												)}
-											</div>
+											{/* AI Prediction & Expert Validation Card */}
+											<Card className="shadow-md border border-gray-200 bg-white">
+												<CardHeader className="pb-4 border-b border-gray-200 bg-gradient-to-r from-purple-50/50 to-white">
+													<CardTitle className="text-lg font-semibold text-gray-900">AI Prediction & Expert Validation</CardTitle>
+												</CardHeader>
+												<CardContent className="pt-6 space-y-5">
+													{/* AI Prediction */}
+													<div className="space-y-2">
+														<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">
+															AI Prediction {isFruitMaturity ? '(Ripeness Stage)' : '(Diagnosis)'}
+														</label>
+														<div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+															<p className="text-sm font-semibold text-blue-900">{record.ai_prediction || 'N/A'}</p>
+														</div>
+													</div>
+
+													{/* Expert Validation */}
+													<div className="space-y-2">
+														<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">
+															Expert Validation {isFruitMaturity ? '(Ripeness Stage)' : '(Diagnosis)'}
+														</label>
+														<div className={`rounded-lg p-4 border ${
+															record.status === 'Corrected' 
+																? 'bg-amber-50 border-amber-200' 
+																: 'bg-green-50 border-green-200'
+														}`}>
+															<p className={`text-sm font-semibold ${
+																record.status === 'Corrected' 
+																	? 'text-amber-900' 
+																	: 'text-green-900'
+															}`}>
+																{record.expert_validation || 'N/A'}
+															</p>
+															{record.status === 'Corrected' && (
+																<p className="text-xs text-amber-700 mt-1">This diagnosis was corrected by the expert.</p>
+															)}
+														</div>
+													</div>
+												</CardContent>
+											</Card>
+
+											{/* Scan Image Card */}
+											{(() => {
+												const imageUrl = getScanImageUrlWithFallback(record.scan);
+												return imageUrl ? (
+													<Card className="shadow-md border border-gray-200 bg-white">
+														<CardHeader className="pb-4 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-white">
+															<CardTitle className="text-lg font-semibold text-gray-900">Scan Image</CardTitle>
+														</CardHeader>
+														<CardContent className="pt-6">
+															<div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+																<Image 
+																	src={imageUrl} 
+																	alt="Scan preview" 
+																	width={800}
+																	height={450}
+																	className="w-full max-h-[450px] object-contain rounded-lg"
+																	unoptimized={true}
+																	onError={(e) => { 
+																		e.currentTarget.style.display = 'none';
+																		const parent = e.currentTarget.parentElement;
+																		if (parent) {
+																			parent.innerHTML = '<p class="text-sm text-gray-500 text-center py-8">Image failed to load</p>';
+																		}
+																	}}
+																/>
+															</div>
+														</CardContent>
+													</Card>
+												) : null;
+											})()}
+
+											{/* Scan Details (Solution, Products) */}
+											{record.scan && (record.scan.solution || record.scan.recommended_products) && (
+												<Card className="shadow-md border border-gray-200 bg-white">
+													<CardHeader className="pb-4 border-b border-gray-200 bg-gradient-to-r from-emerald-50/50 to-white">
+														<CardTitle className="text-lg font-semibold text-gray-900">
+															{isFruitMaturity ? 'Harvest Recommendations' : 'Treatment & Solutions'}
+														</CardTitle>
+													</CardHeader>
+													<CardContent className="pt-6 space-y-4">
+														{record.scan.solution && (
+															<div className="space-y-2">
+																<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">
+																	{isFruitMaturity ? 'Harvest Recommendation' : 'Treatment / Solution'}
+																</label>
+																<div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+																	<p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{record.scan.solution}</p>
+																</div>
+															</div>
+														)}
+														{record.scan.recommended_products && (
+															<div className="space-y-2">
+																<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">Recommended Products</label>
+																<div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+																	<p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{record.scan.recommended_products}</p>
+																</div>
+															</div>
+														)}
+													</CardContent>
+												</Card>
+											)}
+
+											{/* Expert Comment Card */}
+											<Card className="shadow-md border border-gray-200 bg-white">
+												<CardHeader className="pb-4 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-white">
+													<CardTitle className="text-lg font-semibold text-gray-900">Expert Comment</CardTitle>
+												</CardHeader>
+												<CardContent className="pt-6">
+													{record.expert_comment ? (
+														<div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+															<p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{record.expert_comment}</p>
+														</div>
+													) : (
+														<div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+															<p className="text-sm text-gray-400 italic">No comment provided by the expert.</p>
+														</div>
+													)}
+												</CardContent>
+											</Card>
 										</div>
 									);
 								})()}

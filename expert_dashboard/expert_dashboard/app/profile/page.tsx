@@ -127,7 +127,7 @@ export default function ProfilePage() {
               <CardContent className="space-y-6">
                 {/* Profile Header */}
                 <div className="flex items-center gap-4">
-                  <div className="h-16 w-16 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center text-xl font-semibold shadow-lg">
+                  <div className="h-16 w-16 rounded-full bg-[var(--primary)] text-white flex items-center justify-center text-xl font-semibold shadow-lg">
                     {userInitials}
                   </div>
                   <div>

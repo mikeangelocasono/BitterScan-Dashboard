@@ -10,10 +10,31 @@ import toast from "react-hot-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { supabase } from "@/components/supabase";
 import { Loader2, AlertCircle, X, Eye } from "lucide-react";
-import { Scan, SupabaseApiError, isSupabaseApiError } from "@/types";
+import { Scan, SupabaseApiError, isSupabaseApiError, getAiPrediction, getSolution, getRecommendedProducts } from "@/types";
 import { useUser } from "@/components/UserContext";
 import { useData } from "@/components/DataContext";
 import Image from "next/image";
+import { getScanImageUrlWithFallback, getPlaceholderImageUrl, getAllPossibleImageUrls } from "@/utils/imageUtils";
+
+// Error throttling to prevent console spam
+// Track errors silently - only log once per unique image error
+const errorThrottle = new Map<string, boolean>();
+
+const throttledErrorLog = (key: string, message: string, data?: any) => {
+	// Only log each unique error once per page session
+	if (!errorThrottle.has(key)) {
+		errorThrottle.set(key, true);
+		// Use console.warn instead of console.error for expected errors (missing images)
+		// This prevents Next.js error handling from treating it as a critical error
+		if (process.env.NODE_ENV === 'development') {
+			if (data) {
+				console.warn(message, data);
+			} else {
+				console.warn(message);
+			}
+		}
+	}
+};
 
 // Format exact timestamp from database (UTC time as stored, no timezone conversion)
 // Displays date and time (hours:minutes AM/PM) matching the actual scan time from device
@@ -49,10 +70,98 @@ const formatScanDate = (dateString: string): string => {
 	}
 };
 
-const buildSupabaseErrorMessage = (error: SupabaseApiError | null): string => {
-	if (!error) return "Unknown error";
-	const parts = [error.message, error.details, error.hint].filter(Boolean);
-	return parts.length ? parts.join(" • ") : JSON.stringify(error);
+/**
+ * Safely extract error details for logging
+ * This ensures error objects are properly serialized and always returns full details
+ */
+const extractErrorDetails = (error: unknown): Record<string, string | number | null> => {
+	if (!error) {
+		return { 
+			message: "Unknown error", 
+			code: null,
+			details: null,
+			hint: null,
+			status: null,
+			errorType: "null" 
+		};
+	}
+
+	// If it's a Supabase API error (PostgrestError, AuthApiError, etc.)
+	if (isSupabaseApiError(error)) {
+		// Extract all possible properties from Supabase error
+		const supabaseError = error as any;
+		return {
+			message: supabaseError.message || supabaseError.error_description || "No message",
+			code: supabaseError.code || supabaseError.error_code || null,
+			details: supabaseError.details || null,
+			hint: supabaseError.hint || null,
+			status: supabaseError.status ? String(supabaseError.status) : null,
+			errorType: "SupabaseApiError",
+		};
+	}
+
+	// If it's a standard Error object
+	if (error instanceof Error) {
+		return {
+			message: error.message || "No message",
+			name: error.name || "Error",
+			stack: error.stack ? error.stack.substring(0, 500) : null, // Limit stack trace length
+			code: null,
+			details: null,
+			hint: null,
+			status: null,
+			errorType: "Error",
+		};
+	}
+
+	// Try to stringify if it's an object
+	if (typeof error === 'object') {
+		try {
+			// Try to extract common error properties first
+			const errorObj = error as any;
+			const extracted: Record<string, string | number | null> = {
+				message: errorObj.message || errorObj.error || "Non-standard error object",
+				code: errorObj.code || null,
+				details: errorObj.details || null,
+				hint: errorObj.hint || null,
+				status: errorObj.status ? String(errorObj.status) : null,
+				errorType: "Object",
+			};
+			
+			// If we have a meaningful message, return it; otherwise stringify
+			if (extracted.message !== "Non-standard error object") {
+				return extracted;
+			}
+			
+			const stringified = JSON.stringify(error);
+			return {
+				...extracted,
+				message: "Non-standard error object",
+				errorString: stringified.length > 500 ? stringified.substring(0, 500) + "..." : stringified,
+			};
+		} catch {
+			return {
+				message: "Error object could not be serialized",
+				errorString: String(error),
+				code: null,
+				details: null,
+				hint: null,
+				status: null,
+				errorType: "UnserializableObject",
+			};
+		}
+	}
+
+	// Fallback for primitive types
+	return {
+		message: String(error),
+		errorString: String(error),
+		code: null,
+		details: null,
+		hint: null,
+		status: null,
+		errorType: typeof error,
+	};
 };
 
 /**
@@ -66,11 +175,16 @@ const buildSupabaseErrorMessage = (error: SupabaseApiError | null): string => {
  * - All updates happen instantly through DataContext real-time subscriptions
  * - No manual refresh needed - UI updates automatically
  * 
+ * IMPORTANT VALIDATION LOGIC:
+ * - Both "Confirm" and "Correct" actions set scans.status to "Validated"
+ * - The validation_history table tracks whether it was "Validated" or "Corrected" for AI accuracy
+ * - This ensures all validated scans are counted correctly in reports and analytics
+ * 
  * How it works:
  * 1. DataContext subscribes to Supabase Realtime events (INSERT/UPDATE on 'scans' table)
  * 2. When a new scan is inserted with status='Pending Validation', it's added to the scans state
  * 3. This page filters scans for status='Pending Validation' and displays them
- * 4. When a scan is validated/corrected, its status changes to 'Validated'/'Corrected'
+ * 4. When a scan is validated/corrected, its status changes to 'Validated' (both actions)
  * 5. The filter automatically excludes non-pending scans, so they disappear from the list
  * 
  * The filtered array is memoized to prevent unnecessary re-renders when unrelated state changes.
@@ -84,20 +198,45 @@ export default function ValidatePage() {
 	const [endDate, setEndDate] = useState<string>("");
 	const [detailId, setDetailId] = useState<string | null>(null);
 	const [processingScanId, setProcessingScanId] = useState<number | null>(null);
-	const { user } = useUser();
+	// Track image URL attempts per scan to try multiple extensions
+	const [imageUrlAttempts, setImageUrlAttempts] = useState<Record<string, number>>({});
+	const { user, profile } = useUser();
 	// Get scans from DataContext - these update automatically via Supabase Realtime subscriptions
 	const { scans, loading, error, removeScanFromState, refreshData } = useData();
 
-	// Prevent body scroll when modal is open and fix dialog max-width
+	// Debug: Log when selected scan changes (development only)
+	useEffect(() => {
+		if (process.env.NODE_ENV === 'development' && detailId) {
+			const selectedScan = scans.find(scan => scan.id.toString() === detailId);
+			if (selectedScan) {
+				const imageUrl = getScanImageUrlWithFallback(selectedScan);
+				console.log('[Validate Page] Selected scan changed:', {
+					detailId,
+					scan_id: selectedScan.id,
+					scan_uuid: selectedScan.scan_uuid,
+					scan_type: selectedScan.scan_type,
+					imageUrl,
+					hasImageUrl: !!imageUrl
+				});
+			}
+		}
+	}, [detailId, scans]);
+
+	// Prevent body scroll when modal is open and fix dialog sizing
 	useEffect(() => {
 		if (detailId) {
 			document.body.style.overflow = 'hidden';
-			// Fix dialog wrapper max-width for larger modals
+			// Fix dialog wrapper sizing for larger modals
 			const timer = setTimeout(() => {
 				const dialogWrapper = document.querySelector('[data-open="true"]');
 				if (dialogWrapper) {
-					(dialogWrapper as HTMLElement).style.maxWidth = '56rem';
+					(dialogWrapper as HTMLElement).style.maxWidth = '72rem'; // 6xl = 72rem
 					(dialogWrapper as HTMLElement).style.width = 'calc(100% - 2rem)';
+				}
+				// Reset scroll position to top when opening dialog
+				const scrollContainer = document.querySelector('.scrollable-details-content');
+				if (scrollContainer) {
+					scrollContainer.scrollTop = 0;
 				}
 			}, 10);
 			return () => {
@@ -137,195 +276,299 @@ export default function ValidatePage() {
 	 * 
 	 * All users viewing the Validate page will see the update in real-time.
 	 */
-	const handleValidation = useCallback(async (scanId: number, action: "confirm" | "correct") => {
-		if (processingScanId === scanId) return;
+	const handleValidation = useCallback(
+		async (scanId: number, action: "confirm" | "correct") => {
+			if (processingScanId === scanId) return;
 
-		const selectedScan = scans.find(scan => scan.id === scanId);
-		if (!selectedScan) {
-			toast.error("Scan not found");
-			return;
-		}
-
-		if (!user?.id) {
-			toast.error("You must be signed in to validate scans.");
-			return;
-		}
-
-		const scanKey = scanId.toString();
-		const noteInput = notes[scanKey];
-		const note = noteInput && noteInput.trim().length > 0 ? noteInput.trim() : null;
-		const correctedInput = decision[scanKey];
-		const corrected = correctedInput && correctedInput.trim().length > 0 ? correctedInput.trim() : "";
-
-		if (action === "correct" && !corrected) {
-			toast.error("Please select or enter the corrected result.");
-			return;
-		}
-
-		// For confirm action, use AI prediction; for correct, use the selected diagnosis
-		const expertValidation = action === "confirm" ? selectedScan.ai_prediction : corrected;
-		if (!expertValidation || expertValidation.trim() === "") {
-			toast.error("Unable to determine validation result.");
-			return;
-		}
-
-		const status = action === "confirm" ? "Validated" : "Corrected";
-		const timestamp = new Date().toISOString();
-		const originalStatus = selectedScan.status;
-		let scanUpdated = false;
-
-		// Validate user ID is a valid UUID string
-		if (!user.id || typeof user.id !== 'string' || user.id.trim() === '') {
-			toast.error("Invalid user session. Please sign in again.");
-			return;
-		}
-
-		// Validate scan ID is a valid number
-		if (!scanId || typeof scanId !== 'number' || isNaN(scanId)) {
-			toast.error("Invalid scan ID.");
-			return;
-		}
-
-		// Validate scan_uuid exists and is a valid UUID string
-		if (!selectedScan.scan_uuid || typeof selectedScan.scan_uuid !== 'string' || selectedScan.scan_uuid.trim() === '') {
-			toast.error("Scan UUID is missing. Cannot create validation history.");
-			return;
-		}
-
-		const applyScanUpdate = async (payload: Record<string, unknown>) => {
-			const { error } = await supabase.from("scans").update(payload).eq("id", scanId);
-
-			if (error) {
-				throw error;
-			}
-		};
-
-		setProcessingScanId(scanId);
-
-		try {
-			// Update scan status - this triggers Supabase Realtime UPDATE event
-			// DataContext will receive the event and update the scan in state
-			const updatePayload: Record<string, unknown> = {
-				status,
-				updated_at: timestamp,
-			};
-
-			await applyScanUpdate(updatePayload);
-			scanUpdated = true;
-
-			// Create validation history - this triggers Supabase Realtime INSERT event
-			// DataContext will also update the scan status via this event
-			// Ensure all fields are properly typed and validated
-			const insertPayload = {
-				scan_id: selectedScan.scan_uuid, // UUID string - matches database schema
-				expert_id: user.id.trim(), // string (UUID) - ensure it's trimmed
-				ai_prediction: selectedScan.ai_prediction || '', // string - ensure not null
-				expert_validation: expertValidation.trim(), // string - ensure trimmed
-				status, // 'Validated' | 'Corrected'
-				validated_at: timestamp, // ISO string
-				expert_comment: note || null, // string | null
-			};
-
-			// Validate payload before insert
-			if (!insertPayload.ai_prediction || insertPayload.ai_prediction.trim() === '') {
-				toast.error("AI prediction is missing. Cannot create validation history.");
-				throw new Error("AI prediction is required");
+			const selectedScan = scans.find((scan) => scan.id === scanId);
+			if (!selectedScan) {
+				toast.error("Scan not found");
+				return;
 			}
 
-			if (!insertPayload.expert_validation || insertPayload.expert_validation.trim() === '') {
-				toast.error("Expert validation is missing. Cannot create validation history.");
-				throw new Error("Expert validation is required");
+			if (!user?.id) {
+				toast.error("You must be signed in to validate scans.");
+				return;
 			}
 
-			const { error: historyError, data: historyData } = await supabase
-				.from("validation_history")
-				.insert(insertPayload)
-				.select();
+			const scanKey = scanId.toString();
+			const noteInput = notes[scanKey];
+			const note = noteInput && noteInput.trim() ? noteInput.trim() : null;
+			const correctedInput = decision[scanKey];
+			const corrected = correctedInput && correctedInput.trim() ? correctedInput.trim() : "";
 
-			if (historyError) {
-				// Log detailed error for debugging
-				console.error("Error creating validation history:", {
-					error: historyError,
-					payload: insertPayload,
+			if (action === "correct" && !corrected) {
+				toast.error("Please select or enter the corrected result.");
+				return;
+			}
+
+			// Map scan_type for validation_history table
+			// validation_history.scan_type uses 'leaf_disease' or 'fruit_maturity'
+			const validationScanType = selectedScan.scan_type; // Already 'leaf_disease' or 'fruit_maturity'
+
+			const validationHistoryStatus = action === "confirm" ? "Validated" : "Corrected";
+			const scanStatus = "Validated";
+			const timestamp = new Date().toISOString();
+
+			// Validate scan_uuid exists and is a valid UUID string
+			const scanUuid = selectedScan.scan_uuid; // must be valid UUID string
+			if (!scanUuid || !/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(scanUuid)) {
+				toast.error("Invalid scan UUID. Cannot create validation history.");
+				console.error("Invalid scan UUID:", {
+					scanUuid,
 					scanId,
-					expertId: user.id,
+					scan_type: selectedScan.scan_type,
+					expectedFormat: "1c8ba06a-50b5-495c-8c91-c094ab04dd49",
 				});
+				return;
+			}
 
-				// Handle unique constraint violation (duplicate validation)
-				if ((historyError as { code?: string }).code === "23505") {
-					// Try to update existing validation history
-					const { error: updateHistoryError } = await supabase
-						.from("validation_history")
-						.update(insertPayload)
-						.eq("scan_id", selectedScan.scan_uuid)
-						.eq("expert_id", user.id.trim());
+			// Validate expert_id (user.id) is also a valid UUID
+			const expertId = user.id.trim();
+			if (!expertId || !/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(expertId)) {
+				toast.error("Invalid user session. Please sign in again.");
+				console.error("Invalid expert UUID:", { expertId });
+				return;
+			}
 
-					if (updateHistoryError) {
-						console.error("Error updating validation history:", {
-							error: updateHistoryError,
+			setProcessingScanId(scanId);
+
+			try {
+				// 1️⃣ Fetch AI detected value from the scan table
+				// For leaf scans: use disease_detected from leaf_disease_scans
+				// For fruit scans: use ripeness_stage from fruit_ripeness_scans
+				let aiPrediction: string | null = null;
+
+				if (validationScanType === "leaf_disease") {
+					const { data, error } = await supabase
+						.from("leaf_disease_scans")
+						.select("disease_detected")
+						.eq("scan_uuid", scanUuid)
+						.single();
+
+					if (error) {
+						const errorDetails = extractErrorDetails(error);
+						console.error("Error fetching leaf disease scan:", {
+							...errorDetails,
+							scan_uuid: scanUuid,
 							scanId,
-							expertId: user.id,
+							scan_type: validationScanType,
+							action,
 						});
-						throw updateHistoryError;
+						toast.error("Failed to fetch scan data.");
+						throw error;
 					}
+
+					if (!data || !data.disease_detected) {
+						const error = new Error("AI prediction (disease_detected) is missing for leaf disease scan.");
+						console.error("AI prediction is missing for leaf disease scan:", {
+							scanId,
+							scanUuid,
+							scan_type: validationScanType,
+							data,
+							action,
+						});
+						toast.error("AI prediction is missing for leaf disease scan.");
+						throw error;
+					}
+
+					aiPrediction = data.disease_detected;
+				} else if (validationScanType === "fruit_maturity") {
+					const { data, error } = await supabase
+						.from("fruit_ripeness_scans")
+						.select("ripeness_stage")
+						.eq("scan_uuid", scanUuid)
+						.single();
+
+					if (error) {
+						const errorDetails = extractErrorDetails(error);
+						console.error("Error fetching fruit ripeness scan:", {
+							...errorDetails,
+							scan_uuid: scanUuid,
+							scanId,
+							scan_type: validationScanType,
+							action,
+						});
+						toast.error("Failed to fetch scan data.");
+						throw error;
+					}
+
+					if (!data || !data.ripeness_stage) {
+						const error = new Error("AI prediction (ripeness_stage) is missing for fruit maturity scan.");
+						console.error("AI prediction is missing for fruit maturity scan:", {
+							scanId,
+							scanUuid,
+							scan_type: validationScanType,
+							data,
+							action,
+						});
+						toast.error("AI prediction is missing for fruit maturity scan.");
+						throw error;
+					}
+
+					aiPrediction = data.ripeness_stage;
 				} else {
-					// For other errors, throw with detailed message
-					const errorMessage = buildSupabaseErrorMessage(isSupabaseApiError(historyError) ? historyError : null);
-					console.error("Error creating validation history:", errorMessage);
+					const error = new Error("Invalid scan type provided.");
+					console.error("Invalid scan type:", {
+						scan_type: validationScanType,
+						scan_uuid: scanUuid,
+						scanId,
+						action,
+					});
+					toast.error("Invalid scan type.");
+					throw error;
+				}
+
+				// 2️⃣ Determine expert validation based on action
+				// When confirming: expert_validation = ai_prediction (expert confirms AI is correct)
+				//   - For leaf scans: expert_validation = disease_detected
+				//   - For fruit scans: expert_validation = ripeness_stage
+				// When correcting: expert_validation = corrected value from dropdown (expert corrects AI)
+				let expertValidation: string;
+				if (action === "confirm") {
+					// Expert confirms: use the same value as AI prediction
+					if (!aiPrediction) {
+						const error = new Error("AI prediction is missing. Cannot confirm scan.");
+						console.error("AI prediction is null when trying to confirm:", {
+							scanId,
+							scanUuid,
+							scan_type: validationScanType,
+							action,
+						});
+						toast.error("AI prediction is missing. Cannot confirm scan.");
+						throw error;
+					}
+					expertValidation = aiPrediction;
+				} else {
+					// Expert corrects: use the value selected from dropdown
+					if (!corrected || corrected.trim() === "") {
+						const error = new Error("Corrected value is required when correcting a scan.");
+						console.error("Corrected value is missing:", {
+							scanId,
+							scanUuid,
+							scan_type: validationScanType,
+							action,
+						});
+						toast.error("Please select a corrected value.");
+						throw error;
+					}
+					expertValidation = corrected.trim();
+				}
+
+				// 3️⃣ Insert into validation_history
+				// Required fields: scan_id, scan_type, expert_id, expert_name, ai_prediction, expert_validation, status, validated_at
+				// Optional field: expert_comment
+				const expertName = profile?.full_name || user.user_metadata?.full_name || "Unknown Expert";
+
+				const { error: historyError } = await supabase
+					.from("validation_history")
+					.insert({
+						scan_id: scanUuid, // UUID from scan table
+						scan_type: validationScanType, // 'leaf_disease' or 'fruit_maturity'
+						expert_id: expertId, // UUID from user.id
+						expert_name: expertName.trim() || "Unknown Expert",
+						ai_prediction: aiPrediction, // AI detected value: disease_detected (leaf) or ripeness_stage (fruit)
+						expert_validation: expertValidation, // Same as ai_prediction (confirm) or expert's correction (correct)
+						expert_comment: (note && note.trim()) || "", // Optional: default to empty string
+						status: validationHistoryStatus, // "Validated" (confirm) or "Corrected" (correct)
+						validated_at: timestamp, // ISO timestamp
+					});
+
+				if (historyError) {
+					const errorDetails = extractErrorDetails(historyError);
+					console.error("Supabase insert error - validation_history:", {
+						...errorDetails,
+						scanId,
+						scanUuid,
+						expertId,
+						scan_type: validationScanType,
+						action,
+					});
+					toast.error(`Failed to create validation history: ${errorDetails.message || "Unknown error"}`);
 					throw historyError;
 				}
-			}
 
-			// Show appropriate alert message based on action
-			const successMessage =
-				action === "confirm"
-					? "A scan has been confirmed."
-					: "A scan has been corrected.";
-			toast.success(successMessage);
-			
-			// Remove scan from local state immediately (optimistic update)
-			// The real-time subscription will also update it, but this provides instant feedback
-			removeScanFromState(scanId);
+				// 4️⃣ Update scan status to "Validated" in the corresponding scan table
+				// Both confirm and correct actions set status to "Validated"
+				if (validationScanType === "leaf_disease") {
+					const { error: updateError } = await supabase
+						.from("leaf_disease_scans")
+						.update({ status: scanStatus, updated_at: timestamp })
+						.eq("scan_uuid", scanUuid);
 
-			// Clear form state
-			setDecision(prev => {
-				// eslint-disable-next-line @typescript-eslint/no-unused-vars
-				const { [scanKey]: _, ...rest } = prev;
-				return rest;
-			});
-			setNotes(prev => {
-				// eslint-disable-next-line @typescript-eslint/no-unused-vars
-				const { [scanKey]: _, ...rest } = prev;
-				return rest;
-			});
-			if (detailId === scanKey) {
-				setDetailId(null);
-			}
+					if (updateError) {
+						const errorDetails = extractErrorDetails(updateError);
+						console.error("Supabase update error - leaf_disease_scans:", {
+							...errorDetails,
+							scan_uuid: scanUuid,
+							scanId,
+							scan_type: validationScanType,
+							action,
+							status: scanStatus,
+						});
+						toast.error("Failed to update scan status.");
+						throw updateError;
+					}
+				} else if (validationScanType === "fruit_maturity") {
+					const { error: updateError } = await supabase
+						.from("fruit_ripeness_scans")
+						.update({ status: scanStatus, updated_at: timestamp })
+						.eq("scan_uuid", scanUuid);
 
-			// Note: No need to call refreshData() here - real-time subscriptions handle updates automatically
-		} catch (err: unknown) {
-			if (scanUpdated) {
-				const rollbackPayload: Record<string, unknown> = {
-					status: originalStatus,
-					updated_at: new Date().toISOString(),
-				};
-
-				try {
-					await applyScanUpdate(rollbackPayload);
-				} catch (rollbackError: unknown) {
-					console.error("Failed to rollback scan update:", rollbackError);
+					if (updateError) {
+						const errorDetails = extractErrorDetails(updateError);
+						console.error("Supabase update error - fruit_ripeness_scans:", {
+							...errorDetails,
+							scan_uuid: scanUuid,
+							scanId,
+							scan_type: validationScanType,
+							action,
+							status: scanStatus,
+						});
+						toast.error("Failed to update scan status.");
+						throw updateError;
+					}
 				}
-			}
 
-			console.error(
-				action === "confirm" ? "Error confirming validation:" : "Error correcting validation:",
-				buildSupabaseErrorMessage(isSupabaseApiError(err) ? err : null)
-			);
-			toast.error(action === "confirm" ? "Failed to confirm validation" : "Failed to correct validation");
-		} finally {
-			setProcessingScanId(prev => (prev === scanId ? null : prev));
-		}
-	}, [processingScanId, scans, user, notes, decision, detailId, removeScanFromState]);
+				// Success
+				console.log(`✅ Validation recorded successfully for scan: ${scanUuid}`);
+				toast.success(action === "confirm" ? "Scan confirmed." : "Scan corrected.");
+
+				// Remove from local state
+				removeScanFromState(scanId);
+
+				setDecision((prev) => {
+					const { [scanKey]: _, ...rest } = prev;
+					return rest;
+				});
+				setNotes((prev) => {
+					const { [scanKey]: _, ...rest } = prev;
+					return rest;
+				});
+				if (detailId === scanKey) setDetailId(null);
+			} catch (err: unknown) {
+				// Log structured error details
+				const errorDetails = extractErrorDetails(err);
+				console.error("Failed to create validation history:", {
+					...errorDetails,
+					action,
+					scanId,
+					scanUuid,
+					expertId,
+					scan_type: validationScanType,
+				});
+
+				toast.error(
+					action === "confirm"
+						? "Failed to confirm validation."
+						: "Failed to correct validation."
+				);
+			} finally {
+				setProcessingScanId((prev) => (prev === scanId ? null : prev));
+			}
+		},
+		[processingScanId, scans, user, profile, notes, decision, detailId, removeScanFromState]
+	);
 
 	const onConfirm = useCallback((scanId: number) => handleValidation(scanId, "confirm"), [handleValidation]);
 	const onReject = useCallback((scanId: number) => handleValidation(scanId, "correct"), [handleValidation]);
@@ -420,12 +663,13 @@ export default function ValidatePage() {
 	}, []);
 
 	// Parse scan result details from scan data
+	// Updated to use new schema: leaf_disease_scans and fruit_ripeness_scans
 	const parseScanDetails = useCallback((scan: Scan) => {
-		// Try to extract from structured fields first
-		const disease = scan.ai_prediction;
+		// Use helper functions to get data from new schema
+		const disease = getAiPrediction(scan); // Gets disease_detected or ripeness_stage
 		const confidence = scan.confidence;
-		const solution = scan.solution;
-		const recommendedProducts = scan.recommended_products;
+		const solution = getSolution(scan); // Gets solution or harvest_recommendation
+		const recommendedProducts = getRecommendedProducts(scan); // Gets recommendation (only for leaf scans)
 
 		// Format confidence as "Confidence: X%" (display exact value from database)
 		let formattedConfidence = null;
@@ -629,30 +873,55 @@ export default function ValidatePage() {
 										const cropType = scan.scan_type === 'leaf_disease' ? 'Leaf Disease' : 'Fruit Ripeness';
 										const farmerName = scan.farmer_profile?.full_name || scan.farmer_profile?.username || 'Unknown Farmer';
 										
+										// Use scan_uuid as key if available, otherwise combine scan_type and id for uniqueness
+										const uniqueKey = scan.scan_uuid || `${scan.scan_type}-${scan.id}`;
+										
 										return (
-											<Tr key={scan.id}>
-												<Td>
-													<div className="w-16 h-16 rounded-lg overflow-hidden border border-gray-200 bg-gray-50 flex-shrink-0">
-														{scan.image_url ? (
+											<Tr 
+												key={uniqueKey}
+												onClick={() => setDetailId(scan.id.toString())}
+												className="cursor-pointer hover:bg-gray-50 transition-colors duration-150"
+											>
+											<Td>
+												<div className="w-16 h-16 rounded-lg overflow-hidden border border-gray-200 bg-gray-50 flex-shrink-0">
+													{(() => {
+														const imageUrl = getScanImageUrlWithFallback(scan);
+														const imageKey = scan.scan_uuid || `scan-thumb-${scan.id}`;
+														const thumbErrorKey = `thumb-error-${scan.id}-${scan.scan_uuid || 'unknown'}`;
+														
+														if (!imageUrl) {
+															return (
+																<div className="w-full h-full flex items-center justify-center bg-gray-100">
+																	<AlertCircle className="w-6 h-6 text-gray-400" />
+																</div>
+															);
+														}
+														
+														return (
 															<Image 
-																src={scan.image_url} 
-																alt="Scan preview" 
+																key={imageKey}
+																src={imageUrl} 
+																alt={`Scan preview - ${scan.scan_type || 'unknown'}`}
 																width={64}
 																height={64}
 																className="w-full h-full object-cover"
 																loading="lazy"
 																priority={false}
+																unoptimized={true}
 																onError={(e) => {
+																	// Silently handle image loading errors - log once per unique image
+																	throttledErrorLog(thumbErrorKey, `[Validate Page] Thumbnail not available:`, {
+																		scan_id: scan.id,
+																		scan_uuid: scan.scan_uuid || 'N/A'
+																	});
+																	// Hide broken image - gray background will show through
 																	e.currentTarget.style.display = 'none';
 																}}
 															/>
-														) : (
-															<div className="flex items-center justify-center h-full text-gray-400 text-xs">
-																No image
-															</div>
-														)}
-													</div>
-												</Td>
+														);
+													})()}
+												</div>
+											</Td>
 												<Td>
 													<div className="flex items-center gap-2">
 														{scan.farmer_profile?.profile_picture ? (
@@ -685,7 +954,7 @@ export default function ValidatePage() {
 												<Td>
 													<span className="text-sm text-gray-600">{formatDate(scan.created_at)}</span>
 												</Td>
-												<Td className="text-right">
+												<Td className="text-right" onClick={(e) => e.stopPropagation()}>
 													<Button
 														variant="outline"
 														size="sm"
@@ -705,9 +974,23 @@ export default function ValidatePage() {
 					)}
 
 					<Dialog open={!!detailId} onOpenChange={(open) => {
-						if (!open) setDetailId(null);
+						if (!open) {
+							// Reset image URL attempts when dialog closes
+							if (detailId) {
+								const scan = scans.find(s => s.id.toString() === detailId);
+								if (scan) {
+									const attemptKey = scan.scan_uuid || scan.id.toString();
+									setImageUrlAttempts(prev => {
+										const next = { ...prev };
+										delete next[attemptKey];
+										return next;
+									});
+								}
+							}
+							setDetailId(null);
+						}
 					}}>
-						<DialogContent className="!max-w-4xl w-[calc(100%-2rem)] p-0 flex flex-col max-h-[90vh] overflow-hidden bg-white rounded-xl shadow-2xl">
+						<DialogContent className="!max-w-6xl w-[calc(100%-2rem)] max-w-[95vw] p-0 flex flex-col max-h-[95vh] h-[95vh] overflow-hidden bg-white rounded-xl shadow-2xl">
 							{detailId && (() => {
 								const selectedScan = scans.find(scan => scan.id.toString() === detailId);
 								if (!selectedScan) {
@@ -734,8 +1017,8 @@ export default function ValidatePage() {
 								
 								return (
 									<>
-										{/* Modal Header */}
-										<div className="flex items-center justify-between px-6 py-5 border-b border-gray-200 bg-gradient-to-r from-white to-gray-50 flex-shrink-0">
+										{/* Modal Header - Fixed at top */}
+										<div className="flex items-center justify-between px-6 py-5 border-b border-gray-200 bg-gradient-to-r from-white to-gray-50 flex-shrink-0 z-10">
 											<DialogHeader className="p-0">
 												<DialogTitle className="text-xl font-bold text-gray-900">Scan Validation Details</DialogTitle>
 												<p className="text-sm text-gray-500 mt-1">Review and validate the scan information</p>
@@ -749,8 +1032,15 @@ export default function ValidatePage() {
 											</button>
 										</div>
 
-										{/* Scrollable Content */}
-										<div className="px-6 py-6 overflow-y-auto bg-gray-50 flex-1 min-h-0" style={{ maxHeight: 'calc(90vh - 180px)' }}>
+										{/* Scrollable Content - Main scrollable area */}
+										<div 
+											className="px-6 py-6 overflow-y-auto overflow-x-hidden bg-gray-50 flex-1 min-h-0 scrollable-details-content" 
+											style={{ 
+												maxHeight: 'calc(95vh - 200px)',
+												scrollBehavior: 'smooth',
+												WebkitOverflowScrolling: 'touch'
+											}}
+										>
 											<div className="space-y-6">
 												{/* Farmer Info Card */}
 												<Card className="shadow-md border border-gray-200 bg-white overflow-hidden">
@@ -791,22 +1081,131 @@ export default function ValidatePage() {
 														<div className="space-y-3">
 															<label className="block text-sm font-medium text-gray-700">Scan Image</label>
 															<div className="aspect-video w-full bg-gradient-to-br from-gray-100 to-gray-200 rounded-xl overflow-hidden border border-gray-300 shadow-inner">
-																{selectedScan.image_url ? (
-																	<Image 
-																		src={selectedScan.image_url} 
-																		alt="Scan preview" 
-																		width={800}
-																		height={450}
-																		className="w-full h-full object-contain"
-																		onError={(e) => {
-																			e.currentTarget.style.display = 'none';
-																		}}
-																	/>
-																) : (
-																	<div className="flex items-center justify-center h-full text-gray-500 text-base font-medium">
-																		No image available
-																	</div>
-																)}
+																{(() => {
+																	// Get all possible image URLs to try multiple extensions
+																	const allUrls = getAllPossibleImageUrls(selectedScan);
+																	const attemptKey = selectedScan?.scan_uuid || selectedScan?.id?.toString() || 'unknown';
+																	const attemptIndex = imageUrlAttempts[attemptKey] || 0;
+																	const imageUrl = allUrls.length > 0 && attemptIndex < allUrls.length ? allUrls[attemptIndex] : null;
+																	
+																	// Capture all scan values as strings for error handler closure
+																	const scanUuid = selectedScan?.scan_uuid ? String(selectedScan.scan_uuid) : 'N/A';
+																	const scanType = selectedScan?.scan_type ? String(selectedScan.scan_type) : 'N/A';
+																	const scanId = selectedScan?.id ? String(selectedScan.id) : 'N/A';
+																	const capturedImageUrl = imageUrl ? String(imageUrl) : 'N/A';
+																	const errorKey = `image-error-${scanId}-${scanUuid}`;
+																	
+																	if (!imageUrl || allUrls.length === 0) {
+																		return (
+																			<div className="flex items-center justify-center h-full">
+																				<div className="text-center">
+																					<AlertCircle className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+																					<p className="text-sm text-gray-500">Image not available</p>
+																					{scanUuid !== 'N/A' && (
+																						<p className="text-xs text-gray-400 mt-1">UUID: {scanUuid}</p>
+																					)}
+																					{process.env.NODE_ENV === 'development' && (
+																						<p className="text-xs text-gray-400 mt-1">Bucket: scan-images/{scanType === 'leaf_disease' ? 'leaf_scans' : 'fruit_scans'}</p>
+																					)}
+																				</div>
+																			</div>
+																		);
+																	}
+																	
+																	// Use scan_uuid as key to force re-render when scan changes
+																	const imageKey = `${scanUuid !== 'N/A' ? scanUuid : `scan-${scanId}`}-attempt-${attemptIndex}`;
+																	
+																	return (
+																		<Image 
+																			key={imageKey}
+																			src={imageUrl} 
+																			alt={`Scan preview - ${scanType} - ${scanUuid !== 'N/A' ? scanUuid : scanId}`}
+																			width={800}
+																			height={450}
+																			className="w-full h-full object-contain"
+																			unoptimized={true}
+																			onError={(e) => {
+																				// Try next URL if available
+																				if (attemptIndex < allUrls.length - 1) {
+																					setImageUrlAttempts(prev => ({
+																						...prev,
+																						[attemptKey]: attemptIndex + 1
+																					}));
+																					return; // Don't show error yet, try next URL
+																				}
+																				
+																				// All URLs failed - show error
+																				throttledErrorLog(errorKey, '[Validate Page] Image not available:', {
+																					scan_uuid: scanUuid,
+																					scan_type: scanType,
+																					scan_id: scanId,
+																					tried_urls: allUrls,
+																					bucket: `scan-images/${scanType === 'leaf_disease' ? 'leaf_scans' : 'fruit_scans'}`
+																				});
+																				
+																				// Hide the broken image
+																				e.currentTarget.style.display = 'none';
+																				
+																				// Show error placeholder
+																				const parent = e.currentTarget.parentElement;
+																				if (parent && !parent.querySelector('.image-error-placeholder')) {
+																					const placeholder = document.createElement('div');
+																					placeholder.className = 'image-error-placeholder flex flex-col items-center justify-center h-full p-4 bg-gray-100';
+																					const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+																					svg.setAttribute('class', 'h-8 w-8 text-gray-400 mb-2');
+																					svg.setAttribute('fill', 'none');
+																					svg.setAttribute('viewBox', '0 0 24 24');
+																					svg.setAttribute('stroke', 'currentColor');
+																					const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+																					path.setAttribute('stroke-linecap', 'round');
+																					path.setAttribute('stroke-linejoin', 'round');
+																					path.setAttribute('stroke-width', '2');
+																					path.setAttribute('d', 'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z');
+																					svg.appendChild(path);
+																					
+																					const p1 = document.createElement('p');
+																					p1.className = 'text-sm text-gray-500 text-center';
+																					p1.textContent = 'Image not available';
+																					
+																					const p2 = document.createElement('p');
+																					p2.className = 'text-xs text-gray-400 text-center mt-1';
+																					p2.textContent = `Bucket: scan-images/${scanType === 'leaf_disease' ? 'leaf_scans' : 'fruit_scans'}`;
+																					
+																					placeholder.appendChild(svg);
+																					placeholder.appendChild(p1);
+																					placeholder.appendChild(p2);
+																					
+																					if (scanUuid !== 'N/A') {
+																						const p3 = document.createElement('p');
+																						p3.className = 'text-xs text-gray-400 text-center mt-1';
+																						p3.textContent = `UUID: ${scanUuid}`;
+																						placeholder.appendChild(p3);
+																					}
+																					
+																					parent.appendChild(placeholder);
+																				}
+																			}}
+																			onLoad={() => {
+																				// Remove error state and reset attempts if image loads successfully
+																				errorThrottle.delete(errorKey);
+																				setImageUrlAttempts(prev => {
+																					const next = { ...prev };
+																					delete next[attemptKey];
+																					return next;
+																				});
+																				
+																				if (process.env.NODE_ENV === 'development') {
+																					console.log('[Validate Page] Image loaded successfully:', {
+																						url: capturedImageUrl,
+																						scan_uuid: scanUuid,
+																						scan_type: scanType,
+																						attempt: attemptIndex + 1
+																					});
+																				}
+																			}}
+																		/>
+																	);
+																})()}
 															</div>
 														</div>
 													</CardContent>
@@ -939,7 +1338,7 @@ export default function ValidatePage() {
 										</div>
 
 										{/* Modal Footer */}
-										<div className="bg-white border-t-2 border-gray-200 px-6 py-4 flex-shrink-0 shadow-lg">
+										<div className="bg-white border-t-2 border-gray-200 px-6 py-4 flex-shrink-0 shadow-lg z-10">
 											<DialogFooter className="flex flex-row items-center justify-end gap-3 sm:gap-3">
 												<Button 
 													variant="outline" 
@@ -977,5 +1376,7 @@ export default function ValidatePage() {
 		</AuthGuard>
 	);
 }
+
+
 
 

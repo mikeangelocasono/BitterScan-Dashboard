@@ -38,6 +38,13 @@ const nextConfig: NextConfig = {
       },
     ],
     formats: ['image/avif', 'image/webp'],
+    // Add specific Supabase storage domain pattern
+    // This allows Next.js to properly handle Supabase storage images
+    domains: [],
+    // Disable strict mode for image optimization to prevent 400 errors
+    // Supabase storage URLs may not always be accessible for optimization
+    dangerouslyAllowSVG: true,
+    contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
   },
   
   // Ensure proper routing on Vercel

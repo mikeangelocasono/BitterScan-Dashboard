@@ -76,10 +76,13 @@ function saveReadScanIds(ids: Set<number>): void {
  * 5. NotificationBell displays the count and updates automatically
  * 
  * When a scan is validated/corrected:
- * - Scan status changes to 'Validated'/'Corrected' via real-time UPDATE event
+ * - Scan status changes to 'Validated' (both Confirm and Correct actions) via real-time UPDATE event
  * - Filter automatically excludes it (no longer 'Pending Validation')
  * - Unread count decreases immediately
  * - No manual refresh needed!
+ * 
+ * IMPORTANT: Both "Confirm" and "Correct" actions set scans.status to "Validated"
+ * The validation_history table tracks whether it was "Validated" or "Corrected" for AI accuracy
  */
 export function NotificationProvider({ children }: { children: ReactNode }) {
 	// Get scans from DataContext - these update automatically via Supabase Realtime subscriptions

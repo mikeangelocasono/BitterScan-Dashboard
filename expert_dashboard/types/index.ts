@@ -2,11 +2,11 @@
  * Shared type definitions for the BitterScan Expert Dashboard
  */
 
-export interface Scan {
+// Base scan interface with common fields
+interface BaseScan {
   id: number;
   farmer_id: string;
   scan_type: 'leaf_disease' | 'fruit_maturity';
-  ai_prediction: string;
   image_url: string;
   status: 'Pending Validation' | 'Validated' | 'Corrected';
   created_at: string;
@@ -14,10 +14,7 @@ export interface Scan {
   scan_uuid: string;
   expert_comment?: string;
   expert_validation?: string | null;
-  // Optional scan result details
   confidence?: number | string;
-  solution?: string;
-  recommended_products?: string;
   // Joined profile data
   farmer_profile?: {
     id: string;
@@ -26,6 +23,57 @@ export interface Scan {
     email: string;
     profile_picture: string;
   };
+}
+
+// Leaf disease scan interface
+export interface LeafDiseaseScan extends BaseScan {
+  scan_type: 'leaf_disease';
+  disease_detected: string; // Maps to ai_prediction in old schema
+  solution?: string;
+  recommendation?: string; // Maps to recommended_products in old schema
+}
+
+// Fruit ripeness scan interface
+export interface FruitRipenessScan extends BaseScan {
+  scan_type: 'fruit_maturity';
+  ripeness_stage: string; // Maps to ai_prediction in old schema
+  harvest_recommendation?: string; // Maps to solution in old schema
+}
+
+// Unified Scan type for backward compatibility
+export type Scan = LeafDiseaseScan | FruitRipenessScan;
+
+// Helper type guards
+export function isLeafDiseaseScan(scan: Scan): scan is LeafDiseaseScan {
+  return scan.scan_type === 'leaf_disease';
+}
+
+export function isFruitRipenessScan(scan: Scan): scan is FruitRipenessScan {
+  return scan.scan_type === 'fruit_maturity';
+}
+
+// Helper to get ai_prediction from either scan type (for backward compatibility)
+export function getAiPrediction(scan: Scan): string {
+  if (isLeafDiseaseScan(scan)) {
+    return scan.disease_detected;
+  }
+  return scan.ripeness_stage;
+}
+
+// Helper to get solution/recommendation from either scan type
+export function getSolution(scan: Scan): string | undefined {
+  if (isLeafDiseaseScan(scan)) {
+    return scan.solution;
+  }
+  return scan.harvest_recommendation;
+}
+
+// Helper to get recommended products from either scan type
+export function getRecommendedProducts(scan: Scan): string | undefined {
+  if (isLeafDiseaseScan(scan)) {
+    return scan.recommendation;
+  }
+  return undefined;
 }
 
 export interface UserProfile {
@@ -62,10 +110,12 @@ export type ScanStatus = 'Pending Validation' | 'Validated' | 'Corrected';
 
 export interface ValidationHistory {
   id: number;
-  scan_id: number;
+  scan_id: string | number; // Can be UUID (string) or numeric ID depending on schema
   expert_id: string;
-  ai_prediction: string;
+  expert_name?: string; // Expert's full name stored directly in validation_history
+  ai_prediction: string; // Disease detected or ripeness stage
   expert_validation?: string;
+  expert_comment?: string | null;
   status: 'Validated' | 'Corrected';
   validated_at: string;
   // Joined profile data
@@ -75,7 +125,7 @@ export interface ValidationHistory {
     full_name: string;
     email: string;
   };
-  // Joined scan data
+  // Joined scan data - can be from either table
   scan?: Scan;
 }
 

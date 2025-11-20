@@ -11,6 +11,8 @@ import { supabase } from "@/components/supabase";
 import {
   LineChart,
   Line,
+  Area,
+  AreaChart,
   BarChart,
   Bar,
   PieChart as RechartsPieChart,
@@ -27,6 +29,7 @@ import ChartCard from "@/components/charts/ChartCard";
 import { useData } from "@/components/DataContext";
 
 import type { Scan, ValidationHistory } from "@/types";
+import { getAiPrediction } from "@/types";
 
 type Range = "daily" | "weekly" | "monthly" | "custom";
 
@@ -39,16 +42,17 @@ type ValidationDatum = {
   period: string;
   validated: number;
   corrected: number;
+  notValidated?: number;
 };
 
 // Disease color mapping (Healthy must be GREEN)
 const DISEASE_COLORS: Record<string, string> = {
-  "Cercospora": "#388E3C", // Green
-  "Yellow Mosaic Virus": "#F59E0B", // Amber
-  "Healthy": "#22C55E", // Bright Green
+  "Cercospora": "#FB923C", // Orange - Disease color
+  "Yellow Mosaic Virus": "#F59E0B", // Amber - Disease color
+  "Healthy": "#22C55E", // Bright Green - Healthy
   "Unknown": "#6B7280", // Gray
-  "Downy Mildew": "#3B82F6", // Blue
-  "Fusarium Wilt": "#EF4444", // Red
+  "Downy Mildew": "#3B82F6", // Blue - Disease color
+  "Fusarium Wilt": "#EF4444", // Red - Disease color
 };
 
 // Ripeness color mapping
@@ -74,11 +78,16 @@ const RANGE_LABELS: Record<Range, string> = {
 };
 
 const ONE_DAY = 24 * 60 * 60 * 1000;
-const HOUR_FORMATTER = new Intl.DateTimeFormat("en-US", { hour: "numeric" });
+const HOUR_FORMATTER = new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: true });
 const DAY_FORMATTER = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
 const WEEKDAY_FORMATTER = new Intl.DateTimeFormat("en-US", { weekday: "short" });
+const MONTH_FORMATTER = new Intl.DateTimeFormat("en-US", { month: "long" });
 const VALIDATED_GRADIENT_ID = "reports-validated-gradient";
 const CORRECTED_GRADIENT_ID = "reports-corrected-gradient";
+
+// Dark green color theme
+const DARK_GREEN = "#388E3C";
+const DARK_GREEN_LIGHT = "#4CAF50";
 
 function normalizeToStartOfDay(date: Date) {
   const result = new Date(date);
@@ -97,7 +106,8 @@ function getRangeStart(range: Range, customStart?: Date) {
   if (range === "weekly") {
     const start = new Date(now);
     const day = start.getDay(); // 0 = Sunday, 1 = Monday, etc.
-    start.setDate(start.getDate() - day); // Go back to Sunday
+    // Go back to Sunday (start of week)
+    start.setDate(start.getDate() - day);
     return start;
   }
   const start = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -125,42 +135,61 @@ function getRangeEnd(range: Range, customEnd?: Date) {
 }
 
 function buildScansTrend(range: Range, scans: Scan[], rangeStart: Date, rangeEnd: Date): TrendDatum[] {
-  if (!scans || scans.length === 0) {
-    // Return empty array with at least one entry for daily to show empty state
-    if (range === "daily") {
-      return [{ period: "12 AM", scans: 0 }];
-    }
-    return [];
-  }
-
   if (range === "daily") {
-    const base = normalizeToStartOfDay(rangeStart);
-    const isToday = rangeEnd.toDateString() === base.toDateString();
-    const currentHour = isToday ? Math.min(rangeEnd.getHours() + 1, 24) : 24;
+    // Always show 8 time intervals: 3 AM, 6 AM, 9 AM, 12 PM, 3 PM, 6 PM, 9 PM, 12 AM
+    const timeIntervals = [3, 6, 9, 12, 15, 18, 21, 0]; // Hours in 24-hour format
+    const timeLabels = ["3 AM", "6 AM", "9 AM", "12 PM", "3 PM", "6 PM", "9 PM", "12 AM"];
     const counts = new Map<number, number>();
 
-    scans.forEach((scan) => {
-      if (!scan.created_at) return;
-      try {
-        const createdAt = new Date(scan.created_at);
-        if (isNaN(createdAt.getTime())) return;
-        if (createdAt < base || createdAt > rangeEnd) return;
-        const hour = createdAt.getHours();
-        counts.set(hour, (counts.get(hour) ?? 0) + 1);
-      } catch {
-        // Skip invalid dates
-        return;
-      }
-    });
+    if (scans && scans.length > 0) {
+      const base = normalizeToStartOfDay(rangeStart);
+      const baseTime = base.getTime();
+      const rangeEndTime = rangeEnd.getTime();
 
-    return Array.from({ length: Math.max(currentHour, 1) }, (_, hour) => {
-      const stamp = new Date(base);
-      stamp.setHours(hour);
-      return {
-        period: HOUR_FORMATTER.format(stamp),
-        scans: counts.get(hour) ?? 0,
-      };
-    });
+      scans.forEach((scan) => {
+        if (!scan.created_at) return;
+        try {
+          const createdAt = new Date(scan.created_at);
+          if (isNaN(createdAt.getTime())) return;
+          const createdAtTime = createdAt.getTime();
+          if (createdAtTime < baseTime || createdAtTime > rangeEndTime) return;
+          
+          const hour = createdAt.getHours();
+          // Map hour to nearest interval
+          // Handle hour 0 (midnight) specially - it should map to interval 0 (12 AM)
+          let nearestInterval = 0;
+          let minDiff = Infinity;
+          timeIntervals.forEach((interval, idx) => {
+            let diff: number;
+            if (hour === 0 && interval === 0) {
+              // Midnight maps to 12 AM
+              diff = 0;
+            } else if (hour === 0) {
+              // Midnight (0) is closest to 12 AM (0) or 3 AM (3)
+              diff = Math.min(interval, 24 - interval);
+            } else if (interval === 0) {
+              // 12 AM (0) is closest to midnight (0) or 9 PM (21)
+              diff = Math.min(hour, 24 - hour);
+            } else {
+              diff = Math.abs(hour - interval);
+            }
+            if (diff < minDiff) {
+              minDiff = diff;
+              nearestInterval = idx;
+            }
+          });
+          const intervalHour = timeIntervals[nearestInterval];
+          counts.set(intervalHour, (counts.get(intervalHour) ?? 0) + 1);
+        } catch {
+          return;
+        }
+      });
+    }
+
+    return timeIntervals.map((hour, idx) => ({
+      period: timeLabels[idx],
+      scans: counts.get(hour) ?? 0,
+    }));
   }
 
   const startDay = normalizeToStartOfDay(rangeStart);
@@ -168,13 +197,18 @@ function buildScansTrend(range: Range, scans: Scan[], rangeStart: Date, rangeEnd
   const totalDays = Math.max(1, Math.floor((endDay.getTime() - startDay.getTime()) / ONE_DAY) + 1);
 
   const bucketCounts = new Map<number, number>();
+  const rangeStartTime = startDay.getTime();
+  const rangeEndTime = rangeEnd.getTime();
+  
   scans.forEach((scan) => {
     if (!scan.created_at) return;
     try {
       const createdAt = new Date(scan.created_at);
       if (isNaN(createdAt.getTime())) return;
-      if (createdAt < startDay || createdAt > rangeEnd) return;
-      const dayIndex = Math.floor((normalizeToStartOfDay(createdAt).getTime() - startDay.getTime()) / ONE_DAY);
+      const createdAtTime = createdAt.getTime();
+      if (createdAtTime < rangeStartTime || createdAtTime > rangeEndTime) return;
+      const scanDay = normalizeToStartOfDay(createdAt);
+      const dayIndex = Math.floor((scanDay.getTime() - rangeStartTime) / ONE_DAY);
       if (dayIndex < 0 || dayIndex >= totalDays) return;
       bucketCounts.set(dayIndex, (bucketCounts.get(dayIndex) ?? 0) + 1);
     } catch {
@@ -184,19 +218,84 @@ function buildScansTrend(range: Range, scans: Scan[], rangeStart: Date, rangeEnd
   });
 
   if (range === "weekly") {
-    const buckets = Math.min(7, totalDays);
-    return Array.from({ length: buckets }, (_, idx) => {
-      const stamp = new Date(startDay);
-      stamp.setDate(startDay.getDate() + idx);
-      return {
-        period: WEEKDAY_FORMATTER.format(stamp),
-        scans: bucketCounts.get(idx) ?? 0,
-      };
-    });
+    // Always show 7 days: Sunday → Saturday
+    const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    // Aggregate scans by day of week across the entire range
+    const dayOfWeekCounts = new Map<number, number>();
+    
+    // Map all day indices to their day of week and aggregate counts
+    for (let i = 0; i < totalDays; i++) {
+      const actualDay = new Date(startDay);
+      actualDay.setDate(startDay.getDate() + i);
+      const dayOfWeek = actualDay.getDay();
+      const scanCount = bucketCounts.get(i) ?? 0;
+      dayOfWeekCounts.set(dayOfWeek, (dayOfWeekCounts.get(dayOfWeek) ?? 0) + scanCount);
+    }
+    
+    return Array.from({ length: 7 }, (_, dayOfWeek) => ({
+      period: days[dayOfWeek],
+      scans: dayOfWeekCounts.get(dayOfWeek) ?? 0,
+    }));
   }
 
-  // Monthly
-  return Array.from({ length: totalDays }, (_, idx) => {
+  // Monthly - show full month names January → December
+  // Only show months that are within the date range
+  if (range === "monthly") {
+    const months = ["January", "February", "March", "April", "May", "June", 
+                     "July", "August", "September", "October", "November", "December"];
+    const counts = new Map<number, number>();
+    const monthSet = new Set<number>();
+    
+    // Determine which months are in the range
+    const startMonth = rangeStart.getMonth();
+    const endMonth = rangeEnd.getMonth();
+    const startYear = rangeStart.getFullYear();
+    const endYear = rangeEnd.getFullYear();
+    
+    if (startYear === endYear) {
+      // Same year - include months from startMonth to endMonth
+      for (let m = startMonth; m <= endMonth; m++) {
+        monthSet.add(m);
+      }
+    } else {
+      // Different years - include months from startMonth to December, and January to endMonth
+      for (let m = startMonth; m < 12; m++) {
+        monthSet.add(m);
+      }
+      for (let m = 0; m <= endMonth; m++) {
+        monthSet.add(m);
+      }
+    }
+    
+    if (scans && scans.length > 0) {
+      scans.forEach((scan) => {
+        if (!scan.created_at) return;
+        try {
+          const createdAt = new Date(scan.created_at);
+          if (isNaN(createdAt.getTime())) return;
+          const createdAtTime = createdAt.getTime();
+          if (createdAtTime < rangeStartTime || createdAtTime > rangeEndTime) return;
+          const month = createdAt.getMonth(); // 0-11
+          // Only count if month is in the range
+          if (monthSet.has(month)) {
+            counts.set(month, (counts.get(month) ?? 0) + 1);
+          }
+        } catch {
+          return;
+        }
+      });
+    }
+    
+    // Return all 12 months, but only show data for months in range
+    return months.map((month, idx) => ({
+      period: month,
+      scans: counts.get(idx) ?? 0,
+    }));
+  }
+
+  // Custom range - use day formatter
+  const maxDays = Math.min(totalDays, 31);
+  return Array.from({ length: maxDays }, (_, idx) => {
     const stamp = new Date(startDay);
     stamp.setDate(startDay.getDate() + idx);
     return {
@@ -206,78 +305,94 @@ function buildScansTrend(range: Range, scans: Scan[], rangeStart: Date, rangeEnd
   });
 }
 
+// Build validation activity data for charts
+// Counts scans where status !== "Pending Validation" (i.e., Validated or Corrected)
 function buildValidationActivity(
   range: Range,
-  validations: ValidationHistory[],
+  scans: Scan[],
   rangeStart: Date,
   rangeEnd: Date
 ): ValidationDatum[] {
-  if (!validations || validations.length === 0) {
-    // Return empty array with at least one entry for daily to show empty state
-    if (range === "daily") {
-      return [{ period: "12 AM", validated: 0, corrected: 0 }];
-    }
-    return [];
-  }
-
   if (range === "daily") {
-    const base = normalizeToStartOfDay(rangeStart);
-    const isToday = rangeEnd.toDateString() === base.toDateString();
-    const currentHour = isToday ? Math.min(rangeEnd.getHours() + 1, 24) : 24;
-    const counts = new Map<number, { validated: number; corrected: number }>();
+    // Always show 8 time intervals: 3 AM, 6 AM, 9 AM, 12 PM, 3 PM, 6 PM, 9 PM, 12 AM
+    const timeIntervals = [3, 6, 9, 12, 15, 18, 21, 0]; // Hours in 24-hour format
+    const timeLabels = ["3 AM", "6 AM", "9 AM", "12 PM", "3 PM", "6 PM", "9 PM", "12 AM"];
+    const counts = new Map<number, number>();
 
-    validations.forEach((record) => {
-      if (!record.validated_at) return;
-      try {
-        const validatedAt = new Date(record.validated_at);
-        if (isNaN(validatedAt.getTime())) return;
-        if (validatedAt < base || validatedAt > rangeEnd) return;
-        const hour = validatedAt.getHours();
-        const bucket = counts.get(hour) ?? { validated: 0, corrected: 0 };
-        if (record.status === "Validated") {
-          bucket.validated += 1;
-        } else if (record.status === "Corrected") {
-          bucket.corrected += 1;
+    if (scans && scans.length > 0) {
+      const base = normalizeToStartOfDay(rangeStart);
+      const baseTime = base.getTime();
+      const rangeEndTime = rangeEnd.getTime();
+
+      scans.forEach((scan) => {
+        // Only count scans where status !== "Pending Validation"
+        if (!scan.status || scan.status === "Pending Validation") return;
+        if (!scan.created_at) return;
+        try {
+          const createdAt = new Date(scan.created_at);
+          if (isNaN(createdAt.getTime())) return;
+          const createdAtTime = createdAt.getTime();
+          if (createdAtTime < baseTime || createdAtTime > rangeEndTime) return;
+          
+          const hour = createdAt.getHours();
+          // Map hour to nearest interval
+          // Handle hour 0 (midnight) specially - it should map to interval 0 (12 AM)
+          let nearestInterval = 0;
+          let minDiff = Infinity;
+          timeIntervals.forEach((interval, idx) => {
+            let diff: number;
+            if (hour === 0 && interval === 0) {
+              // Midnight maps to 12 AM
+              diff = 0;
+            } else if (hour === 0) {
+              // Midnight (0) is closest to 12 AM (0) or 3 AM (3)
+              diff = Math.min(interval, 24 - interval);
+            } else if (interval === 0) {
+              // 12 AM (0) is closest to midnight (0) or 9 PM (21)
+              diff = Math.min(hour, 24 - hour);
+            } else {
+              diff = Math.abs(hour - interval);
+            }
+            if (diff < minDiff) {
+              minDiff = diff;
+              nearestInterval = idx;
+            }
+          });
+          const intervalHour = timeIntervals[nearestInterval];
+          counts.set(intervalHour, (counts.get(intervalHour) ?? 0) + 1);
+        } catch {
+          return;
         }
-        counts.set(hour, bucket);
-      } catch {
-        // Skip invalid dates
-        return;
-      }
-    });
+      });
+    }
 
-    return Array.from({ length: Math.max(currentHour, 1) }, (_, hour) => {
-      const stamp = new Date(base);
-      stamp.setHours(hour);
-      const bucket = counts.get(hour);
-      return {
-        period: HOUR_FORMATTER.format(stamp),
-        validated: bucket?.validated ?? 0,
-        corrected: bucket?.corrected ?? 0,
-      };
-    });
+    return timeIntervals.map((hour, idx) => ({
+      period: timeLabels[idx],
+      validated: counts.get(hour) ?? 0,
+      corrected: 0,
+    }));
   }
 
   const startDay = normalizeToStartOfDay(rangeStart);
   const endDay = normalizeToStartOfDay(rangeEnd);
   const totalDays = Math.max(1, Math.floor((endDay.getTime() - startDay.getTime()) / ONE_DAY) + 1);
-  const counts = new Map<number, { validated: number; corrected: number }>();
+  const counts = new Map<number, number>();
+  const rangeStartTime = startDay.getTime();
+  const rangeEndTime = rangeEnd.getTime();
 
-  validations.forEach((record) => {
-    if (!record.validated_at) return;
+  scans.forEach((scan) => {
+    // Only count scans where status !== "Pending Validation"
+    if (!scan.status || scan.status === "Pending Validation") return;
+    if (!scan.created_at) return;
     try {
-      const validatedAt = new Date(record.validated_at);
-      if (isNaN(validatedAt.getTime())) return;
-      if (validatedAt < startDay || validatedAt > rangeEnd) return;
-      const dayIndex = Math.floor((normalizeToStartOfDay(validatedAt).getTime() - startDay.getTime()) / ONE_DAY);
+      const createdAt = new Date(scan.created_at);
+      if (isNaN(createdAt.getTime())) return;
+      const createdAtTime = createdAt.getTime();
+      if (createdAtTime < rangeStartTime || createdAtTime > rangeEndTime) return;
+      const scanDay = normalizeToStartOfDay(createdAt);
+      const dayIndex = Math.floor((scanDay.getTime() - rangeStartTime) / ONE_DAY);
       if (dayIndex < 0 || dayIndex >= totalDays) return;
-      const bucket = counts.get(dayIndex) ?? { validated: 0, corrected: 0 };
-      if (record.status === "Validated") {
-        bucket.validated += 1;
-      } else if (record.status === "Corrected") {
-        bucket.corrected += 1;
-      }
-      counts.set(dayIndex, bucket);
+      counts.set(dayIndex, (counts.get(dayIndex) ?? 0) + 1);
     } catch {
       // Skip invalid dates
       return;
@@ -285,28 +400,94 @@ function buildValidationActivity(
   });
 
   if (range === "weekly") {
-    const buckets = Math.min(7, totalDays);
-    return Array.from({ length: buckets }, (_, idx) => {
-      const stamp = new Date(startDay);
-      stamp.setDate(startDay.getDate() + idx);
-      const bucket = counts.get(idx);
-      return {
-        period: WEEKDAY_FORMATTER.format(stamp),
-        validated: bucket?.validated ?? 0,
-        corrected: bucket?.corrected ?? 0,
-      };
-    });
+    // Always show 7 days: Sunday → Saturday
+    const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    // Aggregate scans by day of week across the entire range
+    const dayOfWeekCounts = new Map<number, number>();
+    
+    // Map all day indices to their day of week and aggregate counts
+    for (let i = 0; i < totalDays; i++) {
+      const actualDay = new Date(startDay);
+      actualDay.setDate(startDay.getDate() + i);
+      const dayOfWeek = actualDay.getDay();
+      const validatedCount = counts.get(i) ?? 0;
+      dayOfWeekCounts.set(dayOfWeek, (dayOfWeekCounts.get(dayOfWeek) ?? 0) + validatedCount);
+    }
+    
+    return Array.from({ length: 7 }, (_, dayOfWeek) => ({
+      period: days[dayOfWeek],
+      validated: dayOfWeekCounts.get(dayOfWeek) ?? 0,
+      corrected: 0,
+    }));
   }
 
-  // Monthly
-  return Array.from({ length: totalDays }, (_, idx) => {
+  // Monthly - show full month names January → December
+  // Only show months that are within the date range
+  if (range === "monthly") {
+    const months = ["January", "February", "March", "April", "May", "June", 
+                     "July", "August", "September", "October", "November", "December"];
+    const monthCounts = new Map<number, number>();
+    const monthSet = new Set<number>();
+    
+    // Determine which months are in the range
+    const startMonth = rangeStart.getMonth();
+    const endMonth = rangeEnd.getMonth();
+    const startYear = rangeStart.getFullYear();
+    const endYear = rangeEnd.getFullYear();
+    
+    if (startYear === endYear) {
+      // Same year - include months from startMonth to endMonth
+      for (let m = startMonth; m <= endMonth; m++) {
+        monthSet.add(m);
+      }
+    } else {
+      // Different years - include months from startMonth to December, and January to endMonth
+      for (let m = startMonth; m < 12; m++) {
+        monthSet.add(m);
+      }
+      for (let m = 0; m <= endMonth; m++) {
+        monthSet.add(m);
+      }
+    }
+    
+    if (scans && scans.length > 0) {
+      scans.forEach((scan) => {
+        // Only count scans where status !== "Pending Validation"
+        if (!scan.status || scan.status === "Pending Validation") return;
+        if (!scan.created_at) return;
+        try {
+          const createdAt = new Date(scan.created_at);
+          if (isNaN(createdAt.getTime())) return;
+          const createdAtTime = createdAt.getTime();
+          if (createdAtTime < rangeStartTime || createdAtTime > rangeEndTime) return;
+          const month = createdAt.getMonth(); // 0-11
+          // Only count if month is in the range
+          if (monthSet.has(month)) {
+            monthCounts.set(month, (monthCounts.get(month) ?? 0) + 1);
+          }
+        } catch {
+          return;
+        }
+      });
+    }
+    
+    // Return all 12 months, but only show data for months in range
+    return months.map((month, idx) => ({
+      period: month,
+      validated: monthCounts.get(idx) ?? 0,
+      corrected: 0,
+    }));
+  }
+
+  // Custom range - use day formatter
+  const maxDays = Math.min(totalDays, 31);
+  return Array.from({ length: maxDays }, (_, idx) => {
     const stamp = new Date(startDay);
     stamp.setDate(startDay.getDate() + idx);
-    const bucket = counts.get(idx);
     return {
       period: DAY_FORMATTER.format(stamp),
-      validated: bucket?.validated ?? 0,
-      corrected: bucket?.corrected ?? 0,
+      validated: counts.get(idx) ?? 0,
+      corrected: 0,
     };
   });
 }
@@ -317,26 +498,39 @@ export default function ReportsPage() {
   const [customStartDate, setCustomStartDate] = useState<string>("");
   const [customEndDate, setCustomEndDate] = useState<string>("");
   const [showCustomPicker, setShowCustomPicker] = useState(false);
+  // Add current time state to ensure real-time updates for daily/weekly/monthly ranges
+  const [currentTime, setCurrentTime] = useState<Date>(new Date());
 
-  // Validate custom date range
+  // Update current time every 30 seconds for real-time date range updates
+  // This ensures new scans appear immediately in daily/weekly/monthly views
   useEffect(() => {
-    if (range === "custom" && customStartDate && customEndDate) {
-      const start = new Date(customStartDate);
-      const end = new Date(customEndDate);
-      const today = new Date().toISOString().split('T')[0];
-      
-      // Ensure dates are not in the future
-      if (customEndDate > today) {
-        setCustomEndDate(today);
-        return;
-      }
-      
-      // Swap dates if start is after end (only if both dates are valid)
-      if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && start > end) {
-        const temp = customStartDate;
-        setCustomStartDate(customEndDate);
-        setCustomEndDate(temp);
-      }
+    const interval = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 30000); // Update every 30 seconds for better real-time feel
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Validate custom date range - optimized to prevent unnecessary re-renders
+  useEffect(() => {
+    if (range !== "custom" || !customStartDate || !customEndDate) return;
+    
+    const start = new Date(customStartDate);
+    const end = new Date(customEndDate);
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Ensure dates are not in the future
+    if (customEndDate > today) {
+      setCustomEndDate(today);
+      return;
+    }
+    
+    // Swap dates if start is after end (only if both dates are valid)
+    if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && start > end) {
+      // Swap the dates
+      const temp = customStartDate;
+      setCustomStartDate(customEndDate);
+      setCustomEndDate(temp);
     }
   }, [range, customStartDate, customEndDate]);
 
@@ -353,12 +547,13 @@ export default function ReportsPage() {
         // If custom range is selected but dates aren't valid, fall back to today
         return normalizeToStartOfDay(new Date());
       }
+      // For daily/weekly/monthly, use current time to ensure real-time updates
       return getRangeStart(range);
     } catch {
       // Fallback to daily if date parsing fails
       return normalizeToStartOfDay(new Date());
     }
-  }, [range, customStartDate]);
+  }, [range, customStartDate, currentTime]); // Add currentTime dependency
   
   const rangeEnd = useMemo(() => {
     try {
@@ -375,14 +570,16 @@ export default function ReportsPage() {
         end.setHours(23, 59, 59, 999);
         return end;
       }
+      // For daily/weekly/monthly, use end of current day for consistency
+      // This ensures all scans from today are included
       return getRangeEnd(range);
     } catch {
-      // Fallback to current time if date parsing fails
+      // Fallback to end of today if date parsing fails
       const end = new Date();
       end.setHours(23, 59, 59, 999);
       return end;
     }
-  }, [range, customEndDate]);
+  }, [range, customEndDate, currentTime]); // Keep currentTime for real-time updates
 
   // Format date range for display
   const dateRangeLabel = useMemo(() => {
@@ -400,6 +597,8 @@ export default function ReportsPage() {
     return RANGE_LABELS[range];
   }, [range, customStartDate, customEndDate]);
 
+  // Filter scans by date range - optimized with early returns and proper date comparison
+  // This now properly includes new scans in real-time thanks to currentTime updates
   const filteredScans = useMemo(() => {
     if (!scans || scans.length === 0) return [];
     
@@ -408,6 +607,9 @@ export default function ReportsPage() {
       return [];
     }
     
+    const rangeStartTime = rangeStart.getTime();
+    const rangeEndTime = rangeEnd.getTime();
+    
     return scans.filter((scan) => {
       if (!scan.created_at) return false;
       try {
@@ -415,70 +617,132 @@ export default function ReportsPage() {
         // Ensure valid date
         if (isNaN(createdAt.getTime())) return false;
         
-        // Compare dates properly - ensure we're comparing Date objects correctly
-        // rangeStart is normalized to start of day (00:00:00.000)
-        // rangeEnd is set to end of day (23:59:59.999) or current time
-        const isAfterStart = createdAt.getTime() >= rangeStart.getTime();
-        const isBeforeEnd = createdAt.getTime() <= rangeEnd.getTime();
-        
-        return isAfterStart && isBeforeEnd;
+        // Compare dates using timestamps for better performance
+        const createdAtTime = createdAt.getTime();
+        // Use inclusive comparison: >= start and <= end
+        return createdAtTime >= rangeStartTime && createdAtTime <= rangeEndTime;
       } catch {
         return false;
       }
     });
   }, [scans, rangeStart, rangeEnd]);
 
-  // Calculate total scans count from filtered data (not all-time)
+  // Calculate total scans count - filtered by date range
+  // This shows the count of scans within the selected date range (from scans table)
+  // Daily → scans done today
+  // Weekly → scans for the past 7 days
+  // Monthly → scans for the current month
+  // Custom → scans between startDate and endDate
   const totalScansCount = useMemo(() => {
     return filteredScans.length;
   }, [filteredScans]);
 
+  // Filter validations by date range - optimized with timestamp comparison
+  // This now properly includes new validations in real-time thanks to currentTime updates
+  // Only include records with status = "Validated"
   const filteredValidations = useMemo(() => {
     if (!validationHistory || validationHistory.length === 0) return [];
     
+    // Ensure rangeStart and rangeEnd are valid Date objects
+    if (!rangeStart || !rangeEnd || isNaN(rangeStart.getTime()) || isNaN(rangeEnd.getTime())) {
+      return [];
+    }
+    
+    const rangeStartTime = rangeStart.getTime();
+    const rangeEndTime = rangeEnd.getTime();
+    
     return validationHistory.filter((record) => {
+      // Only include records with status = "Validated"
+      if (record.status !== "Validated") return false;
       if (!record.validated_at) return false;
       try {
         const validatedAt = new Date(record.validated_at);
         // Ensure valid date
         if (isNaN(validatedAt.getTime())) return false;
-        // Compare dates properly
-        return validatedAt >= rangeStart && validatedAt <= rangeEnd;
+        // Compare dates using timestamps for better performance
+        const validatedAtTime = validatedAt.getTime();
+        return validatedAtTime >= rangeStartTime && validatedAtTime <= rangeEndTime;
       } catch {
         return false;
       }
     });
   }, [validationHistory, rangeStart, rangeEnd]);
 
-  const aiAccuracyRate = useMemo(() => {
-    // AI Accuracy Rate = (Validated scans) / (Validated + Corrected scans) * 100
-    // Only count scans that have been validated (not pending)
-    const validatedCount = filteredScans.filter((s) => s.status === "Validated").length;
-    const correctedCount = filteredScans.filter((s) => s.status === "Corrected").length;
-    const total = validatedCount + correctedCount;
-    
-    if (total === 0) {
-      // If no validated scans in range, return 0
+  // Calculate validated scans count: Count scans where status !== "Pending Validation"
+  // Any scan with status "Validated" or "Corrected" counts as validated
+  const validatedScansCount = useMemo(() => {
+    if (!filteredScans || filteredScans.length === 0) {
       return 0;
     }
     
-    const rate = (validatedCount / total) * 100;
-    return parseFloat(rate.toFixed(1));
+    // Count scans where status is NOT "Pending Validation"
+    return filteredScans.filter((scan) => {
+      return scan.status && scan.status !== "Pending Validation";
+    }).length;
   }, [filteredScans]);
 
-  // Calculate validated scans: Total Scans - Pending
-  const validatedScansCount = useMemo(() => {
-    const total = filteredScans.length;
-    const pending = filteredScans.filter((s) => s.status === "Pending Validation").length;
-    return total - pending;
-  }, [filteredScans]);
+  // AI Accuracy Rate = (Total Confirmed by Expert ÷ Total Scans) × 100
+  // Formula: Count of scans where expert confirmed (status = "Validated" in validation_history) / Total scans in filter range
+  // IMPORTANT: Only count scans that exist in filteredScans AND have validation_history with status = "Validated"
+  const aiAccuracyRate = useMemo(() => {
+    // Get total scans in the filter range (from scans table)
+    const totalScans = filteredScans.length;
+    
+    if (totalScans === 0) {
+      return 0;
+    }
+    
+    // Create a Set of scan UUIDs from filteredScans for fast lookup
+    // Match by both scan_uuid and scan.id to handle different UUID formats
+    const filteredScanUuids = new Set<string>();
+    const filteredScanIds = new Set<number>();
+    
+    filteredScans.forEach((scan) => {
+      if (scan.scan_uuid) {
+        const scanUuid = String(scan.scan_uuid).trim().toLowerCase();
+        if (scanUuid && scanUuid.length > 0) {
+          filteredScanUuids.add(scanUuid);
+        }
+      }
+      if (scan.id) {
+        filteredScanIds.add(scan.id);
+      }
+    });
+    
+    // Count scans that were confirmed by expert (status = "Validated" in validation_history)
+    // AND exist in the filtered scans (within date range)
+    const confirmedScanUuids = new Set<string>();
+    
+    filteredValidations.forEach((validation) => {
+      // Only count "Validated" status (confirmed), not "Corrected"
+      if (validation.status === "Validated" && validation.scan_id) {
+        const scanUuid = String(validation.scan_id).trim().toLowerCase();
+        // Try matching by UUID first, then by scan.id if available
+        if (scanUuid && scanUuid.length > 0) {
+          if (filteredScanUuids.has(scanUuid)) {
+            confirmedScanUuids.add(scanUuid);
+          } else if (validation.scan?.id && filteredScanIds.has(validation.scan.id)) {
+            // Fallback: match by scan.id if UUID doesn't match
+            confirmedScanUuids.add(`id-${validation.scan.id}`);
+          }
+        }
+      }
+    });
+    
+    const confirmedCount = confirmedScanUuids.size;
+    const rate = (confirmedCount / totalScans) * 100;
+    return parseFloat(rate.toFixed(1));
+  }, [filteredScans, filteredValidations]);
 
   const scansTrend = useMemo(() => buildScansTrend(range, filteredScans, rangeStart, rangeEnd), [range, filteredScans, rangeStart, rangeEnd]);
-	const validationActivity = useMemo(
-    () => buildValidationActivity(range, filteredValidations, rangeStart, rangeEnd),
-    [range, filteredValidations, rangeStart, rangeEnd]
-  );
+  
+  // Build validation activity - counts scans where status !== "Pending Validation"
+  const validationActivity = useMemo(() => {
+    return buildValidationActivity(range, filteredScans, rangeStart, rangeEnd);
+  }, [range, filteredScans, rangeStart, rangeEnd]);
 
+  // Disease Distribution - Source of truth: leaf_disease_scans table, using disease_detected
+  // This reflects what the farmer actually scanned, not expert corrections
   const diseaseDistribution = useMemo(() => {
     const counts = {
       Cercospora: 0,
@@ -490,31 +754,56 @@ export default function ReportsPage() {
     };
     
     if (filteredScans && filteredScans.length > 0) {
-      filteredScans
-        .filter((scan) => scan.scan_type === "leaf_disease" && scan.ai_prediction)
-        .forEach((scan) => {
-          try {
-            const prediction = String(scan.ai_prediction).toLowerCase();
-            if (prediction.includes("cercospora")) counts.Cercospora += 1;
-            else if (prediction.includes("downy") || prediction.includes("mildew")) counts["Downy Mildew"] += 1;
-            else if (prediction.includes("fusarium") || prediction.includes("wilt")) counts["Fusarium Wilt"] += 1;
-            else if (prediction.includes("mosaic") || prediction.includes("virus")) counts["Yellow Mosaic Virus"] += 1;
-            else if (prediction.includes("healthy")) counts.Healthy += 1;
-            else counts.Unknown += 1;
-          } catch {
+      const leafScans = filteredScans.filter((scan) => scan.scan_type === "leaf_disease");
+      
+      leafScans.forEach((scan) => {
+        try {
+          // Use getAiPrediction helper to get disease_detected from leaf_disease_scans table
+          // This works with the new schema (disease_detected) and backward compatibility (ai_prediction)
+          // Do NOT use expert_validation - we want to show what was actually detected by AI
+          const predictionText = (getAiPrediction(scan) || '').toLowerCase().trim();
+          
+          if (!predictionText) {
+            counts.Unknown += 1;
+            return;
+          }
+          
+          // Match diseases in order of specificity (most specific first)
+          // This ensures correct categorization even with similar keywords
+          if (predictionText.includes("cercospora")) {
+            counts.Cercospora += 1;
+          } else if (predictionText.includes("downy mildew") || (predictionText.includes("downy") && predictionText.includes("mildew"))) {
+            counts["Downy Mildew"] += 1;
+          } else if (predictionText.includes("fusarium wilt") || (predictionText.includes("fusarium") && predictionText.includes("wilt"))) {
+            counts["Fusarium Wilt"] += 1;
+          } else if (predictionText.includes("yellow mosaic") || predictionText.includes("mosaic virus") || (predictionText.includes("yellow") && predictionText.includes("mosaic"))) {
+            counts["Yellow Mosaic Virus"] += 1;
+          } else if (predictionText.includes("healthy") || predictionText.includes("no disease") || predictionText.includes("normal")) {
+            counts.Healthy += 1;
+          } else {
+            // If no specific disease is detected, mark as Unknown
             counts.Unknown += 1;
           }
-        });
+        } catch (error) {
+          // Log parsing errors only in development
+          if (process.env.NODE_ENV === 'development') {
+            console.error('[Reports] Failed to parse disease prediction:', error, scan);
+          }
+          counts.Unknown += 1;
+        }
+      });
     }
 
-    // Return in specific order with all items (even if 0) - order: Cercospora, Yellow Mosaic Virus, Healthy, Unknown, Fusarium Wilt, Downy Mildew
-    const order = ["Cercospora", "Yellow Mosaic Virus", "Healthy", "Unknown", "Fusarium Wilt", "Downy Mildew"];
+    // Return in specific order with all items (even if 0)
+    const order = ["Healthy", "Cercospora", "Yellow Mosaic Virus", "Downy Mildew", "Fusarium Wilt", "Unknown"];
     return order.map((name) => ({
       name,
       value: counts[name as keyof typeof counts] || 0,
     }));
   }, [filteredScans]);
 
+  // Ripeness Distribution - Source of truth: fruit_ripeness_scans table, using ripeness_stage
+  // This reflects what the farmer actually scanned, not expert corrections
   const ripenessDistribution = useMemo(() => {
     const counts = {
       Unknown: 0,
@@ -525,29 +814,108 @@ export default function ReportsPage() {
     };
     
     if (filteredScans && filteredScans.length > 0) {
-      filteredScans
-        .filter((scan) => scan.scan_type === "fruit_maturity" && scan.ai_prediction)
-        .forEach((scan) => {
-          try {
-            const prediction = String(scan.ai_prediction).toLowerCase();
-            if (prediction.includes("immature")) counts.Immature += 1;
-            else if (prediction.includes("mature") && !prediction.includes("over")) counts.Mature += 1;
-            else if (prediction.includes("overmature")) counts.Overmature += 1;
-            else if (prediction.includes("overripe")) counts.Overripe += 1;
-            else counts.Unknown += 1;
-          } catch {
+      const fruitScans = filteredScans.filter((scan) => scan.scan_type === "fruit_maturity");
+      
+      fruitScans.forEach((scan) => {
+        try {
+          // Use getAiPrediction helper to get ripeness_stage from fruit_ripeness_scans table
+          // This works with the new schema (ripeness_stage) and backward compatibility (ai_prediction)
+          // Do NOT use expert_validation - we want to show what was actually detected by AI
+          const predictionText = (getAiPrediction(scan) || '').toLowerCase().trim();
+          
+          if (!predictionText) {
+            counts.Unknown += 1;
+            return;
+          }
+          
+          // Match ripeness levels in order of specificity (most specific first)
+          // This ensures correct categorization even with similar keywords
+          // Check "overmature" and "overripe" BEFORE "mature" to avoid false matches
+          // Use word boundaries or exact matches to prevent false positives
+          if (
+            predictionText.includes("overmature") || 
+            predictionText.includes("over mature") || 
+            predictionText.includes("over-mature")
+          ) {
+            counts.Overmature += 1;
+          } else if (
+            predictionText.includes("overripe") || 
+            predictionText.includes("over ripe") || 
+            predictionText.includes("over-ripe")
+          ) {
+            counts.Overripe += 1;
+          } else if (
+            predictionText.includes("immature") || 
+            predictionText.includes("im mature") ||
+            predictionText.includes("im-mature") ||
+            predictionText.includes("unripe") || 
+            predictionText.includes("under ripe") ||
+            predictionText.includes("underripe")
+          ) {
+            counts.Immature += 1;
+          } else if (
+            // Match "mature" or "ripe" only if NOT part of "overmature", "immature", or "overripe"
+            // Check that it's not preceded by "over" or "im" or "under"
+            (predictionText.includes("mature") && 
+             !predictionText.includes("overmature") && 
+             !predictionText.includes("immature") &&
+             !predictionText.includes("over mature") &&
+             !predictionText.includes("im mature")) ||
+            (predictionText.includes("ripe") && 
+             !predictionText.includes("overripe") && 
+             !predictionText.includes("unripe") &&
+             !predictionText.includes("over ripe") &&
+             !predictionText.includes("under ripe"))
+          ) {
+            // Only match "mature" or "ripe" if not part of compound words
+            counts.Mature += 1;
+          } else {
+            // If no specific ripeness level is detected, mark as Unknown
             counts.Unknown += 1;
           }
-        });
+        } catch (error) {
+          // Log parsing errors only in development
+          if (process.env.NODE_ENV === 'development') {
+            console.error('[Reports] Failed to parse ripeness prediction:', error, scan);
+          }
+          counts.Unknown += 1;
+        }
+      });
     }
 
-    // Return in specific order with all items (even if 0) - order: Unknown, Immature, Mature, Overmature, Overripe
-    const order = ["Unknown", "Immature", "Mature", "Overmature", "Overripe"];
+    // Return in specific order: Immature (Unripe), Overmature (Nearly Ripe), Mature (Ripe), Overripe, Unknown
+    // Order matches reference design: Unripe → Nearly Ripe → Ripe → Overripe
+    const order = ["Immature", "Overmature", "Mature", "Overripe", "Unknown"];
     return order.map((name) => ({
       name,
       value: counts[name as keyof typeof counts] || 0,
     }));
   }, [filteredScans]);
+
+  // Memoize metric cards data to prevent unnecessary re-renders
+  const metricCards = useMemo(() => [
+    {
+      icon: TrendingUp,
+      label: "AI Accuracy Rate",
+      value: `${aiAccuracyRate}%`,
+      color: "text-emerald-600",
+      bgColor: "bg-emerald-50",
+    },
+    {
+      icon: Camera,
+      label: "Total Scans",
+      value: totalScansCount.toLocaleString("en-US"),
+      color: "text-green-600",
+      bgColor: "bg-green-50",
+    },
+    {
+      icon: CheckCircle2,
+      label: "Total Validated",
+      value: validatedScansCount.toLocaleString("en-US"),
+      color: "text-green-600",
+      bgColor: "bg-green-50",
+    },
+  ], [aiAccuracyRate, totalScansCount, validatedScansCount]);
 
   // CSV Export function
   const generateCSV = useCallback(() => {
@@ -1105,54 +1473,37 @@ export default function ReportsPage() {
                   )}
                 </div>
               )}
-              <Button
-                variant="outline"
-                size="sm"
-                className="text-sm font-medium"
-                onClick={() => {
-                  const csvContent = generateCSV();
-                  downloadCSV(csvContent);
-                }}
-              >
-                <Download className="h-4 w-4 mr-1" />
-                Export CSV
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="text-sm font-medium"
-                onClick={() => generatePDF()}
-              >
-                <Download className="h-4 w-4 mr-1" />
-                Export PDF
-              </Button>
+              {/* Export Buttons Group */}
+              <div className="flex items-center gap-2 ml-2 pl-3 border-l border-gray-200">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex items-center gap-2 text-sm font-medium hover:bg-gray-50 transition-colors"
+                  onClick={() => {
+                    const csvContent = generateCSV();
+                    downloadCSV(csvContent);
+                  }}
+                >
+                  <Download className="h-4 w-4" />
+                  <span className="hidden sm:inline">Export CSV</span>
+                  <span className="sm:hidden">CSV</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex items-center gap-2 text-sm font-medium hover:bg-gray-50 transition-colors"
+                  onClick={() => generatePDF()}
+                >
+                  <Download className="h-4 w-4" />
+                  <span className="hidden sm:inline">Export PDF</span>
+                  <span className="sm:hidden">PDF</span>
+                </Button>
+              </div>
             </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[
-              {
-                icon: TrendingUp,
-                label: "AI Accuracy Rate",
-                value: `${aiAccuracyRate}%`,
-                color: "text-emerald-600",
-                bgColor: "bg-emerald-50",
-              },
-              {
-                icon: Camera,
-                label: "Total Scans",
-                value: totalScansCount.toLocaleString("en-US"),
-                color: "text-green-600",
-                bgColor: "bg-green-50",
-              },
-              {
-                icon: CheckCircle2,
-                label: "Total Validated",
-                value: validatedScansCount.toLocaleString("en-US"),
-                color: "text-green-600",
-                bgColor: "bg-green-50",
-              },
-            ].map((metric, idx) => {
+            {metricCards.map((metric, idx) => {
               const Icon = metric.icon;
               return (
                 <Card key={idx} className="shadow-sm hover:shadow-lg transition-all duration-200 border border-gray-200">
@@ -1267,116 +1618,112 @@ export default function ReportsPage() {
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <ChartCard title={`Scans Trend • ${dateRangeLabel}`}>
-              {scansTrend.length > 0 ? (
-                <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={scansTrend} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                    <XAxis dataKey="period" stroke="#6b7280" fontSize={12} tick={{ fill: "#6b7280" }} />
-                    <YAxis stroke="#6b7280" fontSize={12} tick={{ fill: "#6b7280" }} allowDecimals={false} />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "#fff",
-                        border: "1px solid #e5e7eb",
-                        borderRadius: "6px",
-                        fontSize: "12px",
-                      }}
-                    />
-                    <Legend wrapperStyle={{ fontSize: "12px", paddingTop: "10px" }} />
-                    <Line
-                      type="monotone"
-                      dataKey="scans"
-                      stroke="#388E3C"
-                      strokeWidth={2.5}
-                      name="Scans"
-                      dot={{ fill: "#388E3C", r: 4 }}
-                      activeDot={{ r: 6 }}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="flex h-[300px] flex-col items-center justify-center rounded-2xl border border-dashed border-emerald-200/70 bg-white/80 px-6 text-center text-sm text-emerald-700">
-                  <p className="font-medium">No scan trend data for {dateRangeLabel.toLowerCase()} yet.</p>
-                  <p className="mt-1 text-xs text-emerald-600">New scans will populate this chart automatically.</p>
-                </div>
-              )}
+              <ResponsiveContainer width="100%" height={300}>
+                <AreaChart data={scansTrend} margin={{ top: 10, right: 20, left: 0, bottom: range === "monthly" ? 50 : 10 }}>
+                  <defs>
+                    <linearGradient id="scansAreaGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={DARK_GREEN} stopOpacity={0.3} />
+                      <stop offset="100%" stopColor={DARK_GREEN} stopOpacity={0.05} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis 
+                    dataKey="period" 
+                    stroke="#6b7280" 
+                    fontSize={12} 
+                    tick={{ fill: "#6b7280" }}
+                    tickLine={false}
+                    interval={0}
+                    angle={range === "monthly" ? -45 : 0}
+                    textAnchor={range === "monthly" ? "end" : "middle"}
+                    height={range === "monthly" ? 80 : 30}
+                  />
+                  <YAxis 
+                    stroke="#6b7280" 
+                    fontSize={12} 
+                    tick={{ fill: "#6b7280" }} 
+                    allowDecimals={false}
+                    tickLine={false}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "#fff",
+                      border: "1px solid #e5e7eb",
+                      borderRadius: "6px",
+                      fontSize: "12px",
+                      boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
+                    }}
+                    formatter={(value: number) => [`${value} scans`, "Scans"]}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="scans"
+                    stroke={DARK_GREEN}
+                    strokeWidth={2.5}
+                    fill="url(#scansAreaGradient)"
+                    name="Scans"
+                    dot={{ fill: DARK_GREEN, r: 4, strokeWidth: 2, stroke: "#fff" }}
+                    activeDot={{ r: 6, strokeWidth: 2, stroke: "#fff" }}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
             </ChartCard>
 
             <ChartCard title={`Validated Activity • ${dateRangeLabel}`}>
-              {validationActivity.length > 0 ? (
-                <motion.div
-                  initial={{ opacity: 0, y: 16 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.35 }}
-                  className="rounded-2xl bg-gradient-to-br from-emerald-50 via-white to-emerald-100/60 p-4 shadow-inner"
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart 
+                  data={validationActivity} 
+                  margin={{ top: 20, right: 30, left: 0, bottom: range === "monthly" ? 50 : 10 }}
+                  barCategoryGap="15%"
+                  barSize={range === "daily" ? 30 : range === "weekly" ? 35 : 25}
                 >
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={validationActivity} margin={{ top: 10, right: 24, left: 4, bottom: 8 }}>
-                      <defs>
-                        <linearGradient id={VALIDATED_GRADIENT_ID} x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#388E3C" stopOpacity={0.95} />
-                          <stop offset="100%" stopColor="#79C082" stopOpacity={0.75} />
-                        </linearGradient>
-                        <linearGradient id={CORRECTED_GRADIENT_ID} x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#3B82F6" stopOpacity={0.9} />
-                          <stop offset="100%" stopColor="#9BC0FF" stopOpacity={0.7} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="4 6" stroke="rgba(56,142,60,0.15)" />
-                      <XAxis
-                        dataKey="period"
-                        stroke="#1f2937"
-                        fontSize={12}
-                        tickLine={false}
-                        axisLine={{ stroke: "rgba(56,142,60,0.2)" }}
-                        tick={{ fill: "#1f2937", fontWeight: 600 }}
-                      />
-                      <YAxis
-                        stroke="#1f2937"
-                        fontSize={12}
-                        tickLine={false}
-                        axisLine={{ stroke: "rgba(56,142,60,0.2)" }}
-                        tick={{ fill: "#1f2937", fontWeight: 600 }}
-                        allowDecimals={false}
-                      />
-                      <Tooltip
-                        cursor={{ fill: "rgba(56,142,60,0.08)" }}
-                        contentStyle={{
-                          backgroundColor: "#ffffff",
-                          border: "1px solid rgba(56,142,60,0.1)",
-                          borderRadius: "12px",
-                          boxShadow: "0 12px 30px rgba(56,142,60,0.12)",
-                          fontSize: "12px",
-                          padding: "8px 12px",
-                        }}
-                        labelStyle={{ color: "#1f2937", fontWeight: 600 }}
-                      />
-                    <Legend
-                        iconType="circle"
-                        wrapperStyle={{ fontSize: "12px", paddingTop: "12px", color: "#1f2937", fontWeight: 600 }}
-                      />
-                      <Bar
-                        dataKey="validated"
-                        fill={`url(#${VALIDATED_GRADIENT_ID})`}
-                        name="Validated"
-                        radius={[10, 10, 10, 10]}
-                        maxBarSize={40}
-                      />
-                      <Bar
-                        dataKey="corrected"
-                        fill={`url(#${CORRECTED_GRADIENT_ID})`}
-                        name="Corrected"
-                        radius={[10, 10, 10, 10]}
-                        maxBarSize={40}
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </motion.div>
-              ) : (
-                <div className="flex h-[300px] flex-col items-center justify-center rounded-2xl border border-dashed border-emerald-200/70 bg-white/80 px-6 text-center text-sm text-emerald-700">
-                  <p className="font-medium">No validation activity data for {dateRangeLabel.toLowerCase()} yet.</p>
-                  <p className="mt-1 text-xs text-emerald-600">Validation activities will populate this chart automatically.</p>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+                  <XAxis 
+                    dataKey="period" 
+                    stroke="#6b7280" 
+                    fontSize={12} 
+                    tick={{ fill: "#6b7280" }}
+                    tickLine={false}
+                    axisLine={false}
+                    interval={0}
+                    angle={range === "monthly" ? -45 : 0}
+                    textAnchor={range === "monthly" ? "end" : "middle"}
+                    height={range === "monthly" ? 80 : 30}
+                  />
+                  <YAxis 
+                    stroke="#6b7280" 
+                    fontSize={12} 
+                    tick={{ fill: "#6b7280" }} 
+                    allowDecimals={false}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "#fff",
+                      border: "1px solid #e5e7eb",
+                      borderRadius: "8px",
+                      fontSize: "12px",
+                      padding: "8px 12px",
+                      boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
+                    }}
+                    formatter={(value: number, name: string) => [`${value}`, name]}
+                    cursor={{ fill: "rgba(0, 0, 0, 0.05)" }}
+                  />
+                  <Bar
+                    dataKey="validated"
+                    fill={DARK_GREEN}
+                    name="Validated"
+                    radius={[4, 4, 0, 0]}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+              <div className="flex items-center justify-center gap-6 pt-4 border-t border-gray-200 mt-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 rounded-full bg-[var(--primary)]"></div>
+                  <span className="text-sm font-medium text-gray-700">Validated</span>
                 </div>
-              )}
+              </div>
             </ChartCard>
           </div>
 
@@ -1401,7 +1748,9 @@ export default function ReportsPage() {
                             cx="50%"
                             cy="50%"
                             labelLine={false}
-                            outerRadius={90}
+                            label={false}
+                            innerRadius={60}
+                            outerRadius={100}
                             fill="#8884d8"
                             dataKey="value"
                             animationBegin={0}
@@ -1439,52 +1788,53 @@ export default function ReportsPage() {
                     )}
                   </div>
                   
-                  {/* Indicators/Labels - Show all categories */}
-                  <div className="space-y-2 pt-4 border-t border-gray-200">
-                    {diseaseDistribution.map((entry) => {
-                      const total = diseaseDistribution.reduce((sum, item) => sum + item.value, 0);
-                      const percentage = total > 0 ? ((entry.value / total) * 100).toFixed(1) : "0.0";
-                      const color = DISEASE_COLORS[entry.name] || "#6B7280";
-                      
-                      return (
-                        <motion.div
-                          key={entry.name}
-                          initial={{ opacity: 0, x: -10 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ duration: 0.3 }}
-                          className={`flex items-center gap-3 p-2.5 rounded-lg transition-colors ${
-                            entry.value === 0 
-                              ? "bg-gray-50/50 opacity-60" 
-                              : "bg-gray-50 hover:bg-gray-100"
-                          }`}
-                        >
-                          <div 
-                            className="w-3.5 h-3.5 rounded-full flex-shrink-0"
-                            style={{ backgroundColor: color }}
-                          />
-                          <div className="flex-1 min-w-0 flex items-center justify-between">
-                            <p className={`text-sm font-semibold truncate ${
-                              entry.value === 0 ? "text-gray-500" : "text-gray-900"
-                            }`}>
-                              {entry.name}
-                            </p>
-                            <div className="flex items-baseline gap-2 ml-2">
-                              <span className={`text-base font-bold ${
-                                entry.value === 0 ? "text-gray-400" : "text-gray-900"
-                              }`}>
-                                {entry.value.toLocaleString("en-US")}
-                              </span>
-                              {total > 0 && (
-                                <span className="text-xs text-gray-500 font-medium">
-                                  ({percentage}%)
-                                </span>
-                              )}
+                  {/* Legend - Show all categories */}
+                  {diseaseDistribution.length > 0 && (
+                    <div className="pt-4 border-t border-gray-200">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {diseaseDistribution.map((entry) => {
+                          const total = diseaseDistribution.reduce((sum, item) => sum + item.value, 0);
+                          const percentage = total > 0 ? ((entry.value / total) * 100).toFixed(1) : "0.0";
+                          const color = DISEASE_COLORS[entry.name] || "#6B7280";
+                          
+                          return (
+                            <div
+                              key={entry.name}
+                              className={`flex items-center gap-3 p-2.5 rounded-lg transition-colors ${
+                                entry.value === 0 
+                                  ? "bg-gray-50/50 opacity-60" 
+                                  : "bg-gray-50 hover:bg-gray-100"
+                              }`}
+                            >
+                              <div 
+                                className="w-4 h-4 rounded-full flex-shrink-0"
+                                style={{ backgroundColor: color }}
+                              />
+                              <div className="flex-1 min-w-0 flex items-center justify-between">
+                                <p className={`text-sm font-medium ${
+                                  entry.value === 0 ? "text-gray-500" : "text-gray-900"
+                                }`}>
+                                  {entry.name}
+                                </p>
+                                <div className="flex items-baseline gap-2 ml-2">
+                                  <span className={`text-sm font-semibold ${
+                                    entry.value === 0 ? "text-gray-400" : "text-gray-900"
+                                  }`}>
+                                    {entry.value.toLocaleString("en-US")}
+                                  </span>
+                                  {total > 0 && (
+                                    <span className="text-xs text-gray-500 font-medium">
+                                      ({percentage}%)
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
                             </div>
-                          </div>
-                        </motion.div>
-                      );
-                    })}
-                  </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -1508,7 +1858,9 @@ export default function ReportsPage() {
                             cx="50%"
                             cy="50%"
                             labelLine={false}
-                            outerRadius={90}
+                            label={false}
+                            innerRadius={60}
+                            outerRadius={100}
                             fill="#8884d8"
                             dataKey="value"
                             animationBegin={0}
@@ -1546,52 +1898,53 @@ export default function ReportsPage() {
                     )}
                   </div>
                   
-                  {/* Indicators/Labels - Show all categories */}
-                  <div className="space-y-2 pt-4 border-t border-gray-200">
-                    {ripenessDistribution.map((entry) => {
-                      const total = ripenessDistribution.reduce((sum, item) => sum + item.value, 0);
-                      const percentage = total > 0 ? ((entry.value / total) * 100).toFixed(1) : "0.0";
-                      const color = RIPENESS_COLORS[entry.name] || "#6B7280";
-                      
-                      return (
-                        <motion.div
-                          key={entry.name}
-                          initial={{ opacity: 0, x: -10 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ duration: 0.3 }}
-                          className={`flex items-center gap-3 p-2.5 rounded-lg transition-colors ${
-                            entry.value === 0 
-                              ? "bg-gray-50/50 opacity-60" 
-                              : "bg-gray-50 hover:bg-gray-100"
-                          }`}
-                        >
-                          <div 
-                            className="w-3.5 h-3.5 rounded-full flex-shrink-0"
-                            style={{ backgroundColor: color }}
-                          />
-                          <div className="flex-1 min-w-0 flex items-center justify-between">
-                            <p className={`text-sm font-semibold truncate ${
-                              entry.value === 0 ? "text-gray-500" : "text-gray-900"
-                            }`}>
-                              {entry.name}
-                            </p>
-                            <div className="flex items-baseline gap-2 ml-2">
-                              <span className={`text-base font-bold ${
-                                entry.value === 0 ? "text-gray-400" : "text-gray-900"
-                              }`}>
-                                {entry.value.toLocaleString("en-US")}
-                              </span>
-                              {total > 0 && (
-                                <span className="text-xs text-gray-500 font-medium">
-                                  ({percentage}%)
-                                </span>
-                              )}
+                  {/* Legend - Show all categories */}
+                  {ripenessDistribution.length > 0 && (
+                    <div className="pt-4 border-t border-gray-200">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {ripenessDistribution.map((entry) => {
+                          const total = ripenessDistribution.reduce((sum, item) => sum + item.value, 0);
+                          const percentage = total > 0 ? ((entry.value / total) * 100).toFixed(1) : "0.0";
+                          const color = RIPENESS_COLORS[entry.name] || "#6B7280";
+                          
+                          return (
+                            <div
+                              key={entry.name}
+                              className={`flex items-center gap-3 p-2.5 rounded-lg transition-colors ${
+                                entry.value === 0 
+                                  ? "bg-gray-50/50 opacity-60" 
+                                  : "bg-gray-50 hover:bg-gray-100"
+                              }`}
+                            >
+                              <div 
+                                className="w-4 h-4 rounded-full flex-shrink-0"
+                                style={{ backgroundColor: color }}
+                              />
+                              <div className="flex-1 min-w-0 flex items-center justify-between">
+                                <p className={`text-sm font-medium ${
+                                  entry.value === 0 ? "text-gray-500" : "text-gray-900"
+                                }`}>
+                                  {entry.name}
+                                </p>
+                                <div className="flex items-baseline gap-2 ml-2">
+                                  <span className={`text-sm font-semibold ${
+                                    entry.value === 0 ? "text-gray-400" : "text-gray-900"
+                                  }`}>
+                                    {entry.value.toLocaleString("en-US")}
+                                  </span>
+                                  {total > 0 && (
+                                    <span className="text-xs text-gray-500 font-medium">
+                                      ({percentage}%)
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
                             </div>
-                          </div>
-                        </motion.div>
-                      );
-                    })}
-                  </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>

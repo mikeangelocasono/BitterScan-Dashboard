@@ -98,50 +98,106 @@ export function DataProvider({ children }: { children: ReactNode }) {
 			try {
 				setError(null);
 
-				const [scansResponse, validationsResponse, profilesResponse] = await Promise.all([
+				// Fetch from both new tables and validation_history
+				// First, try fetching scans with profile joins
+				// If that fails, we'll fetch separately and join manually
+				const [leafScansResponse, fruitScansResponse, validationsResponse, profilesResponse] = await Promise.all([
 					supabase
-						.from("scans")
-						.select(
-							`*,
-					farmer_profile:profiles!scans_farmer_id_fkey(
-						id,
-						username,
-						full_name,
-						email,
-						profile_picture
-					)`
-						)
+						.from("leaf_disease_scans")
+						.select("*")
+						.order("created_at", { ascending: false }),
+					supabase
+						.from("fruit_ripeness_scans")
+						.select("*")
 						.order("created_at", { ascending: false }),
 					supabase
 						.from("validation_history")
-						.select(
-							`*,
-					expert_profile:profiles!validation_history_expert_id_fkey(
-						id,
-						username,
-						full_name,
-						email
-					),
-					scan:scans!validation_history_scan_id_fkey(
-						*,
-						farmer_profile:profiles!scans_farmer_id_fkey(
-							id,
-							username,
-							full_name,
-							email,
-							profile_picture
-						)
-					)`
-						)
+						.select("*")
 						.order("validated_at", { ascending: false }),
 					supabase.from("profiles").select("*", { head: true, count: "exact" }),
 				]);
 
-				if (scansResponse.error) throw scansResponse.error;
-				if (validationsResponse.error) throw validationsResponse.error;
-				if (profilesResponse.error) throw profilesResponse.error;
+				// Log errors for debugging
+				if (leafScansResponse.error) {
+					console.error("Error fetching leaf_disease_scans:", leafScansResponse.error);
+					throw leafScansResponse.error;
+				}
+				if (fruitScansResponse.error) {
+					console.error("Error fetching fruit_ripeness_scans:", fruitScansResponse.error);
+					throw fruitScansResponse.error;
+				}
+				if (validationsResponse.error) {
+					console.error("Error fetching validation_history:", validationsResponse.error);
+					throw validationsResponse.error;
+				}
+				if (profilesResponse.error) {
+					console.error("Error fetching profiles:", profilesResponse.error);
+					throw profilesResponse.error;
+				}
 
+				// Fetch all profiles to join with scans
+				const { data: allProfiles, error: profilesError } = await supabase
+					.from("profiles")
+					.select("id, username, full_name, email, profile_picture");
+
+				if (profilesError) {
+					console.warn("Error fetching profiles for joining:", profilesError);
+				}
+
+				// Create a map of farmer profiles for quick lookup
+				const profileMap = new Map(
+					(allProfiles || []).map((profile: any) => [profile.id, profile])
+				);
+
+				// Transform and merge scans from both tables, joining with profiles
+				const leafScans = (leafScansResponse.data || []).map((scan: any) => {
+					const farmerProfile = scan.farmer_id ? profileMap.get(scan.farmer_id) : null;
+					return {
+						...scan,
+						scan_type: 'leaf_disease' as const,
+						ai_prediction: scan.disease_detected, // Map for backward compatibility
+						solution: scan.solution,
+						recommended_products: scan.recommendation, // Map for backward compatibility
+						farmer_profile: farmerProfile || undefined,
+					};
+				});
+
+				const fruitScans = (fruitScansResponse.data || []).map((scan: any) => {
+					const farmerProfile = scan.farmer_id ? profileMap.get(scan.farmer_id) : null;
+					return {
+						...scan,
+						scan_type: 'fruit_maturity' as const,
+						ai_prediction: scan.ripeness_stage, // Map for backward compatibility
+						solution: scan.harvest_recommendation, // Map for backward compatibility
+						recommended_products: undefined, // Fruit scans don't have recommended products
+						farmer_profile: farmerProfile || undefined,
+					};
+				});
+
+				// Merge and sort by created_at descending
+				const allScans = [...leafScans, ...fruitScans].sort((a, b) => {
+					const dateA = new Date(a.created_at).getTime();
+					const dateB = new Date(b.created_at).getTime();
+					return dateB - dateA;
+				});
+
+				// Process validations and fetch related scan data
 				let validations = validationsResponse.data || [];
+
+				// Join expert profiles with validations
+				validations = validations.map((validation: any) => {
+					const expertProfile = validation.expert_id ? profileMap.get(validation.expert_id) : null;
+					
+					// Try to find scan by scan_uuid (scan_id in validation_history is UUID)
+					const scanUuid = String(validation.scan_id).trim();
+					const relatedScan = allScans.find((s: any) => s.scan_uuid === scanUuid);
+					
+					return {
+						...validation,
+						expert_profile: expertProfile || undefined,
+						scan: relatedScan || undefined,
+					};
+				});
 
 				const missingExpertIds = new Set<string>();
 				validations.forEach((validation) => {
@@ -184,7 +240,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 					}
 				}
 
-				setScans(scansResponse.data || []);
+				setScans(allScans);
 				setValidationHistory(validations);
 				setTotalUsers(profilesResponse.count || 0);
 				initialFetched.current = true;
@@ -211,7 +267,18 @@ export function DataProvider({ children }: { children: ReactNode }) {
 				} else {
 					setError(`Failed to load data: ${errorMessage}`);
 				}
-				console.error("Error fetching dashboard data:", err);
+				// Enhanced error logging
+				if (err && typeof err === 'object') {
+					console.error("Error fetching dashboard data:", {
+						error: err,
+						message: (err as any).message || 'Unknown error',
+						details: (err as any).details || 'No details',
+						hint: (err as any).hint || 'No hint',
+						code: (err as any).code || 'No code',
+					});
+				} else {
+					console.error("Error fetching dashboard data:", err);
+				}
 			} finally {
 				isFetchingRef.current = false;
 				setLoading(false);
@@ -226,28 +293,94 @@ export function DataProvider({ children }: { children: ReactNode }) {
 	}, [fetchData]);
 
 	// Helper function to fetch a single scan with its profile
-	const fetchScanWithProfile = useCallback(async (scanId: number): Promise<Scan | null> => {
+	// Tries both tables based on scan_type or scan_uuid
+	const fetchScanWithProfile = useCallback(async (scanId: number, scanType?: 'leaf_disease' | 'fruit_maturity', scanUuid?: string): Promise<Scan | null> => {
 		try {
-			const { data, error } = await supabase
-				.from("scans")
-				.select(
-					`*,
-					farmer_profile:profiles!scans_farmer_id_fkey(
-						id,
-						username,
-						full_name,
-						email,
-						profile_picture
-					)`
-				)
-				.eq("id", scanId)
-				.single();
+			let scanData: any = null;
+			let scanError: any = null;
 
-			if (error) {
-				console.error("Error fetching scan:", error);
+			// If we have scan_type, fetch from the specific table
+			if (scanType === 'leaf_disease') {
+				const response = await supabase
+					.from("leaf_disease_scans")
+					.select("*")
+					.eq("id", scanId)
+					.single();
+				scanData = response.data;
+				scanError = response.error;
+			} else if (scanType === 'fruit_maturity') {
+				const response = await supabase
+					.from("fruit_ripeness_scans")
+					.select("*")
+					.eq("id", scanId)
+					.single();
+				scanData = response.data;
+				scanError = response.error;
+			} else {
+				// If no scan_type, try both tables (fallback)
+				// Try leaf_disease_scans first
+				const leafResponse = await supabase
+					.from("leaf_disease_scans")
+					.select("*")
+					.eq("id", scanId)
+					.single();
+
+				if (!leafResponse.error && leafResponse.data) {
+					scanData = leafResponse.data;
+					scanType = 'leaf_disease';
+				} else {
+					// Try fruit_ripeness_scans
+					const fruitResponse = await supabase
+						.from("fruit_ripeness_scans")
+						.select("*")
+						.eq("id", scanId)
+						.single();
+					
+					if (!fruitResponse.error && fruitResponse.data) {
+						scanData = fruitResponse.data;
+						scanType = 'fruit_maturity';
+					} else {
+						scanError = fruitResponse.error;
+					}
+				}
+			}
+
+			if (scanError || !scanData) {
+				console.error("Error fetching scan:", scanError);
 				return null;
 			}
-			return data;
+
+			// Fetch farmer profile separately
+			let farmerProfile = undefined;
+			if (scanData.farmer_id) {
+				const { data: profile } = await supabase
+					.from("profiles")
+					.select("id, username, full_name, email, profile_picture")
+					.eq("id", scanData.farmer_id)
+					.single();
+				farmerProfile = profile || undefined;
+			}
+
+			// Transform based on scan type
+			if (scanType === 'leaf_disease') {
+				return {
+					...scanData,
+					scan_type: 'leaf_disease' as const,
+					ai_prediction: scanData.disease_detected,
+					solution: scanData.solution,
+					recommended_products: scanData.recommendation,
+					farmer_profile: farmerProfile,
+				};
+			} else {
+				return {
+					...scanData,
+					scan_type: 'fruit_maturity' as const,
+					ai_prediction: scanData.ripeness_stage,
+					solution: scanData.harvest_recommendation,
+					recommended_products: undefined,
+					farmer_profile: farmerProfile,
+				};
+			}
 		} catch (err: unknown) {
 			console.error("Error fetching scan:", err);
 			return null;
@@ -255,29 +388,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
 	}, []);
 
 	// Helper function to fetch a single validation with its relations
+	// Note: validation_history.scan_id is a UUID, so we need to find the scan by scan_uuid
 	const fetchValidationWithRelations = useCallback(async (validationId: number): Promise<ValidationHistory | null> => {
 		try {
 			const { data, error } = await supabase
 				.from("validation_history")
-				.select(
-					`*,
-					expert_profile:profiles!validation_history_expert_id_fkey(
-						id,
-						username,
-						full_name,
-						email
-					),
-					scan:scans!validation_history_scan_id_fkey(
-						*,
-						farmer_profile:profiles!scans_farmer_id_fkey(
-							id,
-							username,
-							full_name,
-							email,
-							profile_picture
-						)
-					)`
-				)
+				.select("*")
 				.eq("id", validationId)
 				.single();
 
@@ -285,7 +401,87 @@ export function DataProvider({ children }: { children: ReactNode }) {
 				console.error("Error fetching validation:", error);
 				return null;
 			}
-			return data;
+
+			// Fetch expert profile separately
+			let expertProfile = undefined;
+			if (data.expert_id) {
+				const { data: profile } = await supabase
+					.from("profiles")
+					.select("id, username, full_name, email")
+					.eq("id", data.expert_id)
+					.single();
+				expertProfile = profile || undefined;
+			}
+
+			// Find the related scan by scan_uuid from either table
+			let relatedScan = undefined;
+			if (data && data.scan_id) {
+				const scanUuid = String(data.scan_id).trim();
+				
+				// Try leaf_disease_scans first
+				const { data: leafScan } = await supabase
+					.from("leaf_disease_scans")
+					.select("*")
+					.eq("scan_uuid", scanUuid)
+					.single();
+
+				if (leafScan) {
+					// Fetch farmer profile for the scan
+					let farmerProfile = undefined;
+					if (leafScan.farmer_id) {
+						const { data: profile } = await supabase
+							.from("profiles")
+							.select("id, username, full_name, email, profile_picture")
+							.eq("id", leafScan.farmer_id)
+							.single();
+						farmerProfile = profile || undefined;
+					}
+
+					relatedScan = {
+						...leafScan,
+						scan_type: 'leaf_disease' as const,
+						ai_prediction: leafScan.disease_detected,
+						solution: leafScan.solution,
+						recommended_products: leafScan.recommendation,
+						farmer_profile: farmerProfile,
+					};
+				} else {
+					// Try fruit_ripeness_scans
+					const { data: fruitScan } = await supabase
+						.from("fruit_ripeness_scans")
+						.select("*")
+						.eq("scan_uuid", scanUuid)
+						.single();
+
+					if (fruitScan) {
+						// Fetch farmer profile for the scan
+						let farmerProfile = undefined;
+						if (fruitScan.farmer_id) {
+							const { data: profile } = await supabase
+								.from("profiles")
+								.select("id, username, full_name, email, profile_picture")
+								.eq("id", fruitScan.farmer_id)
+								.single();
+							farmerProfile = profile || undefined;
+						}
+
+						relatedScan = {
+							...fruitScan,
+							scan_type: 'fruit_maturity' as const,
+							ai_prediction: fruitScan.ripeness_stage,
+							solution: fruitScan.harvest_recommendation,
+							recommended_products: undefined,
+							farmer_profile: farmerProfile,
+						};
+					}
+				}
+			}
+
+			return {
+				...data,
+				expert_profile: expertProfile,
+				scan: relatedScan,
+			};
 		} catch (err: unknown) {
 			console.error("Error fetching validation:", err);
 			return null;
@@ -295,12 +491,14 @@ export function DataProvider({ children }: { children: ReactNode }) {
 	useEffect(() => {
 		if (!isReady) {
 			// Clean up subscription when user becomes unavailable
-			console.log('[Realtime] 🧹 User not ready, cleaning up subscription', {
-				userId: user?.id || 'none',
-				hasChannel: !!channelRef.current,
-				subscriptionActive: subscriptionActiveRef.current,
-				userLoading: userLoading
-			});
+			if (process.env.NODE_ENV === 'development') {
+				console.log('[Realtime] 🧹 User not ready, cleaning up subscription', {
+					userId: user?.id || 'none',
+					hasChannel: !!channelRef.current,
+					subscriptionActive: subscriptionActiveRef.current,
+					userLoading: userLoading
+				});
+			}
 			
 			// Clear health check interval
 			if (healthCheckIntervalRef.current) {
@@ -362,28 +560,34 @@ export function DataProvider({ children }: { children: ReactNode }) {
 		}
 
 		// User is ready - proceed with subscription setup
-		console.log('[Realtime] 👤 User is ready, proceeding with subscription setup', {
-			userId: user?.id || 'anonymous',
-			hasChannel: !!channelRef.current,
-			subscriptionActive: subscriptionActiveRef.current
-		});
+		if (process.env.NODE_ENV === 'development') {
+			console.log('[Realtime] 👤 User is ready, proceeding with subscription setup', {
+				userId: user?.id || 'anonymous',
+				hasChannel: !!channelRef.current,
+				subscriptionActive: subscriptionActiveRef.current
+			});
+		}
 
 		// Validate Supabase client before proceeding
 		try {
 			validateSupabaseClient();
-			console.log('[Realtime] ✅ Supabase client validated successfully', {
-				hasUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
-				hasKey: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-				userId: user?.id || 'anonymous'
-			});
+			if (process.env.NODE_ENV === 'development') {
+				console.log('[Realtime] ✅ Supabase client validated successfully', {
+					hasUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+					hasKey: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+					userId: user?.id || 'anonymous'
+				});
+			}
 		} catch (err) {
 			const errorMsg = err instanceof Error ? err.message : 'Supabase client is not properly configured.';
 			setError(errorMsg);
 			setLoading(false);
-			console.error('[Realtime] ❌ Supabase client validation failed:', errorMsg, {
-				hasUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
-				hasKey: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-			});
+			if (process.env.NODE_ENV === 'development') {
+				console.error('[Realtime] ❌ Supabase client validation failed:', errorMsg, {
+					hasUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+					hasKey: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+				});
+			}
 			return;
 		}
 
@@ -416,10 +620,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
 				return;
 			} else {
 				// Channel exists but not in good state - clean it up and recreate
-				console.log('[Realtime] ⚠️ Channel exists but not in good state, cleaning up:', {
-					channelState,
-					subscriptionStatus: subscriptionStatusRef.current
-				});
+				if (process.env.NODE_ENV === 'development') {
+					console.log('[Realtime] ⚠️ Channel exists but not in good state, cleaning up:', {
+						channelState,
+						subscriptionStatus: subscriptionStatusRef.current
+					});
+				}
 				if (channelRef.current) {
 					supabase.removeChannel(channelRef.current);
 					channelRef.current = null;
@@ -430,7 +636,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
 			}
 		} else if (subscriptionActiveRef.current && !channelRef.current) {
 			// Subscription marked as active but no channel - reset
-			console.log('[Realtime] ⚠️ Subscription marked active but no channel, resetting');
+			if (process.env.NODE_ENV === 'development') {
+				console.log('[Realtime] ⚠️ Subscription marked active but no channel, resetting');
+			}
 			subscriptionActiveRef.current = false;
 			subscriptionStatusRef.current = null;
 			reconnectAttemptsRef.current = 0;
@@ -485,10 +693,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
 		
 		// Don't attempt to reconnect if we've exceeded max attempts
 		if (reconnectAttemptsRef.current >= maxReconnectAttempts) {
-			console.warn('[Realtime] ⚠️ Max reconnection attempts reached, falling back to periodic refresh', {
-				attempts: reconnectAttemptsRef.current,
-				maxAttempts: maxReconnectAttempts
-			});
+			if (process.env.NODE_ENV === 'development') {
+				console.warn('[Realtime] ⚠️ Max reconnection attempts reached, falling back to periodic refresh', {
+					attempts: reconnectAttemptsRef.current,
+					maxAttempts: maxReconnectAttempts
+				});
+			}
 			// Fallback to periodic refresh
 			if (initialFetched.current && fetchDataRef.current) {
 				fetchDataRef.current(false);
@@ -560,40 +770,41 @@ export function DataProvider({ children }: { children: ReactNode }) {
 			}
 			
 			// Build channel subscriptions - chain all events before subscribing
+			// Subscribe to both leaf_disease_scans and fruit_ripeness_scans tables
 			channel
-			// Subscribe to INSERT events on scans table
+			// Subscribe to INSERT events on leaf_disease_scans table
 			.on(
 				"postgres_changes",
 				{ 
 					event: "INSERT", 
 					schema: "public", 
-					table: "scans"
+					table: "leaf_disease_scans"
 				},
 				async (payload: ScanRealtimePayload) => {
-					const newScan = payload.new;
+					const newScan = payload.new as any;
 					if (!newScan) return;
 					
 					const scanId = newScan.id;
-					const scanStatus = newScan.status;
 					
 					if (process.env.NODE_ENV === 'development') {
-						console.log('[Realtime] ✅ INSERT event received for scans table:', {
+						console.log('[Realtime] ✅ INSERT event received for leaf_disease_scans table:', {
 							scanId,
-							status: scanStatus,
 							timestamp: new Date().toISOString()
 						});
 					}
 					
 					if (!scanId || typeof scanId !== 'number') {
-						console.warn('[Realtime] ⚠️ INSERT event received but scan ID is missing or invalid', payload);
+						if (process.env.NODE_ENV === 'development') {
+							console.warn('[Realtime] ⚠️ INSERT event received but scan ID is missing or invalid', payload);
+						}
 						return;
 					}
 
 					try {
 						if (process.env.NODE_ENV === 'development') {
-						console.log('[Realtime] 🔍 Fetching full scan data for ID:', scanId);
-					}
-						const fullScan = await fetchScanWithProfile(scanId);
+							console.log('[Realtime] 🔍 Fetching full scan data for ID:', scanId);
+						}
+						const fullScan = await fetchScanWithProfile(scanId, 'leaf_disease');
 						if (fullScan) {
 							if (process.env.NODE_ENV === 'development') {
 								console.log('[Realtime] ✅ Scan fetched successfully, adding to state:', {
@@ -617,54 +828,120 @@ export function DataProvider({ children }: { children: ReactNode }) {
 								return updated;
 							});
 						} else {
-							console.warn('[Realtime] ⚠️ Failed to fetch scan data, triggering refresh');
-							// Always trigger refresh as fallback, even if initial fetch not done yet
 							if (fetchDataRef.current) {
 								fetchDataRef.current(false);
 							}
 						}
 					} catch (error) {
-						console.error('[Realtime] ❌ Error fetching scan after INSERT event:', error);
-						// Always trigger refresh as fallback, even if initial fetch not done yet
+						if (process.env.NODE_ENV === 'development') {
+							console.error('[Realtime] ❌ Error fetching scan after INSERT event:', error);
+						}
 						if (fetchDataRef.current) {
 							fetchDataRef.current(false);
 						}
 					}
 				}
 			)
-			// Subscribe to UPDATE events on scans table
+			// Subscribe to INSERT events on fruit_ripeness_scans table
 			.on(
 				"postgres_changes",
 				{ 
-					event: "UPDATE", 
+					event: "INSERT", 
 					schema: "public", 
-					table: "scans"
+					table: "fruit_ripeness_scans"
 				},
 				async (payload: ScanRealtimePayload) => {
-					const updatedScan = payload.new;
-					const oldScan = payload.old;
-					if (!updatedScan) return;
+					const newScan = payload.new as any;
+					if (!newScan) return;
 					
-					const scanId = updatedScan.id;
-					const oldStatus = oldScan?.status;
-					const newStatus = updatedScan.status;
+					const scanId = newScan.id;
 					
 					if (process.env.NODE_ENV === 'development') {
-						console.log('[Realtime] 🔄 UPDATE event received for scans table:', {
+						console.log('[Realtime] ✅ INSERT event received for fruit_ripeness_scans table:', {
 							scanId,
-							oldStatus,
-							newStatus,
 							timestamp: new Date().toISOString()
 						});
 					}
 					
 					if (!scanId || typeof scanId !== 'number') {
-						console.warn('[Realtime] ⚠️ UPDATE event received but scan ID is missing or invalid', payload);
+						if (process.env.NODE_ENV === 'development') {
+							console.warn('[Realtime] ⚠️ INSERT event received but scan ID is missing or invalid', payload);
+						}
 						return;
 					}
 
 					try {
-						const fullScan = await fetchScanWithProfile(scanId);
+						if (process.env.NODE_ENV === 'development') {
+							console.log('[Realtime] 🔍 Fetching full scan data for ID:', scanId);
+						}
+						const fullScan = await fetchScanWithProfile(scanId, 'fruit_maturity');
+						if (fullScan) {
+							if (process.env.NODE_ENV === 'development') {
+								console.log('[Realtime] ✅ Scan fetched successfully, adding to state:', {
+									id: fullScan.id,
+									status: fullScan.status,
+									farmer: fullScan.farmer_profile?.full_name || 'Unknown'
+								});
+							}
+							setScans((prev) => {
+								const exists = prev.some((s) => s.id === fullScan.id);
+								if (exists) {
+									if (process.env.NODE_ENV === 'development') {
+										console.log('[Realtime] ⏭️ Scan already exists in state, skipping:', fullScan.id);
+									}
+									return prev;
+								}
+								const updated = [fullScan, ...prev];
+								if (process.env.NODE_ENV === 'development') {
+									console.log('[Realtime] ✅ New scan added to state. Total scans:', updated.length);
+								}
+								return updated;
+							});
+						} else {
+							if (fetchDataRef.current) {
+								fetchDataRef.current(false);
+							}
+						}
+					} catch (error) {
+						if (process.env.NODE_ENV === 'development') {
+							console.error('[Realtime] ❌ Error fetching scan after INSERT event:', error);
+						}
+						if (fetchDataRef.current) {
+							fetchDataRef.current(false);
+						}
+					}
+				}
+			)
+			// Subscribe to UPDATE events on leaf_disease_scans table
+			.on(
+				"postgres_changes",
+				{ 
+					event: "UPDATE", 
+					schema: "public", 
+					table: "leaf_disease_scans"
+				},
+				async (payload: ScanRealtimePayload) => {
+					const updatedScan = payload.new as any;
+					if (!updatedScan) return;
+					
+					const scanId = updatedScan.id;
+					
+					if (process.env.NODE_ENV === 'development') {
+						console.log('[Realtime] 🔄 UPDATE event received for leaf_disease_scans table:', {
+							scanId,
+							timestamp: new Date().toISOString()
+						});
+					}
+					
+					if (!scanId || typeof scanId !== 'number') {
+						if (process.env.NODE_ENV === 'development') {
+							console.warn('[Realtime] ⚠️ UPDATE event received but scan ID is missing or invalid', payload);
+						}
+						return;
+					}
+
+					try {
+						const fullScan = await fetchScanWithProfile(scanId, 'leaf_disease');
 						if (fullScan) {
 							if (process.env.NODE_ENV === 'development') {
 								console.log('[Realtime] ✅ Updated scan fetched, updating state:', {
@@ -694,32 +971,128 @@ export function DataProvider({ children }: { children: ReactNode }) {
 							});
 						}
 					} catch (error) {
-						console.error('[Realtime] ❌ Error fetching scan after UPDATE event:', error);
+						if (process.env.NODE_ENV === 'development') {
+							console.error('[Realtime] ❌ Error fetching scan after UPDATE event:', error);
+						}
 						if (fetchDataRef.current) {
 							fetchDataRef.current(false);
 						}
 					}
 				}
 			)
-			// Subscribe to DELETE events on scans table
+			// Subscribe to UPDATE events on fruit_ripeness_scans table
+			.on(
+				"postgres_changes",
+				{ 
+					event: "UPDATE", 
+					schema: "public", 
+					table: "fruit_ripeness_scans"
+				},
+				async (payload: ScanRealtimePayload) => {
+					const updatedScan = payload.new as any;
+					if (!updatedScan) return;
+					
+					const scanId = updatedScan.id;
+					
+					if (process.env.NODE_ENV === 'development') {
+						console.log('[Realtime] 🔄 UPDATE event received for fruit_ripeness_scans table:', {
+							scanId,
+							timestamp: new Date().toISOString()
+						});
+					}
+					
+					if (!scanId || typeof scanId !== 'number') {
+						if (process.env.NODE_ENV === 'development') {
+							console.warn('[Realtime] ⚠️ UPDATE event received but scan ID is missing or invalid', payload);
+						}
+						return;
+					}
+
+					try {
+						const fullScan = await fetchScanWithProfile(scanId, 'fruit_maturity');
+						if (fullScan) {
+							if (process.env.NODE_ENV === 'development') {
+								console.log('[Realtime] ✅ Updated scan fetched, updating state:', {
+									id: fullScan.id,
+									status: fullScan.status
+								});
+							}
+							setScans((prev) => {
+								const index = prev.findIndex((s) => s.id === fullScan.id);
+								
+								if (index === -1) {
+									if (fullScan.status === "Pending Validation") {
+										if (process.env.NODE_ENV === 'development') {
+											console.log('[Realtime] ✅ Adding new pending scan via UPDATE event');
+										}
+										return [fullScan, ...prev];
+									}
+									return prev;
+								}
+								
+								const updated = [...prev];
+								updated[index] = fullScan;
+								if (process.env.NODE_ENV === 'development') {
+									console.log('[Realtime] ✅ Scan updated in state');
+								}
+								return updated;
+							});
+						}
+					} catch (error) {
+						if (process.env.NODE_ENV === 'development') {
+							console.error('[Realtime] ❌ Error fetching scan after UPDATE event:', error);
+						}
+						if (fetchDataRef.current) {
+							fetchDataRef.current(false);
+						}
+					}
+				}
+			)
+			// Subscribe to DELETE events on leaf_disease_scans table
 			.on(
 				"postgres_changes",
 				{ 
 					event: "DELETE", 
 					schema: "public", 
-					table: "scans"
+					table: "leaf_disease_scans"
 				},
 				(payload: ScanRealtimePayload) => {
-					const deletedScan = payload.old;
+					const deletedScan = payload.old as any;
 					if (!deletedScan) return;
 					
 					const scanId = deletedScan.id;
 					
-					// Handle DELETE events - don't block on initialFetched
-					// DELETE events should work immediately to keep UI in sync
 					if (scanId && typeof scanId === 'number') {
 						if (process.env.NODE_ENV === 'development') {
-							console.log('[Realtime] 🗑️ DELETE event received for scan:', scanId);
+							console.log('[Realtime] 🗑️ DELETE event received for leaf_disease_scans:', scanId);
+						}
+						setScans((prev) => {
+							const filtered = prev.filter((s) => s.id !== scanId);
+							if (process.env.NODE_ENV === 'development') {
+								console.log('[Realtime] ✅ Scan removed from state. Remaining scans:', filtered.length);
+							}
+							return filtered;
+						});
+					}
+				}
+			)
+			// Subscribe to DELETE events on fruit_ripeness_scans table
+			.on(
+				"postgres_changes",
+				{ 
+					event: "DELETE", 
+					schema: "public", 
+					table: "fruit_ripeness_scans"
+				},
+				(payload: ScanRealtimePayload) => {
+					const deletedScan = payload.old as any;
+					if (!deletedScan) return;
+					
+					const scanId = deletedScan.id;
+					
+					if (scanId && typeof scanId === 'number') {
+						if (process.env.NODE_ENV === 'development') {
+							console.log('[Realtime] 🗑️ DELETE event received for fruit_ripeness_scans:', scanId);
 						}
 						setScans((prev) => {
 							const filtered = prev.filter((s) => s.id !== scanId);
@@ -768,15 +1141,18 @@ export function DataProvider({ children }: { children: ReactNode }) {
 						});
 
 						// Also update the corresponding scan status immediately
+						// IMPORTANT: Both "Validated" and "Corrected" validation_history entries set scan status to "Validated"
 						// This ensures the Validate page updates in real-time when a scan is validated/corrected
 						if (fullValidation.scan_id) {
+							// Find scan by scan_uuid (scan_id in validation_history is UUID)
+							const scanUuid = String(fullValidation.scan_id).trim();
 							setScans((prev) => {
-								const index = prev.findIndex((s) => s.id === fullValidation.scan_id);
+								const index = prev.findIndex((s) => s.scan_uuid === scanUuid);
 								if (index !== -1) {
 									const updated = [...prev];
 									updated[index] = {
 										...updated[index],
-										status: fullValidation.status === "Validated" ? "Validated" : "Corrected",
+										status: "Validated", // Always "Validated" for both confirm and correct actions
 										expert_validation: fullValidation.expert_validation || null,
 									};
 									// Scan will be automatically filtered out from Validate page
@@ -815,14 +1191,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
 						});
 
 						// Also update the corresponding scan status if needed
+						// IMPORTANT: Both "Validated" and "Corrected" validation_history entries set scan status to "Validated"
 						if (fullValidation.scan_id) {
+							// Find scan by scan_uuid (scan_id in validation_history is UUID)
+							const scanUuid = String(fullValidation.scan_id).trim();
 							setScans((prev) => {
-								const index = prev.findIndex((s) => s.id === fullValidation.scan_id);
+								const index = prev.findIndex((s) => s.scan_uuid === scanUuid);
 								if (index !== -1) {
 									const updated = [...prev];
 									updated[index] = {
 										...updated[index],
-										status: fullValidation.status === "Validated" ? "Validated" : "Corrected",
+										status: "Validated", // Always "Validated" for both confirm and correct actions
 										expert_validation: fullValidation.expert_validation || null,
 									};
 									return updated;
@@ -930,7 +1309,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
 							
 							// If channel is closed or errored, trigger reconnection
 							if (channelState === 'closed' || channelState === 'errored') {
-								console.warn('[Realtime] ⚠️ Channel state is', channelState, '- triggering reconnection');
+								if (process.env.NODE_ENV === 'development') {
+									console.warn('[Realtime] ⚠️ Channel state is', channelState, '- triggering reconnection');
+								}
 								subscriptionActiveRef.current = false;
 								subscriptionStatusRef.current = null;
 								

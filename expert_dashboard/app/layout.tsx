@@ -15,7 +15,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "BitterScan",
+  title: "BitterScan Dashboard",
   description: "BitterScan expert validation portal",
   icons: {
     icon: '/logo.png',

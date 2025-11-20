@@ -103,15 +103,44 @@ function DashboardContent() {
 	}, [profile?.role, user?.user_metadata?.role]);
 
 	const { totalScans, validatedScans, pendingValidations, recentScans } = useMemo(() => {
+		// Early return if scans is null/undefined or empty
+		if (!scans || scans.length === 0) {
+			return { 
+				totalScans: 0, 
+				validatedScans: 0, 
+				pendingValidations: 0, 
+				recentScans: [] 
+			};
+		}
+		
 		// Get latest values from database
 		const total = scans.length; // Total Scans
-		const pending = scans.filter(scan => scan.status === 'Pending Validation').length; // Pending
 		
-		// Calculate Validated: Total Scans - Pending
-		const validated = total - pending;
+		// Count pending scans (status === 'Pending Validation')
+		const pending = scans.filter(scan => scan.status === 'Pending Validation').length;
 		
-		const recent = scans.slice(0, 5);
-		return { totalScans: total, validatedScans: validated, pendingValidations: pending, recentScans: recent };
+		// Calculate Validated: Count scans where status !== "Pending Validation"
+		// This includes scans with status "Validated", "Corrected", or any other non-pending status
+		const validated = scans.filter(scan => {
+			return scan.status && scan.status !== 'Pending Validation';
+		}).length;
+		
+		// Get recent scans sorted by date (most recent first), limit to 5
+		const recent = [...scans]
+			.sort((a, b) => {
+				// Sort by created_at descending (newest first)
+				const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+				const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+				return dateB - dateA;
+			})
+			.slice(0, 5);
+		
+		return { 
+			totalScans: total, 
+			validatedScans: validated, 
+			pendingValidations: pending, 
+			recentScans: recent 
+		};
 	}, [scans]);
 
 	const formatDate = useMemo(() => {
@@ -124,6 +153,11 @@ function DashboardContent() {
 
 	if (error) {
 		return <ErrorDisplay error={error} />;
+	}
+
+	// Ensure scans is defined before rendering
+	if (!scans) {
+		return <LoadingSkeleton />;
 	}
 
 	return (
@@ -169,7 +203,7 @@ function DashboardContent() {
 										<Th className="whitespace-nowrap">Scan Type</Th>
 										<Th className="whitespace-nowrap">AI Prediction</Th>
 										<Th className="whitespace-nowrap">Status</Th>
-										<Th className="whitespace-nowrap">Timestamp</Th>
+										<Th className="whitespace-nowrap">Date & Time</Th>
 									</Tr>
 								</Thead>
 								<Tbody>
@@ -200,15 +234,15 @@ function DashboardContent() {
 													</div>
 												</div>
 											</Td>
-											<Td>{formatScanType(scan.scan_type)}</Td>
-											<Td className="max-w-xs truncate">{scan.ai_prediction}</Td>
+											<Td>{scan.scan_type ? formatScanType(scan.scan_type) : 'N/A'}</Td>
+											<Td className="max-w-xs truncate">{scan.ai_prediction || 'N/A'}</Td>
 											<Td>
 												<span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium ${getStatusColor(scan.status)}`}>
-													{scan.status}
+													{scan.status || 'N/A'}
 												</span>
 											</Td>
 											<Td className="whitespace-nowrap text-gray-500">
-												{formatDate(scan.created_at)}
+												{scan.created_at ? formatDate(scan.created_at) : 'N/A'}
 											</Td>
 										</Tr>
 									))}
