@@ -138,7 +138,7 @@ const extractErrorDetails = (error: unknown): Record<string, string | number | n
 	}
 
 	// Try to stringify if it's an object
-	if (typeof error === 'object') {
+	if (typeof error === 'object' && error !== null) {
 		try {
 			// Try to extract common error properties first
 			// Define interface for generic error objects
@@ -150,7 +150,16 @@ const extractErrorDetails = (error: unknown): Record<string, string | number | n
 				hint?: string;
 				status?: string | number;
 			}
-			const errorObj = error as GenericErrorObject;
+			// Type guard to safely narrow the type - use Record for safer type narrowing
+			const errorRecord = error as Record<string, unknown>;
+			const errorObj: GenericErrorObject = {
+				message: typeof errorRecord.message === 'string' ? errorRecord.message : undefined,
+				error: typeof errorRecord.error === 'string' ? errorRecord.error : undefined,
+				code: typeof errorRecord.code === 'string' || typeof errorRecord.code === 'number' ? errorRecord.code : undefined,
+				details: typeof errorRecord.details === 'string' ? errorRecord.details : undefined,
+				hint: typeof errorRecord.hint === 'string' ? errorRecord.hint : undefined,
+				status: typeof errorRecord.status === 'string' || typeof errorRecord.status === 'number' ? errorRecord.status : undefined,
+			};
 			const extracted: Record<string, string | number | null> = {
 				message: errorObj.message || errorObj.error || "Non-standard error object",
 				code: errorObj.code || null,
@@ -171,10 +180,10 @@ const extractErrorDetails = (error: unknown): Record<string, string | number | n
 				message: "Non-standard error object",
 				errorString: stringified.length > 500 ? stringified.substring(0, 500) + "..." : stringified,
 			};
-		} catch {
+		} catch (err: unknown) {
 			return {
 				message: "Error object could not be serialized",
-				errorString: String(error),
+				errorString: String(err),
 				code: null,
 				details: null,
 				hint: null,
@@ -185,6 +194,23 @@ const extractErrorDetails = (error: unknown): Record<string, string | number | n
 	}
 
 	// Fallback for primitive types
+	// Type guard to safely get the type of error as a string
+	const errorTypeName: string = typeof error === 'string' 
+		? 'string' 
+		: typeof error === 'number' 
+		? 'number' 
+		: typeof error === 'boolean' 
+		? 'boolean' 
+		: typeof error === 'undefined' 
+		? 'undefined' 
+		: typeof error === 'function' 
+		? 'function' 
+		: typeof error === 'symbol' 
+		? 'symbol' 
+		: typeof error === 'bigint' 
+		? 'bigint' 
+		: 'unknown';
+	
 	return {
 		message: String(error),
 		errorString: String(error),
@@ -192,7 +218,7 @@ const extractErrorDetails = (error: unknown): Record<string, string | number | n
 		details: null,
 		hint: null,
 		status: null,
-		errorType: typeof error,
+		errorType: errorTypeName,
 	};
 };
 
@@ -239,7 +265,7 @@ export default function ValidatePage() {
 	// Debug: Log when selected scan changes (development only)
 	useEffect(() => {
 		if (process.env.NODE_ENV === 'development' && detailId) {
-			const selectedScan = scans.find(scan => scan.id.toString() === detailId);
+			const selectedScan = scans.find((scan: Scan) => scan.id.toString() === detailId);
 			if (selectedScan) {
 				const imageUrl = getScanImageUrlWithFallback(selectedScan);
 				console.log('[Validate Page] Selected scan changed:', {
@@ -259,7 +285,7 @@ export default function ValidatePage() {
 		if (detailId) {
 			document.body.style.overflow = 'hidden';
 			// Fix dialog wrapper sizing for larger modals
-			const timer = setTimeout(() => {
+			const timer: NodeJS.Timeout = setTimeout(() => {
 				const dialogWrapper = document.querySelector('[data-open="true"]');
 				if (dialogWrapper) {
 					(dialogWrapper as HTMLElement).style.maxWidth = '72rem'; // 6xl = 72rem
@@ -271,14 +297,14 @@ export default function ValidatePage() {
 					scrollContainer.scrollTop = 0;
 				}
 			}, 10);
-			return () => {
+			return (): void => {
 				clearTimeout(timer);
 				document.body.style.overflow = '';
 			};
 		} else {
 			document.body.style.overflow = '';
 		}
-		return () => {
+		return (): void => {
 			document.body.style.overflow = '';
 		};
 	}, [detailId]);
@@ -569,11 +595,11 @@ export default function ValidatePage() {
 				// Remove from local state
 				removeScanFromState(scanId);
 
-				setDecision((prev) => {
+				setDecision((prev: Record<string, string>) => {
 					const { [scanKey]: _, ...rest } = prev;
 					return rest;
 				});
-				setNotes((prev) => {
+				setNotes((prev: Record<string, string>) => {
 					const { [scanKey]: _, ...rest } = prev;
 					return rest;
 				});
@@ -596,7 +622,7 @@ export default function ValidatePage() {
 						: "Failed to correct validation."
 				);
 			} finally {
-				setProcessingScanId((prev) => (prev === scanId ? null : prev));
+				setProcessingScanId((prev: number | null) => (prev === scanId ? null : prev));
 			}
 		},
 		[processingScanId, scans, user, profile, notes, decision, detailId, removeScanFromState]
@@ -671,7 +697,7 @@ export default function ValidatePage() {
 		if (!pendingScans.length) return [];
 		
 		// Apply additional filters (tab type and date range)
-		return pendingScans.filter((scan) => {
+		return pendingScans.filter((scan: Scan) => {
 			const matchesTab = tab === 'leaf' ? scan.scan_type === 'leaf_disease' : scan.scan_type === 'fruit_maturity';
 			
 			// Apply date range filter
@@ -737,7 +763,10 @@ export default function ValidatePage() {
 										? 'bg-[var(--primary)] text-white shadow-sm' 
 										: 'text-gray-700 hover:bg-gray-50'
 								}`} 
-								onClick={() => setTab('leaf')}
+								onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+									e.preventDefault();
+									setTab('leaf');
+								}}
 							>
 								Leaf Disease
 							</button>
@@ -747,7 +776,10 @@ export default function ValidatePage() {
 										? 'bg-[var(--primary)] text-white shadow-sm' 
 										: 'text-gray-700 hover:bg-gray-50'
 								}`} 
-								onClick={() => setTab('fruit')}
+								onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+									e.preventDefault();
+									setTab('fruit');
+								}}
 							>
 								Fruit Ripeness
 							</button>
@@ -766,7 +798,8 @@ export default function ValidatePage() {
 										? 'bg-[var(--primary)] text-white' 
 										: 'text-gray-700 hover:bg-gray-50'
 								}`}
-								onClick={() => {
+								onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+									e.preventDefault();
 									setDateRangeType('daily');
 									setStartDate("");
 									setEndDate("");
@@ -780,7 +813,8 @@ export default function ValidatePage() {
 										? 'bg-[var(--primary)] text-white' 
 										: 'text-gray-700 hover:bg-gray-50'
 								}`}
-								onClick={() => {
+								onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+									e.preventDefault();
 									setDateRangeType('weekly');
 									setStartDate("");
 									setEndDate("");
@@ -794,7 +828,8 @@ export default function ValidatePage() {
 										? 'bg-[var(--primary)] text-white' 
 										: 'text-gray-700 hover:bg-gray-50'
 								}`}
-								onClick={() => {
+								onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+									e.preventDefault();
 									setDateRangeType('monthly');
 									setStartDate("");
 									setEndDate("");
@@ -808,7 +843,8 @@ export default function ValidatePage() {
 										? 'bg-[var(--primary)] text-white' 
 										: 'text-gray-700 hover:bg-gray-50'
 								}`}
-								onClick={() => {
+								onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+									e.preventDefault();
 									setDateRangeType('custom');
 									if (!startDate || !endDate) {
 										const today = new Date().toISOString().split('T')[0];
@@ -846,7 +882,8 @@ export default function ValidatePage() {
 							<Button 
 								variant="ghost" 
 								size="sm"
-								onClick={() => {
+								onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+									e.preventDefault();
 									setDateRangeType('none');
 									setStartDate("");
 									setEndDate("");
@@ -866,7 +903,10 @@ export default function ValidatePage() {
 								<p className="text-red-600 font-medium">{error}</p>
 								<Button 
 									variant="outline" 
-									onClick={() => refreshData(true)}
+									onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+										e.preventDefault();
+										refreshData(true);
+									}}
 									className="mt-4"
 								>
 									Try Again
@@ -901,7 +941,7 @@ export default function ValidatePage() {
 									</Tr>
 								</Thead>
 								<Tbody>
-									{filtered.map((scan) => {
+									{filtered.map((scan: Scan) => {
 										const cropType = scan.scan_type === 'leaf_disease' ? 'Leaf Disease' : 'Fruit Ripeness';
 										const farmerName = scan.farmer_profile?.full_name || scan.farmer_profile?.username || 'Unknown Farmer';
 										
@@ -990,7 +1030,11 @@ export default function ValidatePage() {
 													<Button
 														variant="outline"
 														size="sm"
-														onClick={() => setDetailId(scan.id.toString())}
+														onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+															e.preventDefault();
+															e.stopPropagation();
+															setDetailId(scan.id.toString());
+														}}
 														className="flex items-center gap-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 shadow-sm hover:bg-gray-50 hover:text-gray-900 hover:border-gray-400 hover:shadow-md active:bg-gray-100 active:shadow-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2"
 													>
 														<Eye className="h-4 w-4 flex-shrink-0" />
@@ -1009,10 +1053,10 @@ export default function ValidatePage() {
 						if (!open) {
 							// Reset image URL attempts when dialog closes
 							if (detailId) {
-								const scan = scans.find(s => s.id.toString() === detailId);
+								const scan = scans.find((s: Scan) => s.id.toString() === detailId);
 								if (scan) {
 									const attemptKey = scan.scan_uuid || scan.id.toString();
-									setImageUrlAttempts(prev => {
+									setImageUrlAttempts((prev: Record<string, number>) => {
 										const next = { ...prev };
 										delete next[attemptKey];
 										return next;
@@ -1023,8 +1067,8 @@ export default function ValidatePage() {
 						}
 					}}>
 						<DialogContent className="!max-w-6xl w-[calc(100%-2rem)] max-w-[95vw] p-0 flex flex-col max-h-[95vh] h-[95vh] overflow-hidden bg-white rounded-xl shadow-2xl">
-							{detailId && (() => {
-								const selectedScan = scans.find(scan => scan.id.toString() === detailId);
+							{detailId && ((): JSX.Element | null => {
+								const selectedScan = scans.find((scan: Scan) => scan.id.toString() === detailId);
 								if (!selectedScan) {
 									return (
 										<div className="p-8 text-center">
@@ -1033,7 +1077,10 @@ export default function ValidatePage() {
 											<p className="text-sm text-gray-500">The scan you&apos;re looking for may have been removed or doesn&apos;t exist.</p>
 											<Button 
 												variant="outline" 
-												onClick={() => setDetailId(null)}
+												onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+													e.preventDefault();
+													setDetailId(null);
+												}}
 												className="mt-4"
 											>
 												Close
@@ -1057,7 +1104,10 @@ export default function ValidatePage() {
 											</DialogHeader>
 											<button 
 												aria-label="Close" 
-												onClick={() => setDetailId(null)} 
+												onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+													e.preventDefault();
+													setDetailId(null);
+												}} 
 												className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-900 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-gray-300"
 											>
 												<X className="h-5 w-5" />
@@ -1085,7 +1135,7 @@ export default function ValidatePage() {
 																	width={56}
 																	height={56}
 																	className="w-14 h-14 rounded-full object-cover border-2 border-gray-300 shadow-sm"
-																	onError={(e) => {
+																	onError={(e: React.SyntheticEvent<HTMLImageElement, Event>) => {
 																		e.currentTarget.style.display = 'none';
 																	}}
 																/>
@@ -1159,7 +1209,7 @@ export default function ValidatePage() {
 																			onError={(e: React.SyntheticEvent<HTMLImageElement, Event>) => {
 																				// Try next URL if available
 																				if (attemptIndex < allUrls.length - 1) {
-																					setImageUrlAttempts(prev => ({
+																					setImageUrlAttempts((prev: Record<string, number>) => ({
 																						...prev,
 																						[attemptKey]: attemptIndex + 1
 																					}));
@@ -1374,13 +1424,19 @@ export default function ValidatePage() {
 											<DialogFooter className="flex flex-row items-center justify-end gap-3 sm:gap-3">
 												<Button 
 													variant="outline" 
-													onClick={() => setDetailId(null)}
+													onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+														e.preventDefault();
+														setDetailId(null);
+													}}
 													className="text-base font-medium text-gray-700 border-2 border-gray-300 hover:bg-gray-50 hover:border-gray-400 active:bg-gray-100 transition-all duration-200"
 												>
 													Cancel
 												</Button>
 												<Button 
-													onClick={() => onConfirm(parseInt(detailId))}
+													onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+														e.preventDefault();
+														onConfirm(parseInt(detailId));
+													}}
 													disabled={isConfirmDisabled(parseInt(detailId)) || processingScanId === parseInt(detailId)}
 													className="text-base font-semibold bg-[var(--primary)] text-white hover:bg-[var(--primary-600)] active:bg-[var(--primary-700)] disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg transition-all duration-200"
 													title={isConfirmDisabled(parseInt(detailId)) ? "Confirm is disabled when a diagnosis is selected. Use Correct instead." : "Confirm the AI prediction is correct"}
@@ -1389,7 +1445,10 @@ export default function ValidatePage() {
 												</Button>
 												<Button 
 													variant="outline" 
-													onClick={() => onReject(parseInt(detailId))}
+													onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+														e.preventDefault();
+														onReject(parseInt(detailId));
+													}}
 													disabled={!hasDecision(parseInt(detailId)) || processingScanId === parseInt(detailId)}
 													className="text-base font-semibold text-gray-700 border-2 border-gray-300 hover:bg-gray-50 hover:border-gray-400 active:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
 													title={!hasDecision(parseInt(detailId)) ? "Please select a diagnosis first" : "Correct the AI prediction with your selected diagnosis"}
