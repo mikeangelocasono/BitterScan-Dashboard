@@ -2,7 +2,7 @@
 
 import AppShell from "@/components/AppShell";
 import AuthGuard from "@/components/AuthGuard";
-import { useMemo, useState, useCallback, useEffect } from "react";
+import React, { useMemo, useState, useCallback, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@/components/ui/table";
@@ -16,11 +16,29 @@ import { useData } from "@/components/DataContext";
 import Image from "next/image";
 import { getScanImageUrlWithFallback, getPlaceholderImageUrl, getAllPossibleImageUrls } from "@/utils/imageUtils";
 
+// Type for error logging data
+type ErrorLogData = Record<string, string | number | null | undefined | string[]> | null | undefined;
+
+// Type for Supabase leaf disease scan response
+type LeafDiseaseScanResponse = {
+	disease_detected: string;
+} | null;
+
+// Type for Supabase fruit ripeness scan response
+type FruitRipenessScanResponse = {
+	ripeness_stage: string;
+} | null;
+
+// Type for Supabase update response
+type SupabaseUpdateResponse = {
+	error: unknown | null;
+};
+
 // Error throttling to prevent console spam
 // Track errors silently - only log once per unique image error
 const errorThrottle = new Map<string, boolean>();
 
-const throttledErrorLog = (key: string, message: string, data?: any) => {
+const throttledErrorLog = (key: string, message: string, data?: ErrorLogData) => {
 	// Only log each unique error once per page session
 	if (!errorThrottle.has(key)) {
 		errorThrottle.set(key, true);
@@ -89,7 +107,12 @@ const extractErrorDetails = (error: unknown): Record<string, string | number | n
 	// If it's a Supabase API error (PostgrestError, AuthApiError, etc.)
 	if (isSupabaseApiError(error)) {
 		// Extract all possible properties from Supabase error
-		const supabaseError = error as any;
+		// Extended interface to handle all Supabase error variants
+		interface ExtendedSupabaseError extends SupabaseApiError {
+			error_description?: string;
+			error_code?: string;
+		}
+		const supabaseError = error as ExtendedSupabaseError;
 		return {
 			message: supabaseError.message || supabaseError.error_description || "No message",
 			code: supabaseError.code || supabaseError.error_code || null,
@@ -118,7 +141,16 @@ const extractErrorDetails = (error: unknown): Record<string, string | number | n
 	if (typeof error === 'object') {
 		try {
 			// Try to extract common error properties first
-			const errorObj = error as any;
+			// Define interface for generic error objects
+			interface GenericErrorObject {
+				message?: string;
+				error?: string;
+				code?: string | number;
+				details?: string;
+				hint?: string;
+				status?: string | number;
+			}
+			const errorObj = error as GenericErrorObject;
 			const extracted: Record<string, string | number | null> = {
 				message: errorObj.message || errorObj.error || "Non-standard error object",
 				code: errorObj.code || null,
@@ -795,7 +827,7 @@ export default function ValidatePage() {
 								<input 
 									type="date" 
 									value={startDate}
-									onChange={(e) => setStartDate(e.target.value)}
+									onChange={(e: React.ChangeEvent<HTMLInputElement>) => setStartDate(e.target.value)}
 									max={endDate || undefined}
 									className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent"
 								/>
@@ -803,7 +835,7 @@ export default function ValidatePage() {
 								<input 
 									type="date" 
 									value={endDate}
-									onChange={(e) => setEndDate(e.target.value)}
+									onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEndDate(e.target.value)}
 									min={startDate || undefined}
 									max={new Date().toISOString().split('T')[0]}
 									className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent"
@@ -908,7 +940,7 @@ export default function ValidatePage() {
 																loading="lazy"
 																priority={false}
 																unoptimized={true}
-																onError={(e) => {
+																onError={(e: React.SyntheticEvent<HTMLImageElement, Event>) => {
 																	// Silently handle image loading errors - log once per unique image
 																	throttledErrorLog(thumbErrorKey, `[Validate Page] Thumbnail not available:`, {
 																		scan_id: scan.id,
@@ -931,7 +963,7 @@ export default function ValidatePage() {
 																width={32}
 																height={32}
 																className="w-8 h-8 rounded-full object-cover flex-shrink-0"
-																onError={(e) => {
+																onError={(e: React.SyntheticEvent<HTMLImageElement, Event>) => {
 																	e.currentTarget.style.display = 'none';
 																}}
 															/>
@@ -954,7 +986,7 @@ export default function ValidatePage() {
 												<Td>
 													<span className="text-sm text-gray-600">{formatDate(scan.created_at)}</span>
 												</Td>
-												<Td className="text-right" onClick={(e) => e.stopPropagation()}>
+												<Td className="text-right" onClick={(e: React.MouseEvent<HTMLTableCellElement>) => e.stopPropagation()}>
 													<Button
 														variant="outline"
 														size="sm"
@@ -973,7 +1005,7 @@ export default function ValidatePage() {
 						</div>
 					)}
 
-					<Dialog open={!!detailId} onOpenChange={(open) => {
+					<Dialog open={!!detailId} onOpenChange={(open: boolean) => {
 						if (!open) {
 							// Reset image URL attempts when dialog closes
 							if (detailId) {
@@ -1124,7 +1156,7 @@ export default function ValidatePage() {
 																			height={450}
 																			className="w-full h-full object-contain"
 																			unoptimized={true}
-																			onError={(e) => {
+																			onError={(e: React.SyntheticEvent<HTMLImageElement, Event>) => {
 																				// Try next URL if available
 																				if (attemptIndex < allUrls.length - 1) {
 																					setImageUrlAttempts(prev => ({
@@ -1295,7 +1327,7 @@ export default function ValidatePage() {
 															{selectedScan.scan_type === 'leaf_disease' ? (
 																<select 
 																	value={decision[detailId!] ?? ''} 
-																	onChange={(e) => setDecision({...decision, [detailId!]: e.target.value})} 
+																	onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setDecision({...decision, [detailId!]: e.target.value})} 
 																	className="w-full rounded-lg border-2 border-gray-300 px-4 py-3 text-base font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white shadow-sm transition-all"
 																>
 																	<option value="">Select diagnosis</option>
@@ -1309,7 +1341,7 @@ export default function ValidatePage() {
 															) : (
 																<select 
 																	value={decision[detailId!] ?? ''} 
-																	onChange={(e) => setDecision({...decision, [detailId!]: e.target.value})} 
+																	onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setDecision({...decision, [detailId!]: e.target.value})} 
 																	className="w-full rounded-lg border-2 border-gray-300 px-4 py-3 text-base font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white shadow-sm transition-all"
 																>
 																	<option value="">Select ripeness stage</option>
@@ -1326,7 +1358,7 @@ export default function ValidatePage() {
 															<label className="block text-sm font-semibold text-gray-900">Expert Notes (Optional)</label>
 															<textarea 
 																value={notes[detailId!] ?? ''} 
-																onChange={(e) => setNotes({...notes, [detailId!]: e.target.value})} 
+																onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setNotes({...notes, [detailId!]: e.target.value})} 
 																placeholder="Add your expert analysis, observations, or additional comments..." 
 																className="w-full rounded-lg border-2 border-gray-300 px-4 py-3 text-base text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 resize-none shadow-sm transition-all"
 																rows={4}
