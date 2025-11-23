@@ -1044,10 +1044,22 @@ export default function ReportsPage() {
                           </Pie>
                           <Tooltip
                             formatter={(value: number | string | readonly (string | number)[] | undefined, name: string) => {
-                              const numValue = Array.isArray(value) 
-                                ? (value.length > 0 ? (typeof value[0] === 'number' ? value[0] : Number(value[0]) || 0) : 0)
-                                : (typeof value === 'number' ? value : Number(value) || 0);
-                              return [`${numValue.toFixed(1)}%`, name];
+                              let displayValue: number;
+                              
+                              // Check if value is an array
+                              if (Array.isArray(value)) {
+                                displayValue = value.length > 0
+                                  ? (typeof value[0] === 'number' ? value[0] : Number(value[0]) || 0)
+                                  : 0;
+                              } else if (typeof value === 'string') {
+                                // Convert string to number safely
+                                displayValue = Number(value) || 0;
+                              } else {
+                                // value is number or undefined
+                                displayValue = value ?? 0;
+                              }
+                              
+                              return [`${displayValue.toFixed(1)}%`, name];
                             }}
                             contentStyle={{
                               backgroundColor: "#ffffff",
@@ -1253,11 +1265,23 @@ export default function ReportsPage() {
                           </Pie>
                           <Tooltip
                             formatter={(value: number | string | readonly (string | number)[] | undefined, name: string) => {
-                              const numValue = Array.isArray(value) 
-                                ? (value.length > 0 ? (typeof value[0] === 'number' ? value[0] : Number(value[0]) || 0) : 0)
-                                : (typeof value === 'number' ? value : Number(value) || 0);
+                              let displayValue: number;
+                              
+                              // Check if value is an array
+                              if (Array.isArray(value)) {
+                                displayValue = value.length > 0
+                                  ? (typeof value[0] === 'number' ? value[0] : Number(value[0]) || 0)
+                                  : 0;
+                              } else if (typeof value === 'string') {
+                                // Convert string to number safely
+                                displayValue = Number(value) || 0;
+                              } else {
+                                // value is number or undefined
+                                displayValue = value ?? 0;
+                              }
+                              
                               return [
-                                `${numValue.toLocaleString("en-US")} cases`,
+                                `${displayValue.toLocaleString("en-US")} cases`,
                                 name
                               ];
                             }}
@@ -1365,11 +1389,23 @@ export default function ReportsPage() {
                           </Pie>
                           <Tooltip
                             formatter={(value: number | string | readonly (string | number)[] | undefined, name: string) => {
-                              const numValue = Array.isArray(value) 
-                                ? (value.length > 0 ? (typeof value[0] === 'number' ? value[0] : Number(value[0]) || 0) : 0)
-                                : (typeof value === 'number' ? value : Number(value) || 0);
+                              let displayValue: number;
+                              
+                              // Check if value is an array
+                              if (Array.isArray(value)) {
+                                displayValue = value.length > 0
+                                  ? (typeof value[0] === 'number' ? value[0] : Number(value[0]) || 0)
+                                  : 0;
+                              } else if (typeof value === 'string') {
+                                // Convert string to number safely
+                                displayValue = Number(value) || 0;
+                              } else {
+                                // value is number or undefined
+                                displayValue = value ?? 0;
+                              }
+                              
                               return [
-                                `${numValue.toLocaleString("en-US")} items`,
+                                `${displayValue.toLocaleString("en-US")} items`,
                                 name
                               ];
                             }}
