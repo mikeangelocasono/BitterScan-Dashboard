@@ -1048,15 +1048,12 @@ export default function ReportsPage() {
                               
                               // Check if value is an array
                               if (Array.isArray(value)) {
-                                displayValue = value.length > 0
+                                displayValue = value.length > 0 
                                   ? (typeof value[0] === 'number' ? value[0] : Number(value[0]) || 0)
                                   : 0;
-                              } else if (typeof value === 'string') {
-                                // Convert string to number safely
-                                displayValue = Number(value) || 0;
                               } else {
-                                // value is number or undefined
-                                displayValue = value ?? 0;
+                                // value is number, string, or undefined
+                                displayValue = typeof value === 'number' ? value : (Number(value) || 0);
                               }
                               
                               return [`${displayValue.toFixed(1)}%`, name];
@@ -1269,15 +1266,12 @@ export default function ReportsPage() {
                               
                               // Check if value is an array
                               if (Array.isArray(value)) {
-                                displayValue = value.length > 0
+                                displayValue = value.length > 0 
                                   ? (typeof value[0] === 'number' ? value[0] : Number(value[0]) || 0)
                                   : 0;
-                              } else if (typeof value === 'string') {
-                                // Convert string to number safely
-                                displayValue = Number(value) || 0;
                               } else {
-                                // value is number or undefined
-                                displayValue = value ?? 0;
+                                // value is number, string, or undefined
+                                displayValue = typeof value === 'number' ? value : (Number(value) || 0);
                               }
                               
                               return [
@@ -1393,15 +1387,12 @@ export default function ReportsPage() {
                               
                               // Check if value is an array
                               if (Array.isArray(value)) {
-                                displayValue = value.length > 0
+                                displayValue = value.length > 0 
                                   ? (typeof value[0] === 'number' ? value[0] : Number(value[0]) || 0)
                                   : 0;
-                              } else if (typeof value === 'string') {
-                                // Convert string to number safely
-                                displayValue = Number(value) || 0;
                               } else {
-                                // value is number or undefined
-                                displayValue = value ?? 0;
+                                // value is number, string, or undefined
+                                displayValue = typeof value === 'number' ? value : (Number(value) || 0);
                               }
                               
                               return [
