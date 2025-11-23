@@ -26,7 +26,6 @@ import ChartCard from "@/components/charts/ChartCard";
 import { useData } from "@/components/DataContext";
 
 import type { Scan, ValidationHistory } from "@/types";
-import { getAiPrediction } from "@/types";
 
 type Range = "daily" | "weekly" | "monthly" | "custom";
 
@@ -474,10 +473,10 @@ export default function ReportsPage() {
     
     if (filteredScans && filteredScans.length > 0) {
       filteredScans
-        .filter((scan) => scan.scan_type === "leaf_disease" && getAiPrediction(scan))
+        .filter((scan) => scan.scan_type === "leaf_disease" && scan.ai_prediction)
         .forEach((scan) => {
           try {
-            const prediction = String(getAiPrediction(scan)).toLowerCase();
+            const prediction = String(scan.ai_prediction).toLowerCase();
             if (prediction.includes("cercospora")) counts.Cercospora += 1;
             else if (prediction.includes("downy") || prediction.includes("mildew")) counts["Downy Mildew"] += 1;
             else if (prediction.includes("fusarium") || prediction.includes("wilt")) counts["Fusarium Wilt"] += 1;
@@ -509,10 +508,10 @@ export default function ReportsPage() {
     
     if (filteredScans && filteredScans.length > 0) {
       filteredScans
-        .filter((scan) => scan.scan_type === "fruit_maturity" && getAiPrediction(scan))
+        .filter((scan) => scan.scan_type === "fruit_maturity" && scan.ai_prediction)
         .forEach((scan) => {
           try {
-            const prediction = String(getAiPrediction(scan)).toLowerCase();
+            const prediction = String(scan.ai_prediction).toLowerCase();
             if (prediction.includes("immature")) counts.Immature += 1;
             else if (prediction.includes("mature") && !prediction.includes("over")) counts.Mature += 1;
             else if (prediction.includes("overmature")) counts.Overmature += 1;
@@ -1044,21 +1043,7 @@ export default function ReportsPage() {
                             <Cell key="remaining" fill="#e5e7eb" stroke="#fff" strokeWidth={2} />
                           </Pie>
                           <Tooltip
-                            formatter={(value: number | string | readonly (string | number)[] | undefined, name: string) => {
-                              let displayValue: number;
-                              
-                              // Check if value is an array
-                              if (Array.isArray(value)) {
-                                displayValue = value.length > 0 
-                                  ? (typeof value[0] === 'number' ? value[0] : Number(value[0]) || 0)
-                                  : 0;
-                              } else {
-                                // value is number, string, or undefined
-                                displayValue = typeof value === 'number' ? value : (Number(value) || 0);
-                              }
-                              
-                              return [`${displayValue.toFixed(1)}%`, name];
-                            }}
+                            formatter={(value: number, name: string) => [`${value.toFixed(1)}%`, name]}
                             contentStyle={{
                               backgroundColor: "#ffffff",
                               border: "1px solid #e5e7eb",
@@ -1262,24 +1247,10 @@ export default function ReportsPage() {
                             ))}
                           </Pie>
                           <Tooltip
-                            formatter={(value: number | string | readonly (string | number)[] | undefined, name: string) => {
-                              let displayValue: number;
-                              
-                              // Check if value is an array
-                              if (Array.isArray(value)) {
-                                displayValue = value.length > 0 
-                                  ? (typeof value[0] === 'number' ? value[0] : Number(value[0]) || 0)
-                                  : 0;
-                              } else {
-                                // value is number, string, or undefined
-                                displayValue = typeof value === 'number' ? value : (Number(value) || 0);
-                              }
-                              
-                              return [
-                                `${displayValue.toLocaleString("en-US")} cases`,
-                                name
-                              ];
-                            }}
+                            formatter={(value: number, name: string) => [
+                              `${value.toLocaleString("en-US")} cases`,
+                              name
+                            ]}
                             contentStyle={{
                               backgroundColor: "#ffffff",
                               border: "1px solid #e5e7eb",
@@ -1383,24 +1354,10 @@ export default function ReportsPage() {
                             ))}
                           </Pie>
                           <Tooltip
-                            formatter={(value: number | string | readonly (string | number)[] | undefined, name: string) => {
-                              let displayValue: number;
-                              
-                              // Check if value is an array
-                              if (Array.isArray(value)) {
-                                displayValue = value.length > 0 
-                                  ? (typeof value[0] === 'number' ? value[0] : Number(value[0]) || 0)
-                                  : 0;
-                              } else {
-                                // value is number, string, or undefined
-                                displayValue = typeof value === 'number' ? value : (Number(value) || 0);
-                              }
-                              
-                              return [
-                                `${displayValue.toLocaleString("en-US")} items`,
-                                name
-                              ];
-                            }}
+                            formatter={(value: number, name: string) => [
+                              `${value.toLocaleString("en-US")} items`,
+                              name
+                            ]}
                             contentStyle={{
                               backgroundColor: "#ffffff",
                               border: "1px solid #e5e7eb",

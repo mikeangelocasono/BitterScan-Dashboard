@@ -7,7 +7,6 @@ import { UsersRound, Camera, CheckCircle2, AlertCircle } from "lucide-react";
 import { Table, Thead, Tbody, Tr, Th, Td } from "./ui/table";
 import { useUser } from "./UserContext";
 import { useData } from "./DataContext";
-import { getAiPrediction } from "../types";
 import Image from "next/image";
 
 const DASHBOARD_DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
@@ -236,7 +235,7 @@ function DashboardContent() {
 												</div>
 											</Td>
 											<Td>{scan.scan_type ? formatScanType(scan.scan_type) : 'N/A'}</Td>
-											<Td className="max-w-xs truncate">{getAiPrediction(scan) || 'N/A'}</Td>
+											<Td className="max-w-xs truncate">{scan.ai_prediction || 'N/A'}</Td>
 											<Td>
 												<span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium ${getStatusColor(scan.status)}`}>
 													{scan.status || 'N/A'}

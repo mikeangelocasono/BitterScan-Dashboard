@@ -10,7 +10,7 @@ import toast from "react-hot-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { supabase } from "@/components/supabase";
 import { Loader2, AlertCircle, X, Eye } from "lucide-react";
-import { Scan, SupabaseApiError, isSupabaseApiError, getAiPrediction } from "@/types";
+import { Scan, SupabaseApiError, isSupabaseApiError } from "@/types";
 import { useUser } from "@/components/UserContext";
 import { useData } from "@/components/DataContext";
 import Image from "next/image";
@@ -359,7 +359,7 @@ export default function ValidatePage() {
 	// Parse scan result details from scan data
 	const parseScanDetails = useCallback((scan: Scan) => {
 		// Try to extract from structured fields first
-		const disease = getAiPrediction(scan);
+		const disease = scan.ai_prediction;
 		const confidence = scan.confidence;
 		const solution = scan.solution;
 		const recommendedProducts = scan.recommended_products;

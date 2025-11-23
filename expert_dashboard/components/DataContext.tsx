@@ -205,29 +205,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
 				}
 
 				// Create a map of farmer profiles for quick lookup
-				// Note: allProfiles only contains selected fields, not full DatabaseProfile
-				type PartialProfile = {
-					id: string;
-					username: string;
-					full_name: string;
-					email: string;
-					profile_picture?: string | null;
-				};
-				const profileMap = new Map<string, PartialProfile>(
-					(allProfiles || []).map((profile: PartialProfile) => [profile.id, profile])
+				const profileMap = new Map<string, DatabaseProfile>(
+					(allProfiles || []).map((profile: DatabaseProfile) => [profile.id, profile])
 				);
-
-				// Helper function to transform profile data
-				const transformProfile = (profile: PartialProfile | null | undefined) => {
-					if (!profile) return undefined;
-					return {
-						id: profile.id,
-						username: profile.username,
-						full_name: profile.full_name,
-						email: profile.email,
-						profile_picture: profile.profile_picture || '',
-					};
-				};
 
 				// Transform and merge scans from both tables, joining with profiles
 				const leafScans = (leafScansResponse.data || []).map((scan: DatabaseLeafDiseaseScan) => {
@@ -236,9 +216,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
 						...scan,
 						scan_type: 'leaf_disease' as const,
 						ai_prediction: scan.disease_detected, // Map for backward compatibility
-						solution: scan.solution ?? undefined, // Convert null to undefined
-						recommended_products: scan.recommendation ?? undefined, // Convert null to undefined
-						farmer_profile: transformProfile(farmerProfile),
+						solution: scan.solution,
+						recommended_products: scan.recommendation, // Map for backward compatibility
+						farmer_profile: farmerProfile ? {
+							id: farmerProfile.id,
+							username: farmerProfile.username,
+							full_name: farmerProfile.full_name,
+							email: farmerProfile.email,
+							profile_picture: farmerProfile.profile_picture || '',
+						} : undefined,
 					};
 				});
 
@@ -248,9 +234,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
 						...scan,
 						scan_type: 'fruit_maturity' as const,
 						ai_prediction: scan.ripeness_stage, // Map for backward compatibility
-						solution: scan.harvest_recommendation ?? undefined, // Convert null to undefined
+						solution: scan.harvest_recommendation, // Map for backward compatibility
 						recommended_products: undefined, // Fruit scans don't have recommended products
-						farmer_profile: transformProfile(farmerProfile),
+						farmer_profile: farmerProfile ? {
+							id: farmerProfile.id,
+							username: farmerProfile.username,
+							full_name: farmerProfile.full_name,
+							email: farmerProfile.email,
+							profile_picture: farmerProfile.profile_picture || '',
+						} : undefined,
 					};
 				});
 
@@ -270,13 +262,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 					
 					// Try to find scan by scan_uuid (scan_id in validation_history is UUID)
 					const scanUuid = String(validation.scan_id).trim();
-					const relatedScan = allScans
-						.map((s: Scan) => ({
-							...s,
-							// Fix TypeScript error: normalize null to undefined or string
-							recommendation: s.recommendation ?? "",
-						}))
-						.find((s: Scan) => s.scan_uuid === scanUuid);
+					const relatedScan = allScans.find((s: Scan) => s.scan_uuid === scanUuid);
 					
 					return {
 						...validation,
@@ -454,8 +440,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
 					...scanData,
 					scan_type: 'leaf_disease' as const,
 					ai_prediction: scanData.disease_detected,
-					solution: scanData.solution ?? undefined, // Convert null to undefined
-					recommended_products: scanData.recommendation ?? undefined, // Convert null to undefined
+					solution: scanData.solution,
+					recommended_products: scanData.recommendation,
 					farmer_profile: farmerProfile,
 				};
 			} else {
@@ -463,7 +449,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 					...scanData,
 					scan_type: 'fruit_maturity' as const,
 					ai_prediction: scanData.ripeness_stage,
-					solution: scanData.harvest_recommendation ?? undefined, // Convert null to undefined
+					solution: scanData.harvest_recommendation,
 					recommended_products: undefined,
 					farmer_profile: farmerProfile,
 				};
@@ -528,8 +514,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
 						...leafScan,
 						scan_type: 'leaf_disease' as const,
 						ai_prediction: leafScan.disease_detected,
-						solution: leafScan.solution ?? undefined, // Convert null to undefined
-						recommended_products: leafScan.recommendation ?? undefined, // Convert null to undefined
+						solution: leafScan.solution,
+						recommended_products: leafScan.recommendation,
 						farmer_profile: farmerProfile,
 					};
 				} else {
@@ -552,14 +538,14 @@ export function DataProvider({ children }: { children: ReactNode }) {
 							farmerProfile = profile || undefined;
 						}
 
-					relatedScan = {
-						...fruitScan,
-						scan_type: 'fruit_maturity' as const,
-						ai_prediction: fruitScan.ripeness_stage,
-						solution: fruitScan.harvest_recommendation ?? undefined, // Convert null to undefined
-						recommended_products: undefined,
-						farmer_profile: farmerProfile,
-					};
+						relatedScan = {
+							...fruitScan,
+							scan_type: 'fruit_maturity' as const,
+							ai_prediction: fruitScan.ripeness_stage,
+							solution: fruitScan.harvest_recommendation,
+							recommended_products: undefined,
+							farmer_profile: farmerProfile,
+						};
 					}
 				}
 			}

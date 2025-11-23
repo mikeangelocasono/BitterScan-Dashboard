@@ -7,7 +7,6 @@ import { useNotifications } from "./NotificationContext";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import toast from "react-hot-toast";
-import { formatDate } from "@/utils/dateUtils";
 
 export default function NotificationBell() {
 	const [isOpen, setIsOpen] = useState(false);
@@ -125,12 +124,38 @@ export default function NotificationBell() {
 		[router, markScansAsRead]
 	);
 
-	// Extract time from formatted date for display
+	/**
+	 * Format time as "HH:MM AM/PM" matching the actual scan timestamp from database
+	 * This displays the exact time the scan was created (hours:minutes + AM/PM format)
+	 */
 	const formatExactTimestamp = useCallback((dateString: string) => {
-		const formatted = formatDate(dateString);
-		// Extract time portion (HH:MM AM/PM) from formatted date
-		const timeMatch = formatted.match(/\d{1,2}:\d{2}\s(AM|PM)/);
-		return timeMatch ? timeMatch[0] : formatted;
+		try {
+			const date = new Date(dateString);
+			// Check if date is valid
+			if (isNaN(date.getTime())) {
+				return "Invalid date";
+			}
+
+			// Format as "HH:MM AM/PM" using the exact timestamp from database
+			// Use UTC to match database timestamp exactly
+			// Get UTC hours (0-23)
+			let hours = date.getUTCHours();
+			const minutes = date.getUTCMinutes();
+			
+			// Determine AM/PM BEFORE converting to 12-hour format
+			// This is critical: check the original 24-hour value (0-23)
+			const ampm = hours >= 12 ? 'PM' : 'AM';
+			
+			// Convert to 12-hour format (1-12)
+			hours = hours % 12;
+			hours = hours || 12; // Convert 0 to 12 (midnight/noon)
+			
+			const minutesStr = minutes < 10 ? `0${minutes}` : `${minutes}`;
+			
+			return `${hours}:${minutesStr} ${ampm}`;
+		} catch {
+			return dateString;
+		}
 	}, []);
 
 	// Format relative time for tooltip/secondary display

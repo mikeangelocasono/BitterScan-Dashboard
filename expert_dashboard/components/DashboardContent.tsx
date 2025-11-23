@@ -82,6 +82,7 @@ function DashboardContent() {
 		if (!scans || scans.length === 0) return [];
 		
 		return scans.filter(scan => {
+			if (scan.status === 'Unknown') return false;
 			const result = getAiPrediction(scan);
 			if (result === 'Unknown') return false;
 			return true;
@@ -223,7 +224,7 @@ function DashboardContent() {
 													</div>
 												</Td>
 												<Td>{scan.scan_type ? formatScanType(scan.scan_type) : 'N/A'}</Td>
-												<Td className="max-w-xs truncate">{getAiPrediction(scan) || 'N/A'}</Td>
+												<Td className="max-w-xs truncate">{scan.ai_prediction || 'N/A'}</Td>
 												<Td>
 													<span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium ${getStatusColor(scan.status)}`}>
 														{scan.status}
