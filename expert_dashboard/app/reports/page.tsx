@@ -3588,21 +3588,23 @@ export default function ReportsPage() {
                             fontWeight: 500,
                             boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
                           }}
-                          formatter={(value: number, name: string, props: TooltipFormatterProps) => {
-                            const data = props.payload as MonthlyMostScannedDatum | undefined;
+                          formatter={(value: number | undefined, name: string, item: any) => {
+                            const data = item?.payload as MonthlyMostScannedDatum | undefined;
+                            if (!value || !data) return ["0", ""];
+                            
                             if (name === "leafDiseaseCount") {
                               return [
                                 `${value.toLocaleString("en-US")} scans`,
-                                `Disease: ${data?.mostScannedDisease || 'N/A'}`
+                                `Disease: ${data.mostScannedDisease || 'N/A'}`
                               ];
                             }
                             if (name === "fruitRipenessCount") {
                               return [
                                 `${value.toLocaleString("en-US")} scans`,
-                                `Ripeness: ${data?.mostScannedRipeness || 'N/A'}`
+                                `Ripeness: ${data.mostScannedRipeness || 'N/A'}`
                               ];
                             }
-                            return [`${value}`, name];
+                            return [`${value.toString()}`, name];
                           }}
                           labelFormatter={(label: string) => {
                             const monthData = sortedData.find(d => d.month === label);
