@@ -205,12 +205,27 @@ export function DataProvider({ children }: { children: ReactNode }) {
 				}
 
 				// Create a map of farmer profiles for quick lookup
-				const profileMap = new Map<string, DatabaseProfile>(
-					(allProfiles || []).map((profile: DatabaseProfile) => [profile.id, profile])
+				// Note: allProfiles only contains selected fields, not full DatabaseProfile
+				type PartialProfile = {
+					id: string;
+					username: string;
+					full_name: string;
+					email: string;
+					profile_picture?: string | null;
+				};
+				const profileMap = new Map<string, PartialProfile>(
+					(allProfiles || []).map((profile: PartialProfile) => [profile.id, profile])
 				);
 
 				// Helper function to transform profile data
-				const transformProfile = (profile: DatabaseProfile | null | undefined) => {
+				type PartialProfile = {
+					id: string;
+					username: string;
+					full_name: string;
+					email: string;
+					profile_picture?: string | null;
+				};
+				const transformProfile = (profile: PartialProfile | null | undefined) => {
 					if (!profile) return undefined;
 					return {
 						id: profile.id,
