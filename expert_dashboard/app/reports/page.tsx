@@ -70,7 +70,7 @@ type TooltipItem = {
 
 // Recharts Bar label props type - compatible with Recharts Props type
 // value can be RenderableText (string | number | null | undefined | ReactNode) per Recharts
-type BarLabelProps = {
+type BarLabelProps = Record<string, unknown> & {
   x?: number | string;
   y?: number | string;
   width?: number | string;
@@ -78,7 +78,6 @@ type BarLabelProps = {
   index?: number | string;
   payload?: MonthlyMostScannedDatum;
   value?: unknown; // RenderableText from Recharts (string | number | null | undefined | ReactNode)
-  [key: string]: unknown; // Allow additional Recharts properties
 };
 import { 
   parseTimestampToLocal, 
@@ -3718,7 +3717,7 @@ export default function ReportsPage() {
                           radius={[6, 6, 0, 0]}
                           animationBegin={0}
                           animationDuration={800}
-                          label={(props: any): JSX.Element | null => {
+                          label={(props: BarLabelProps): JSX.Element | null => {
                             // Safely convert index to number with fallback
                             const index: number = typeof props.index === 'number' 
                               ? props.index 
@@ -3772,7 +3771,7 @@ export default function ReportsPage() {
                           radius={[6, 6, 0, 0]}
                           animationBegin={0}
                           animationDuration={800}
-                          label={(props: any): JSX.Element | null => {
+                          label={(props: BarLabelProps): JSX.Element | null => {
                             // Safely convert index to number with fallback
                             const index: number = typeof props.index === 'number' 
                               ? props.index 
