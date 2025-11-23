@@ -14,7 +14,8 @@ import { Scan, SupabaseApiError, isSupabaseApiError, getAiPrediction, getSolutio
 import { useUser } from "@/components/UserContext";
 import { useData } from "@/components/DataContext";
 import Image from "next/image";
-import { getScanImageUrlWithFallback, getPlaceholderImageUrl, getAllPossibleImageUrls } from "@/utils/imageUtils";
+import { getScanImageUrlWithFallback, getAllPossibleImageUrls } from "@/utils/imageUtils";
+import { formatDate, getDateRange } from "@/utils/dateUtils";
 
 // Type for error logging data
 type ErrorLogData = Record<string, string | number | null | undefined | string[]> | null | undefined;
@@ -64,39 +65,6 @@ const throttledErrorLog = (key: string, message: string, data?: ErrorLogData) =>
 	}
 };
 
-// Format exact timestamp from database (UTC time as stored, no timezone conversion)
-// Displays date and time (hours:minutes AM/PM) matching the actual scan time from device
-const formatScanDate = (dateString: string): string => {
-	try {
-		// Parse the date string - ensure it's treated as UTC if no timezone is specified
-		const date = new Date(dateString);
-		if (isNaN(date.getTime())) return 'Invalid Date';
-		
-		// Use UTC methods to display exact database timestamp
-		const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-		const month = monthNames[date.getUTCMonth()];
-		const day = date.getUTCDate();
-		const year = date.getUTCFullYear();
-		
-		// Get UTC hours (0-23)
-		let hours = date.getUTCHours();
-		const minutes = date.getUTCMinutes();
-		
-		// Determine AM/PM BEFORE converting to 12-hour format
-		// This is critical: check the original 24-hour value
-		const ampm = hours >= 12 ? 'PM' : 'AM';
-		
-		// Convert to 12-hour format (1-12)
-		hours = hours % 12;
-		hours = hours || 12; // Convert 0 to 12 (midnight/noon)
-		
-		const minutesStr = minutes < 10 ? `0${minutes}` : `${minutes}`;
-		
-		return `${month} ${day}, ${year} - ${hours}:${minutesStr} ${ampm}`;
-	} catch {
-		return 'Invalid Date';
-	}
-};
 
 /**
  * Safely extract error details for logging
@@ -681,42 +649,8 @@ export default function ValidatePage() {
 	const onReject = useCallback((scanId: number) => handleValidation(scanId, "correct"), [handleValidation]);
 
 	// Helper function to get date range based on type
-	const getDateRange = useCallback((type: typeof dateRangeType) => {
-		if (type === 'none') return { start: null, end: null };
-		
-		const now = new Date();
-		now.setHours(23, 59, 59, 999);
-		
-		if (type === 'daily') {
-			const start = new Date(now);
-			start.setHours(0, 0, 0, 0);
-			return { start, end: now };
-		}
-		
-		if (type === 'weekly') {
-			const start = new Date(now);
-			const dayOfWeek = start.getDay();
-			start.setDate(start.getDate() - dayOfWeek);
-			start.setHours(0, 0, 0, 0);
-			return { start, end: now };
-		}
-		
-		if (type === 'monthly') {
-			const start = new Date(now.getFullYear(), now.getMonth(), 1);
-			start.setHours(0, 0, 0, 0);
-			return { start, end: now };
-		}
-		
-		// Custom range
-		if (startDate && endDate) {
-			const start = new Date(startDate);
-			start.setHours(0, 0, 0, 0);
-			const end = new Date(endDate);
-			end.setHours(23, 59, 59, 999);
-			return { start, end };
-		}
-		
-		return { start: null, end: null };
+	const getDateRangeForFilter = useCallback((type: typeof dateRangeType) => {
+		return getDateRange(type, startDate, endDate);
 	}, [startDate, endDate]);
 
 	/**
@@ -743,7 +677,7 @@ export default function ValidatePage() {
 		// Also exclude scans with status = 'Unknown' or result = 'Unknown' from display (but they're still counted in Total Scans)
 		const pendingScans = scans.filter(scan => {
 			// Runtime check for status to handle potential 'Unknown' status
-			const status = (scan as any).status as string;
+			const status = scan.status as string;
 			// Exclude 'Unknown' status scans from display
 			if (status === 'Unknown') return false;
 			// Only show pending validation scans
@@ -765,7 +699,7 @@ export default function ValidatePage() {
 			
 			// Apply date range filter
 			if (dateRangeType !== 'none') {
-				const { start, end } = getDateRange(dateRangeType);
+				const { start, end } = getDateRangeForFilter(dateRangeType);
 				if (start && end) {
 					const scanDate = new Date(scan.created_at);
 					if (scanDate < start || scanDate > end) {
@@ -776,12 +710,8 @@ export default function ValidatePage() {
 			
 			return matchesTab;
 		});
-	}, [scans, dateRangeType, tab, getDateRange]);
+	}, [scans, dateRangeType, tab, getDateRangeForFilter]);
 
-	// Memoized date formatter - uses accurate local time
-	const formatDate = useCallback((dateString: string) => {
-		return formatScanDate(dateString);
-	}, []);
 
 	// Parse scan result details from scan data
 	// Updated to use new schema: leaf_disease_scans and fruit_ripeness_scans

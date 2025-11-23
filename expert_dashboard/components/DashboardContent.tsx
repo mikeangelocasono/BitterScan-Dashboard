@@ -9,52 +9,7 @@ import { useUser } from "./UserContext";
 import { useData } from "./DataContext";
 import { getAiPrediction, type Scan } from "../types";
 import Image from "next/image";
-
-// Format timestamp from database (UTC) to readable format with correct AM/PM
-const formatDate = (dateString: string): string => {
-	try {
-		const date = new Date(dateString);
-		if (isNaN(date.getTime())) return 'Invalid Date';
-		
-		// Use UTC methods to display exact database timestamp
-		const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-		const month = monthNames[date.getUTCMonth()];
-		const day = date.getUTCDate();
-		const year = date.getUTCFullYear();
-		
-		let hours = date.getUTCHours();
-		const minutes = date.getUTCMinutes();
-		// Determine AM/PM BEFORE converting to 12-hour format
-		const ampm = hours >= 12 ? 'PM' : 'AM';
-		// Convert to 12-hour format
-		hours = hours % 12;
-		hours = hours || 12; // Convert 0 to 12
-		const minutesStr = minutes < 10 ? `0${minutes}` : `${minutes}`;
-		
-		return `${month} ${day}, ${year} - ${hours}:${minutesStr} ${ampm}`;
-	} catch {
-		return 'Invalid Date';
-	}
-};
-
-
-// Memoized helper functions outside component
-const formatScanType = (type: string) => {
-	return type === 'leaf_disease' ? 'Leaf Disease' : 'Fruit Maturity';
-};
-
-const getStatusColor = (status: string) => {
-	switch (status) {
-		case 'Pending Validation':
-			return 'bg-amber-100 text-amber-700';
-		case 'Validated':
-			return 'bg-green-100 text-green-700';
-		case 'Corrected':
-			return 'bg-blue-100 text-blue-700';
-		default:
-			return 'bg-gray-100 text-gray-700';
-	}
-};
+import { formatDate, formatScanType, getStatusColor } from "../utils/dateUtils";
 
 // Memoized loading skeleton component
 const LoadingSkeleton = memo(() => (

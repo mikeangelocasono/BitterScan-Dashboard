@@ -14,40 +14,48 @@ import { Loader2, AlertCircle, Trash2, X, Download } from "lucide-react";
 import { useUser } from "@/components/UserContext";
 import { useData } from "@/components/DataContext";
 import { getAiPrediction } from "@/types";
+import type { Scan } from "@/types";
 import Image from "next/image";
 import { getScanImageUrlWithFallback } from "@/utils/imageUtils";
+import { formatDate as formatDateUtil, formatScanType, getStatusBadgeColor, getDateRange } from "@/utils/dateUtils";
 
-// Accurate date formatter - shows UTC time from database (matching stored timestamp)
-const formatHistoryDate = (dateString: string): string => {
-	try {
-		const date = new Date(dateString);
-		if (isNaN(date.getTime())) return 'Invalid Date';
-		
-		// Use UTC methods to display exact database timestamp
-		const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-		const month = monthNames[date.getUTCMonth()];
-		const day = date.getUTCDate();
-		const year = date.getUTCFullYear();
-		
-		// Get UTC hours (0-23)
-		let hours = date.getUTCHours();
-		const minutes = date.getUTCMinutes();
-		
-		// Determine AM/PM BEFORE converting to 12-hour format
-		// This is critical: check the original 24-hour value (0-23)
-		const ampm = hours >= 12 ? 'PM' : 'AM';
-		
-		// Convert to 12-hour format (1-12)
-		hours = hours % 12;
-		hours = hours || 12; // Convert 0 to 12 (midnight/noon)
-		
-		const minutesStr = minutes < 10 ? `0${minutes}` : `${minutes}`;
-		
-		return `${month} ${day}, ${year} - ${hours}:${minutesStr} ${ampm}`;
-	} catch {
-		return 'Invalid Date';
-	}
+// Types for Supabase responses
+type ProfileData = {
+	id: string;
+	full_name?: string | null;
+	username?: string | null;
+	email?: string | null;
 };
+
+type LeafScanData = {
+	scan_uuid: string;
+	farmer_id?: string | null;
+	expert_comment?: string | null;
+	scan_type?: 'leaf_disease';
+};
+
+type FruitScanData = {
+	scan_uuid: string;
+	farmer_id?: string | null;
+	expert_comment?: string | null;
+	scan_type?: 'fruit_maturity';
+};
+
+type ValidationHistoryRecord = {
+	id: number;
+	scan_id: string;
+	expert_id: string;
+	expert_name?: string | null;
+	ai_prediction: string;
+	expert_validation?: string | null;
+	expert_comment?: string | null;
+	status: 'Validated' | 'Corrected';
+	validated_at: string;
+	scan?: Scan | null;
+	farmerName?: string;
+	expertName?: string;
+};
+
 
 export default function HistoryPage() {
 	const [dateRangeType, setDateRangeType] = useState<'daily' | 'weekly' | 'monthly' | 'custom' | 'none'>('none');
@@ -61,42 +69,8 @@ export default function HistoryPage() {
 	const { scans, validationHistory, loading, error, refreshData } = useData();
 
 	// Helper function to get date range based on type
-	const getDateRange = useCallback((type: typeof dateRangeType) => {
-		if (type === 'none') return { start: null, end: null };
-		
-		const now = new Date();
-		now.setHours(23, 59, 59, 999);
-		
-		if (type === 'daily') {
-			const start = new Date(now);
-			start.setHours(0, 0, 0, 0);
-			return { start, end: now };
-		}
-		
-		if (type === 'weekly') {
-			const start = new Date(now);
-			const dayOfWeek = start.getDay();
-			start.setDate(start.getDate() - dayOfWeek);
-			start.setHours(0, 0, 0, 0);
-			return { start, end: now };
-		}
-		
-		if (type === 'monthly') {
-			const start = new Date(now.getFullYear(), now.getMonth(), 1);
-			start.setHours(0, 0, 0, 0);
-			return { start, end: now };
-		}
-		
-		// Custom range
-		if (startDate && endDate) {
-			const start = new Date(startDate);
-			start.setHours(0, 0, 0, 0);
-			const end = new Date(endDate);
-			end.setHours(23, 59, 59, 999);
-			return { start, end };
-		}
-		
-		return { start: null, end: null };
+	const getDateRangeForFilter = useCallback((type: typeof dateRangeType) => {
+		return getDateRange(type, startDate, endDate);
 	}, [startDate, endDate]);
 
 	// Filter scans to exclude only Unknown scans (no date filtering)
@@ -107,8 +81,8 @@ export default function HistoryPage() {
 		
 		// Filter out Unknown scans only (no date filtering)
 		return scans.filter(scan => {
-			// Exclude scans with status = 'Unknown'
-			if (scan.status === 'Unknown') return false;
+			// Exclude scans with status = 'Unknown' (type assertion for runtime check)
+			if ((scan.status as string) === 'Unknown') return false;
 			// Exclude scans with result = 'Unknown' (disease_detected or ripeness_stage)
 			const result = getAiPrediction(scan);
 			if (result === 'Unknown') return false;
@@ -126,7 +100,7 @@ export default function HistoryPage() {
 			return allValidScans;
 		}
 		
-		const { start, end } = getDateRange(dateRangeType);
+		const { start, end } = getDateRangeForFilter(dateRangeType);
 		if (!start || !end) {
 			return allValidScans;
 		}
@@ -157,7 +131,7 @@ export default function HistoryPage() {
 		}
 		
 		// Get the date range based on the selected filter type
-		const { start, end } = getDateRange(dateRangeType);
+		const { start, end } = getDateRangeForFilter(dateRangeType);
 		if (!start || !end) {
 			return validationHistory;
 		}
@@ -181,14 +155,9 @@ export default function HistoryPage() {
 		});
 	}, [validationHistory, dateRangeType, getDateRange, startDate, endDate]);
 
-	// Memoized helper functions to prevent recreation on every render
-	const formatScanType = useCallback((type: string) => {
-		return type === 'leaf_disease' ? 'Leaf Disease' : 'Fruit Maturity';
-	}, []);
-
-	// Memoized date formatter - uses accurate local time
+	// Memoized date formatter
 	const formatDate = useCallback((dateString: string) => {
-		return formatHistoryDate(dateString);
+		return formatDateUtil(dateString);
 	}, []);
 
 	// Reset showAll when filter changes
@@ -219,18 +188,6 @@ export default function HistoryPage() {
 		return str;
 	}, []);
 
-	const getStatusColor = useCallback((status: string) => {
-		switch (status) {
-			case 'Pending Validation':
-				return 'amber';
-			case 'Validated':
-				return 'green';
-			case 'Corrected':
-				return 'blue';
-			default:
-				return 'gray';
-		}
-	}, []);
 
 	// Handle delete validation record
 	const handleDelete = useCallback(async () => {
@@ -542,7 +499,7 @@ export default function HistoryPage() {
 											const loadingToast = toast.loading('Fetching data from database...');
 											
 											// Get date range for filtering
-											const { start, end } = getDateRange(dateRangeType);
+											const { start, end } = getDateRangeForFilter(dateRangeType);
 											
 											// Build query to fetch validation_history directly from database
 											let query = supabase
@@ -566,7 +523,7 @@ export default function HistoryPage() {
 												const expertIds = new Set<string>();
 												
 												// Collect expert IDs
-												records.forEach((record: any) => {
+												records.forEach((record: ValidationHistoryRecord) => {
 													if (record.expert_id) expertIds.add(record.expert_id);
 												});
 												
@@ -584,7 +541,7 @@ export default function HistoryPage() {
 													const fruitScans = fruitScansResponse.data || [];
 													
 													// Process leaf disease scans - normalize UUIDs to lowercase for consistent matching
-													leafScans.forEach((scan: any) => {
+													leafScans.forEach((scan: LeafScanData) => {
 														if (scan && scan.scan_uuid) {
 															const normalizedUuid = String(scan.scan_uuid).trim().toLowerCase();
 															scanMap.set(normalizedUuid, { 
@@ -597,7 +554,7 @@ export default function HistoryPage() {
 													});
 													
 													// Process fruit ripeness scans - normalize UUIDs to lowercase for consistent matching
-													fruitScans.forEach((scan: any) => {
+													fruitScans.forEach((scan: FruitScanData) => {
 														if (scan && scan.scan_uuid) {
 															const normalizedUuid = String(scan.scan_uuid).trim().toLowerCase();
 															scanMap.set(normalizedUuid, { 
@@ -610,7 +567,7 @@ export default function HistoryPage() {
 													});
 													
 													// Attach scan data to records - normalize UUID to lowercase for matching
-													records.forEach((record: any) => {
+													records.forEach((record: ValidationHistoryRecord) => {
 														const scanId = record.scan_id;
 														if (!scanId) {
 															record.scan = null;
@@ -630,9 +587,9 @@ export default function HistoryPage() {
 															const isFruitRipeness = ['immature', 'mature', 'overmature', 'overripe'].some(stage => aiPred.includes(stage));
 															record.scan = {
 																scan_type: isFruitRipeness ? 'fruit_maturity' : 'leaf_disease',
-																farmer_id: null,
-																expert_comment: null
-															};
+																farmer_id: '',
+																expert_comment: undefined
+															} as Scan;
 														}
 													});
 												}
@@ -647,7 +604,7 @@ export default function HistoryPage() {
 												// Create maps for quick lookup - prioritize full_name, fallback to username
 												// Use normalized (lowercase) IDs for case-insensitive matching to ensure we find profiles even with case mismatches
 												const farmerMap = new Map<string, string>();
-												(farmerProfilesResponse.data || []).forEach((profile: any) => {
+												(farmerProfilesResponse.data || []).forEach((profile: ProfileData) => {
 													if (profile && profile.id) {
 														// Normalize ID to lowercase for consistent matching (UUIDs can have case variations)
 														const normalizedId = String(profile.id).trim().toLowerCase();
@@ -663,7 +620,7 @@ export default function HistoryPage() {
 												});
 												
 												const expertMap = new Map<string, string>();
-												(expertProfilesResponse.data || []).forEach((profile: any) => {
+												(expertProfilesResponse.data || []).forEach((profile: ProfileData) => {
 													if (profile && profile.id) {
 														// Normalize ID to lowercase for consistent matching
 														const normalizedId = String(profile.id).trim().toLowerCase();
@@ -678,8 +635,8 @@ export default function HistoryPage() {
 												});
 												
 												// Attach profile data to records - fetch farmer name from validation_history context
-												records.forEach((record: any) => {
-													const scan = record.scan as any;
+												records.forEach((record: ValidationHistoryRecord) => {
+													const scan = record.scan;
 													
 													// Fetch farmer name from scan's farmer_id -> profiles table
 													// Normalize farmer_id for case-insensitive matching to ensure we find the profile
@@ -712,7 +669,16 @@ export default function HistoryPage() {
 														const aiPred = (record.ai_prediction || '').toLowerCase();
 														const isFruitRipeness = ['immature', 'mature', 'overmature', 'overripe'].some(stage => aiPred.includes(stage));
 														if (!scan) {
-															record.scan = { scan_type: isFruitRipeness ? 'fruit_maturity' : 'leaf_disease' };
+															record.scan = {
+																id: 0,
+																farmer_id: '',
+																scan_type: isFruitRipeness ? 'fruit_maturity' : 'leaf_disease',
+																image_url: '',
+																status: 'Pending Validation',
+																created_at: '',
+																updated_at: '',
+																scan_uuid: ''
+															} as Scan;
 														} else {
 															scan.scan_type = isFruitRipeness ? 'fruit_maturity' : 'leaf_disease';
 														}
@@ -732,15 +698,15 @@ export default function HistoryPage() {
 											}
 											
 											// Filter out Unknown records
-											const validRecords = records.filter(record => {
+											const validRecords = records.filter((record: ValidationHistoryRecord) => {
 												// Exclude if scan has Unknown status
-												if (record.scan && (record.scan as any).status === 'Unknown') return false;
+												if (record.scan && record.scan.status === 'Unknown') return false;
 												// Exclude if AI prediction is Unknown
 												if (record.ai_prediction === 'Unknown') return false;
 												// Exclude if expert validation is Unknown
 												if (record.expert_validation === 'Unknown') return false;
 												// Exclude if disease_detected or ripeness_stage is Unknown
-												const scan = record.scan as any;
+												const scan = record.scan;
 												if (scan) {
 													if (scan.disease_detected === 'Unknown' || scan.ripeness_stage === 'Unknown') return false;
 												}
@@ -759,8 +725,8 @@ export default function HistoryPage() {
 											];
 
 											// Build CSV rows with required fields (Farmer Name excluded)
-											const rows = validRecords.map(record => {
-												const scan = record.scan as any;
+											const rows = validRecords.map((record: ValidationHistoryRecord) => {
+												const scan = record.scan;
 												// Determine scan type - check scan object first, then try to infer from AI prediction
 												let scanType = 'N/A';
 												if (scan && scan.scan_type) {
@@ -779,7 +745,7 @@ export default function HistoryPage() {
 												const status = record.status || 'N/A';
 												const validatedAt = record.validated_at ? formatDate(record.validated_at) : 'N/A';
 												const expertComment = scan?.expert_comment || record.expert_comment || 'N/A';
-												const expertName = (record as any).expertName || 'N/A';
+												const expertName = record.expertName || 'N/A';
 
 												return [
 													escapeCSV(scanType),
@@ -828,7 +794,7 @@ export default function HistoryPage() {
 											const loadingToast = toast.loading('Generating PDF...');
 											
 											// Get date range for filtering
-											const { start, end } = getDateRange(dateRangeType);
+											const { start, end } = getDateRangeForFilter(dateRangeType);
 											
 											// Build query to fetch validation_history directly from database
 											let query = supabase
@@ -852,7 +818,7 @@ export default function HistoryPage() {
 												const expertIds = new Set<string>();
 												
 												// Collect expert IDs
-												records.forEach((record: any) => {
+												records.forEach((record: ValidationHistoryRecord) => {
 													if (record.expert_id) expertIds.add(record.expert_id);
 												});
 												
@@ -870,7 +836,7 @@ export default function HistoryPage() {
 													const fruitScans = fruitScansResponse.data || [];
 													
 													// Process leaf disease scans - normalize UUIDs to lowercase for consistent matching
-													leafScans.forEach((scan: any) => {
+													leafScans.forEach((scan: LeafScanData) => {
 														if (scan && scan.scan_uuid) {
 															const normalizedUuid = String(scan.scan_uuid).trim().toLowerCase();
 															scanMap.set(normalizedUuid, { 
@@ -883,7 +849,7 @@ export default function HistoryPage() {
 													});
 													
 													// Process fruit ripeness scans - normalize UUIDs to lowercase for consistent matching
-													fruitScans.forEach((scan: any) => {
+													fruitScans.forEach((scan: FruitScanData) => {
 														if (scan && scan.scan_uuid) {
 															const normalizedUuid = String(scan.scan_uuid).trim().toLowerCase();
 															scanMap.set(normalizedUuid, { 
@@ -896,7 +862,7 @@ export default function HistoryPage() {
 													});
 													
 													// Attach scan data to records - normalize UUID to lowercase for matching
-													records.forEach((record: any) => {
+													records.forEach((record: ValidationHistoryRecord) => {
 														const scanId = record.scan_id;
 														if (!scanId) {
 															record.scan = null;
@@ -916,9 +882,9 @@ export default function HistoryPage() {
 															const isFruitRipeness = ['immature', 'mature', 'overmature', 'overripe'].some(stage => aiPred.includes(stage));
 															record.scan = {
 																scan_type: isFruitRipeness ? 'fruit_maturity' : 'leaf_disease',
-																farmer_id: null,
-																expert_comment: null
-															};
+																farmer_id: '',
+																expert_comment: undefined
+															} as Scan;
 														}
 													});
 												}
@@ -933,7 +899,7 @@ export default function HistoryPage() {
 												// Create maps for quick lookup - prioritize full_name, fallback to username
 												// Use normalized (lowercase) IDs for case-insensitive matching to ensure we find profiles even with case mismatches
 												const farmerMap = new Map<string, string>();
-												(farmerProfilesResponse.data || []).forEach((profile: any) => {
+												(farmerProfilesResponse.data || []).forEach((profile: ProfileData) => {
 													if (profile && profile.id) {
 														// Normalize ID to lowercase for consistent matching (UUIDs can have case variations)
 														const normalizedId = String(profile.id).trim().toLowerCase();
@@ -949,7 +915,7 @@ export default function HistoryPage() {
 												});
 												
 												const expertMap = new Map<string, string>();
-												(expertProfilesResponse.data || []).forEach((profile: any) => {
+												(expertProfilesResponse.data || []).forEach((profile: ProfileData) => {
 													if (profile && profile.id) {
 														// Normalize ID to lowercase for consistent matching
 														const normalizedId = String(profile.id).trim().toLowerCase();
@@ -964,8 +930,8 @@ export default function HistoryPage() {
 												});
 												
 												// Attach profile data to records - fetch farmer name from validation_history context
-												records.forEach((record: any) => {
-													const scan = record.scan as any;
+												records.forEach((record: ValidationHistoryRecord) => {
+													const scan = record.scan;
 													
 													// Fetch farmer name from scan's farmer_id -> profiles table
 													// Normalize farmer_id for case-insensitive matching to ensure we find the profile
@@ -998,7 +964,16 @@ export default function HistoryPage() {
 														const aiPred = (record.ai_prediction || '').toLowerCase();
 														const isFruitRipeness = ['immature', 'mature', 'overmature', 'overripe'].some(stage => aiPred.includes(stage));
 														if (!scan) {
-															record.scan = { scan_type: isFruitRipeness ? 'fruit_maturity' : 'leaf_disease' };
+															record.scan = {
+																id: 0,
+																farmer_id: '',
+																scan_type: isFruitRipeness ? 'fruit_maturity' : 'leaf_disease',
+																image_url: '',
+																status: 'Pending Validation',
+																created_at: '',
+																updated_at: '',
+																scan_uuid: ''
+															} as Scan;
 														} else {
 															scan.scan_type = isFruitRipeness ? 'fruit_maturity' : 'leaf_disease';
 														}
@@ -1018,15 +993,15 @@ export default function HistoryPage() {
 											}
 											
 											// Filter out Unknown records
-											const validRecords = records.filter(record => {
+											const validRecords = records.filter((record: ValidationHistoryRecord) => {
 												// Exclude if scan has Unknown status
-												if (record.scan && (record.scan as any).status === 'Unknown') return false;
+												if (record.scan && record.scan.status === 'Unknown') return false;
 												// Exclude if AI prediction is Unknown
 												if (record.ai_prediction === 'Unknown') return false;
 												// Exclude if expert validation is Unknown
 												if (record.expert_validation === 'Unknown') return false;
 												// Exclude if disease_detected or ripeness_stage is Unknown
-												const scan = record.scan as any;
+												const scan = record.scan;
 												if (scan) {
 													if (scan.disease_detected === 'Unknown' || scan.ripeness_stage === 'Unknown') return false;
 												}
@@ -1058,8 +1033,8 @@ export default function HistoryPage() {
 											});
 											
 											// Build table rows with required fields as per requirements (Farmer Name excluded)
-											const tableRows = validRecords.map(record => {
-												const scan = record.scan as any;
+											const tableRows = validRecords.map((record: ValidationHistoryRecord) => {
+												const scan = record.scan;
 												// Determine scan type - check scan object first, then try to infer from AI prediction
 												let scanType = 'N/A';
 												if (scan && scan.scan_type) {
@@ -1078,7 +1053,7 @@ export default function HistoryPage() {
 												const status = record.status || 'N/A';
 												const validatedAt = record.validated_at ? formatDate(record.validated_at) : 'N/A';
 												const expertComment = scan?.expert_comment || record.expert_comment || 'N/A';
-												const expertName = (record as any).expertName || 'N/A';
+												const expertName = record.expertName || 'N/A';
 												
 												return `
 													<tr>
@@ -1313,7 +1288,7 @@ export default function HistoryPage() {
 													<Td className="py-4 px-4 max-w-xs truncate text-sm text-gray-700">{record.ai_prediction}</Td>
 													<Td className="py-4 px-4 max-w-xs truncate text-sm text-gray-700">{record.expert_validation || 'N/A'}</Td>
 													<Td className="py-4 px-4">
-														<Badge color={getStatusColor(record.status)}>{record.status}</Badge>
+														<Badge color={getStatusBadgeColor(record.status)}>{record.status}</Badge>
 													</Td>
 													<Td className="whitespace-nowrap py-4 px-4 text-sm text-gray-700">{formatDate(record.validated_at)}</Td>
 													<Td className="py-4 px-4 no-print" onClick={(e) => e.stopPropagation()}>

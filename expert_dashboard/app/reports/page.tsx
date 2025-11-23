@@ -31,6 +31,43 @@ import timezone from "dayjs/plugin/timezone";
 
 import type { Scan, ValidationHistory } from "@/types";
 import { getAiPrediction } from "@/types";
+
+// Extended scan type for cases where scan might have additional fields from database joins
+type ExtendedScan = Scan & {
+  disease_detected?: string;
+  ai_prediction?: string;
+  ripeness_stage?: string;
+  leaf_disease_scans?: { disease_detected?: string };
+  leaf_disease_scan?: { disease_detected?: string };
+  fruit_ripeness_scans?: { ripeness_stage?: string };
+  fruit_ripeness_scan?: { ripeness_stage?: string };
+};
+
+// Recharts Tooltip payload entry type
+type TooltipPayloadEntry = {
+  name: string;
+  value: number;
+  payload?: AppPerformanceDatum | MonthlyMostScannedDatum;
+  color?: string;
+  dataKey?: string;
+};
+
+// Recharts Tooltip formatter props type
+type TooltipFormatterProps = {
+  value: number;
+  name: string;
+  payload?: AppPerformanceDatum | MonthlyMostScannedDatum;
+};
+
+// Recharts Bar label props type
+type BarLabelProps = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  index: number;
+  payload?: MonthlyMostScannedDatum;
+};
 import { 
   parseTimestampToLocal, 
   normalizeToStartOfDay, 
@@ -836,7 +873,7 @@ function buildExpertValidationPerformanceFiltered(
       const startMonth = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), 1);
       const endMonth = new Date(rangeEnd.getFullYear(), rangeEnd.getMonth(), 1);
       
-      let currentMonth = new Date(startMonth);
+      const currentMonth = new Date(startMonth);
       while (currentMonth <= endMonth) {
         const monthStart = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1, 0, 0, 0, 0);
         const monthEnd = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0, 23, 59, 59, 999);
@@ -1532,12 +1569,12 @@ export default function ReportsPage() {
         // If getAiPrediction returns empty, try direct access to disease_detected field
         // This handles cases where the scan object might have the field directly
         if (!diseaseDetected || diseaseDetected.trim() === '') {
-          const scanAny = scan as any;
+          const scanExtended = scan as ExtendedScan;
           // Try multiple possible field paths
-          diseaseDetected = scanAny.disease_detected 
-            || scanAny.ai_prediction 
-            || scanAny.leaf_disease_scans?.disease_detected
-            || scanAny.leaf_disease_scan?.disease_detected
+          diseaseDetected = scanExtended.disease_detected 
+            || scanExtended.ai_prediction 
+            || scanExtended.leaf_disease_scans?.disease_detected
+            || scanExtended.leaf_disease_scan?.disease_detected
             || null;
         }
         
@@ -1545,11 +1582,12 @@ export default function ReportsPage() {
         if (!diseaseDetected || (typeof diseaseDetected === 'string' && diseaseDetected.trim() === '')) {
           skippedCount++;
           if (process.env.NODE_ENV === 'development') {
+            const scanExtended = scan as ExtendedScan;
             console.debug('[Disease Distribution] Skipping scan with empty disease_detected:', {
               scanId: scan?.id,
               scanType: scan?.scan_type,
-              hasDiseaseDetected: !!(scan as any)?.disease_detected,
-              hasAiPrediction: !!(scan as any)?.ai_prediction,
+              hasDiseaseDetected: !!scanExtended?.disease_detected,
+              hasAiPrediction: !!scanExtended?.ai_prediction,
               scanKeys: scan ? Object.keys(scan) : []
             });
           }
@@ -1588,11 +1626,12 @@ export default function ReportsPage() {
         // Skip on error - don't count invalid scans
         skippedCount++;
         if (process.env.NODE_ENV === 'development') {
+          const scanExtended = scan as ExtendedScan;
           console.debug('[Disease Distribution] Error processing scan:', error, {
             scanId: scan?.id,
             scanType: scan?.scan_type,
-            hasDiseaseDetected: !!(scan as any)?.disease_detected,
-            hasAiPrediction: !!(scan as any)?.ai_prediction,
+            hasDiseaseDetected: !!scanExtended?.disease_detected,
+            hasAiPrediction: !!scanExtended?.ai_prediction,
             errorMessage: error instanceof Error ? error.message : String(error)
           });
         }
@@ -1673,12 +1712,12 @@ export default function ReportsPage() {
           
           // If getAiPrediction returns empty, try direct access
           if (!prediction || prediction.trim() === '') {
-            const scanAny = scan as any;
+            const scanExtended = scan as ExtendedScan;
             // Try multiple possible field paths
-            prediction = scanAny.ripeness_stage 
-              || scanAny.ai_prediction 
-              || scanAny.fruit_ripeness_scans?.ripeness_stage
-              || scanAny.fruit_ripeness_scan?.ripeness_stage
+            prediction = scanExtended.ripeness_stage 
+              || scanExtended.ai_prediction 
+              || scanExtended.fruit_ripeness_scans?.ripeness_stage
+              || scanExtended.fruit_ripeness_scan?.ripeness_stage
               || '';
           }
           
@@ -1687,11 +1726,12 @@ export default function ReportsPage() {
           // Skip empty predictions and Unknown results
           if (!predictionStr || predictionStr === 'Unknown' || predictionStr.toLowerCase() === 'unknown') {
             if (process.env.NODE_ENV === 'development') {
+              const scanExtended = scan as ExtendedScan;
               console.debug('[Ripeness Distribution] Skipping scan with empty/unknown ripeness_stage:', {
                 scanId: scan?.id,
                 scanType: scan?.scan_type,
-                hasRipenessStage: !!(scan as any)?.ripeness_stage,
-                hasAiPrediction: !!(scan as any)?.ai_prediction
+                hasRipenessStage: !!scanExtended?.ripeness_stage,
+                hasAiPrediction: !!scanExtended?.ai_prediction
               });
             }
             return;
@@ -3148,7 +3188,7 @@ export default function ReportsPage() {
                                 <div className="bg-white border border-gray-200 rounded-lg p-3 shadow-lg">
                                   <p className="font-semibold text-gray-900 mb-2 text-sm">{`Month: ${label}`}</p>
                                   <div className="space-y-1">
-                                    {payload.map((entry: any, index: number) => (
+                                    {payload.map((entry: TooltipPayloadEntry, index: number) => (
                                       <p key={index} className="text-xs text-gray-700">
                                         <span className="font-medium">{entry.name}:</span>{" "}
                                         {entry.name === "Success Rate" || entry.name === "AI Accuracy"
@@ -3548,18 +3588,18 @@ export default function ReportsPage() {
                             fontWeight: 500,
                             boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
                           }}
-                          formatter={(value: number, name: string, props: any) => {
-                            const data = props.payload;
+                          formatter={(value: number, name: string, props: TooltipFormatterProps) => {
+                            const data = props.payload as MonthlyMostScannedDatum | undefined;
                             if (name === "leafDiseaseCount") {
                               return [
                                 `${value.toLocaleString("en-US")} scans`,
-                                `Disease: ${data.mostScannedDisease || 'N/A'}`
+                                `Disease: ${data?.mostScannedDisease || 'N/A'}`
                               ];
                             }
                             if (name === "fruitRipenessCount") {
                               return [
                                 `${value.toLocaleString("en-US")} scans`,
-                                `Ripeness: ${data.mostScannedRipeness || 'N/A'}`
+                                `Ripeness: ${data?.mostScannedRipeness || 'N/A'}`
                               ];
                             }
                             return [`${value}`, name];
@@ -3580,7 +3620,7 @@ export default function ReportsPage() {
                           radius={[6, 6, 0, 0]}
                           animationBegin={0}
                           animationDuration={800}
-                          label={(props: any) => {
+                          label={(props: BarLabelProps) => {
                             // Access the data entry from props
                             const entry = props.payload || sortedData[props.index];
                             if (!entry || !entry.mostScannedDisease || entry.leafDiseaseCount === 0) return null;
@@ -3619,7 +3659,7 @@ export default function ReportsPage() {
                           radius={[6, 6, 0, 0]}
                           animationBegin={0}
                           animationDuration={800}
-                          label={(props: any) => {
+                          label={(props: BarLabelProps) => {
                             // Access the data entry from props
                             const entry = props.payload || sortedData[props.index];
                             if (!entry || !entry.mostScannedRipeness || entry.fruitRipenessCount === 0) return null;
