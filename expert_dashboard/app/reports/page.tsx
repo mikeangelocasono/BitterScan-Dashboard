@@ -3598,27 +3598,31 @@ export default function ReportsPage() {
                             boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
                           }}
                           formatter={(
-                            value: number | undefined,
+                            value: number | string | undefined,
                             name: string,
-                            props: { payload?: MonthlyMostScannedDatum }
+                            props?: { payload?: MonthlyMostScannedDatum }
                           ): [string, string] => {
-                            const data = props.payload as MonthlyMostScannedDatum | undefined;
-                            if (value === undefined || !data) return ["0", ""];
+                            const data = props?.payload as MonthlyMostScannedDatum | undefined;
+                            if (value === undefined || value === null || !data) return ["0", ""];
                             
-                            switch (name) {
-                              case "leafDiseaseCount":
-                                return [
-                                  `${value.toLocaleString("en-US")} scans`,
-                                  `Disease: ${data.mostScannedDisease || 'N/A'}`
-                                ];
-                              case "fruitRipenessCount":
-                                return [
-                                  `${value.toLocaleString("en-US")} scans`,
-                                  `Ripeness: ${data.mostScannedRipeness || 'N/A'}`
-                                ];
-                              default:
-                                return [`${value.toString()}`, name];
+                            let displayName = name;
+                            if (name === "leafDiseaseCount") displayName = "Leaf Disease";
+                            if (name === "fruitRipenessCount") displayName = "Fruit Ripeness";
+                            
+                            // Convert value to string, handling both number and string types
+                            const valueStr = typeof value === 'number' 
+                              ? value.toLocaleString("en-US") 
+                              : value.toString();
+                            
+                            // Add context for disease/ripeness if data is available
+                            if (name === "leafDiseaseCount" && data.mostScannedDisease) {
+                              return [`${valueStr} scans`, `Disease: ${data.mostScannedDisease}`];
                             }
+                            if (name === "fruitRipenessCount" && data.mostScannedRipeness) {
+                              return [`${valueStr} scans`, `Ripeness: ${data.mostScannedRipeness}`];
+                            }
+                            
+                            return [valueStr, displayName];
                           }}
                           labelFormatter={(label: string) => {
                             const monthData = sortedData.find(d => d.month === label);
