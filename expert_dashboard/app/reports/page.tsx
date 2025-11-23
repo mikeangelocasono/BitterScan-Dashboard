@@ -2539,10 +2539,15 @@ export default function ReportsPage() {
                           color: "#1F2937",
                           boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
                         }}
-                        formatter={(value: number, name: string) => [
-                          `${value.toLocaleString("en-US")} scans`,
-                          name
-                        ]}
+                        formatter={(value: number | string | readonly (string | number)[] | undefined, name: string) => {
+                          const numValue = Array.isArray(value) 
+                            ? (value.length > 0 ? (typeof value[0] === 'number' ? value[0] : Number(value[0]) || 0) : 0)
+                            : (typeof value === 'number' ? value : Number(value) || 0);
+                          return [
+                            `${numValue.toLocaleString("en-US")} scans`,
+                            name
+                          ];
+                        }}
                         labelFormatter={(label) => `Time: ${label}`}
                         cursor={{ stroke: "#388E3C", strokeWidth: 1, strokeDasharray: "5 5" }}
                       />
@@ -2649,10 +2654,15 @@ export default function ReportsPage() {
                                 ))}
                               </Pie>
                               <Tooltip
-                                formatter={(value: number, name: string) => [
-                                  `${value.toLocaleString("en-US")} cases`,
-                                  name
-                                ]}
+                                formatter={(value: number | string | readonly (string | number)[] | undefined, name: string) => {
+                                  const numValue = Array.isArray(value) 
+                                    ? (value.length > 0 ? (typeof value[0] === 'number' ? value[0] : Number(value[0]) || 0) : 0)
+                                    : (typeof value === 'number' ? value : Number(value) || 0);
+                                  return [
+                                    `${numValue.toLocaleString("en-US")} cases`,
+                                    name
+                                  ];
+                                }}
                                 contentStyle={{
                                   backgroundColor: "#FFFFFF",
                                   border: "1px solid #E5E7EB",
@@ -2806,10 +2816,15 @@ export default function ReportsPage() {
                               color: "#1F2937",
                               boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
                             }}
-                            formatter={(value: number, name: string) => [
-                              `${value.toLocaleString("en-US")} items`,
-                              name
-                            ]}
+                            formatter={(value: number | string | readonly (string | number)[] | undefined, name: string) => {
+                              const numValue = Array.isArray(value) 
+                                ? (value.length > 0 ? (typeof value[0] === 'number' ? value[0] : Number(value[0]) || 0) : 0)
+                                : (typeof value === 'number' ? value : Number(value) || 0);
+                              return [
+                                `${numValue.toLocaleString("en-US")} items`,
+                                name
+                              ];
+                            }}
                             cursor={{ fill: "rgba(56, 142, 60, 0.1)" }}
                           />
                           <Bar
@@ -2981,11 +2996,14 @@ export default function ReportsPage() {
                                   fontWeight: 500,
                                   boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
                                 }}
-                                formatter={(value: number, name: string) => {
-                                  if (name === "aiValidated") return [`${value.toLocaleString("en-US")}`, "Expert Validated (Confirmed)"];
-                                  if (name === "aiCorrected") return [`${value.toLocaleString("en-US")}`, "Expert Corrected"];
-                                  if (name === "totalValidations") return [`${value.toLocaleString("en-US")}`, "Total Validations"];
-                                  return [`${value}`, name];
+                                formatter={(value: number | string | readonly (string | number)[] | undefined, name: string) => {
+                                  const numValue = Array.isArray(value) 
+                                    ? (value.length > 0 ? (typeof value[0] === 'number' ? value[0] : Number(value[0]) || 0) : 0)
+                                    : (typeof value === 'number' ? value : Number(value) || 0);
+                                  if (name === "aiValidated") return [`${numValue.toLocaleString("en-US")}`, "Expert Validated (Confirmed)"];
+                                  if (name === "aiCorrected") return [`${numValue.toLocaleString("en-US")}`, "Expert Corrected"];
+                                  if (name === "totalValidations") return [`${numValue.toLocaleString("en-US")}`, "Total Validations"];
+                                  return [`${numValue}`, name];
                                 }}
                                 labelFormatter={(label: string) => {
                                   if (range === "daily") return `Hour: ${label}`;
@@ -3066,7 +3084,12 @@ export default function ReportsPage() {
                                     <Cell key="remaining" fill="#E5E7EB" stroke="#FFFFFF" strokeWidth={2} />
                                   </Pie>
                                   <Tooltip
-                                    formatter={(value: number, name: string) => [`${value.toFixed(1)}%`, name]}
+                                    formatter={(value: number | string | readonly (string | number)[] | undefined, name: string) => {
+                                      const numValue = Array.isArray(value) 
+                                        ? (value.length > 0 ? (typeof value[0] === 'number' ? value[0] : Number(value[0]) || 0) : 0)
+                                        : (typeof value === 'number' ? value : Number(value) || 0);
+                                      return [`${numValue.toFixed(1)}%`, name];
+                                    }}
                                     contentStyle={{
                                       backgroundColor: "#FFFFFF",
                                       border: "1px solid #E5E7EB",
@@ -3405,7 +3428,12 @@ export default function ReportsPage() {
                                   padding: "8px 12px",
                                   boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
                                 }}
-                                formatter={(value: number) => [`${value.toFixed(1)}%`, "Success Rate"]}
+                                formatter={(value: number | string | readonly (string | number)[] | undefined) => {
+                                  const numValue = Array.isArray(value) 
+                                    ? (value.length > 0 ? (typeof value[0] === 'number' ? value[0] : Number(value[0]) || 0) : 0)
+                                    : (typeof value === 'number' ? value : Number(value) || 0);
+                                  return [`${numValue.toFixed(1)}%`, "Success Rate"];
+                                }}
                                 labelFormatter={(label: string) => `Month: ${label}`}
                                 cursor={{ stroke: "#3B82F6", strokeWidth: 1, strokeDasharray: "3 3" }}
                               />
@@ -3598,17 +3626,22 @@ export default function ReportsPage() {
                             boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
                           }}
                           formatter={(
-                            value: number | string | undefined,
+                            value: number | string | readonly (string | number)[] | undefined,
                             name: string,
                             props?: { payload?: MonthlyMostScannedDatum }
                           ) => {
-                            // Ensure value is defined and convert to string
-                            const displayValue = value ?? 0;
+                            // Handle array case - take first element if array
+                            let displayValue: number | string;
+                            if (Array.isArray(value)) {
+                              displayValue = value.length > 0 ? (typeof value[0] === 'number' ? value[0] : Number(value[0]) || 0) : 0;
+                            } else {
+                              displayValue = value ?? 0;
+                            }
                             
                             // Convert to formatted string
                             const valueStr = typeof displayValue === 'number' 
                               ? displayValue.toLocaleString("en-US") 
-                              : displayValue.toString();
+                              : String(displayValue);
                             
                             // Return formatted value with units
                             return `${valueStr} scans`;

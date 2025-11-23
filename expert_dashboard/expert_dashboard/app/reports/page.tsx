@@ -1043,7 +1043,12 @@ export default function ReportsPage() {
                             <Cell key="remaining" fill="#e5e7eb" stroke="#fff" strokeWidth={2} />
                           </Pie>
                           <Tooltip
-                            formatter={(value: number, name: string) => [`${value.toFixed(1)}%`, name]}
+                            formatter={(value: number | string | readonly (string | number)[] | undefined, name: string) => {
+                              const numValue = Array.isArray(value) 
+                                ? (value.length > 0 ? (typeof value[0] === 'number' ? value[0] : Number(value[0]) || 0) : 0)
+                                : (typeof value === 'number' ? value : Number(value) || 0);
+                              return [`${numValue.toFixed(1)}%`, name];
+                            }}
                             contentStyle={{
                               backgroundColor: "#ffffff",
                               border: "1px solid #e5e7eb",
@@ -1247,10 +1252,15 @@ export default function ReportsPage() {
                             ))}
                           </Pie>
                           <Tooltip
-                            formatter={(value: number, name: string) => [
-                              `${value.toLocaleString("en-US")} cases`,
-                              name
-                            ]}
+                            formatter={(value: number | string | readonly (string | number)[] | undefined, name: string) => {
+                              const numValue = Array.isArray(value) 
+                                ? (value.length > 0 ? (typeof value[0] === 'number' ? value[0] : Number(value[0]) || 0) : 0)
+                                : (typeof value === 'number' ? value : Number(value) || 0);
+                              return [
+                                `${numValue.toLocaleString("en-US")} cases`,
+                                name
+                              ];
+                            }}
                             contentStyle={{
                               backgroundColor: "#ffffff",
                               border: "1px solid #e5e7eb",
@@ -1354,10 +1364,15 @@ export default function ReportsPage() {
                             ))}
                           </Pie>
                           <Tooltip
-                            formatter={(value: number, name: string) => [
-                              `${value.toLocaleString("en-US")} items`,
-                              name
-                            ]}
+                            formatter={(value: number | string | readonly (string | number)[] | undefined, name: string) => {
+                              const numValue = Array.isArray(value) 
+                                ? (value.length > 0 ? (typeof value[0] === 'number' ? value[0] : Number(value[0]) || 0) : 0)
+                                : (typeof value === 'number' ? value : Number(value) || 0);
+                              return [
+                                `${numValue.toLocaleString("en-US")} items`,
+                                name
+                              ];
+                            }}
                             contentStyle={{
                               backgroundColor: "#ffffff",
                               border: "1px solid #e5e7eb",
