@@ -82,7 +82,6 @@ function DashboardContent() {
 		if (!scans || scans.length === 0) return [];
 		
 		return scans.filter(scan => {
-			if (scan.status === 'Unknown') return false;
 			const result = getAiPrediction(scan);
 			if (result === 'Unknown') return false;
 			return true;
