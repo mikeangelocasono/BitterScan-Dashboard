@@ -107,7 +107,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 		// Also exclude scans with status = 'Unknown' or result = 'Unknown' to suppress notifications
 		const pending = scans.filter((scan) => {
 			// Exclude 'Unknown' status scans
-			if (String(scan.status) === 'Unknown') return false;
+			if (scan.status === 'Unknown') return false;
 			// Only include pending validation scans
 			if (scan.status !== "Pending Validation") return false;
 			// Exclude scans with result = 'Unknown' (disease_detected or ripeness_stage)

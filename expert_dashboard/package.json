@@ -17,7 +17,6 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.56.0",
     "clsx": "^2.1.1",
-    "date-fns": "^4.1.0",
     "dayjs": "^1.11.19",
     "framer-motion": "^11.18.2",
     "lucide-react": "^0.539.0",
@@ -25,7 +24,6 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-hot-toast": "^2.6.0",
-    "react-is": "^18.3.1",
     "recharts": "^3.1.2",
     "tailwind-merge": "^3.3.1"
   },

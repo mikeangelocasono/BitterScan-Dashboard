@@ -209,6 +209,18 @@ export function DataProvider({ children }: { children: ReactNode }) {
 					(allProfiles || []).map((profile: DatabaseProfile) => [profile.id, profile])
 				);
 
+				// Helper function to transform profile data
+				const transformProfile = (profile: DatabaseProfile | null | undefined) => {
+					if (!profile) return undefined;
+					return {
+						id: profile.id,
+						username: profile.username,
+						full_name: profile.full_name,
+						email: profile.email,
+						profile_picture: profile.profile_picture || '',
+					};
+				};
+
 				// Transform and merge scans from both tables, joining with profiles
 				const leafScans = (leafScansResponse.data || []).map((scan: DatabaseLeafDiseaseScan) => {
 					const farmerProfile = scan.farmer_id ? profileMap.get(scan.farmer_id) : null;
@@ -218,13 +230,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 						ai_prediction: scan.disease_detected, // Map for backward compatibility
 						solution: scan.solution,
 						recommended_products: scan.recommendation, // Map for backward compatibility
-						farmer_profile: farmerProfile ? {
-							id: farmerProfile.id,
-							username: farmerProfile.username,
-							full_name: farmerProfile.full_name,
-							email: farmerProfile.email,
-							profile_picture: farmerProfile.profile_picture || '',
-						} : undefined,
+						farmer_profile: transformProfile(farmerProfile),
 					};
 				});
 
@@ -236,13 +242,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 						ai_prediction: scan.ripeness_stage, // Map for backward compatibility
 						solution: scan.harvest_recommendation, // Map for backward compatibility
 						recommended_products: undefined, // Fruit scans don't have recommended products
-						farmer_profile: farmerProfile ? {
-							id: farmerProfile.id,
-							username: farmerProfile.username,
-							full_name: farmerProfile.full_name,
-							email: farmerProfile.email,
-							profile_picture: farmerProfile.profile_picture || '',
-						} : undefined,
+						farmer_profile: transformProfile(farmerProfile),
 					};
 				});
 
