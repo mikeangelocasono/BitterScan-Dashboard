@@ -3588,11 +3588,11 @@ export default function ReportsPage() {
                             fontWeight: 500,
                             boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
                           }}
-                          formatter={(value: number, name: string, props: TooltipFormatterProps) => {
+                          formatter={(value: number | undefined, name: string, props: { payload?: MonthlyMostScannedDatum }) => {
                             const data = props.payload as MonthlyMostScannedDatum | undefined;
                             if (name === "leafDiseaseCount") {
                               return [
-                                `${value.toLocaleString("en-US")} scans`,
+                                `${(value ?? 0).toLocaleString("en-US")} scans`,
                                 `Disease: ${data?.mostScannedDisease || 'N/A'}`
                               ];
                             }
