@@ -68,14 +68,16 @@ type TooltipItem = {
   dataKey?: string;
 };
 
-// Recharts Bar label props type
+// Recharts Bar label props type - fields may be optional/undefined from Recharts
 type BarLabelProps = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  index: number;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  index?: number;
   payload?: MonthlyMostScannedDatum;
+  value?: number | string;
+  [key: string]: unknown; // Allow additional Recharts properties
 };
 import { 
   parseTimestampToLocal, 
@@ -3715,15 +3717,16 @@ export default function ReportsPage() {
                           radius={[6, 6, 0, 0]}
                           animationBegin={0}
                           animationDuration={800}
-                          label={(props: any) => {
-                            // Use any temporarily to bypass type mismatch
-                            const entry = props.payload || sortedData[props.index];
+                          label={(props: BarLabelProps) => {
+                            // Safely access index with fallback
+                            const index = typeof props.index === 'number' ? props.index : 0;
+                            const entry = props.payload || sortedData[index];
                             if (!entry || !entry.mostScannedDisease || entry.leafDiseaseCount === 0) return null;
 
-                            // Ensure x, y, and width are numbers
-                            const x = typeof props.x === 'number' ? props.x : 0;
-                            const y = typeof props.y === 'number' ? props.y : 0;
-                            const width = typeof props.width === 'number' ? props.width : 0;
+                            // Ensure x, y, and width are numbers with safe defaults
+                            const x: number = typeof props.x === 'number' ? props.x : 0;
+                            const y: number = typeof props.y === 'number' ? props.y : 0;
+                            const width: number = typeof props.width === 'number' ? props.width : 0;
 
                             const labelText = entry.mostScannedDisease;
                             return (
@@ -3760,15 +3763,16 @@ export default function ReportsPage() {
                           radius={[6, 6, 0, 0]}
                           animationBegin={0}
                           animationDuration={800}
-                          label={(props: any) => {
-                            // Use any temporarily to bypass type mismatch
-                            const entry = props.payload || sortedData[props.index];
+                          label={(props: BarLabelProps) => {
+                            // Safely access index with fallback
+                            const index = typeof props.index === 'number' ? props.index : 0;
+                            const entry = props.payload || sortedData[index];
                             if (!entry || !entry.mostScannedRipeness || entry.fruitRipenessCount === 0) return null;
 
-                            // Ensure x, y, and width are numbers
-                            const x = typeof props.x === 'number' ? props.x : 0;
-                            const y = typeof props.y === 'number' ? props.y : 0;
-                            const width = typeof props.width === 'number' ? props.width : 0;
+                            // Ensure x, y, and width are numbers with safe defaults
+                            const x: number = typeof props.x === 'number' ? props.x : 0;
+                            const y: number = typeof props.y === 'number' ? props.y : 0;
+                            const width: number = typeof props.width === 'number' ? props.width : 0;
 
                             return (
                               <text
