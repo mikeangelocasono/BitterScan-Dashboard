@@ -700,8 +700,8 @@ export default function HistoryPage() {
 											
 											// Filter out Unknown records
 											const validRecords = records.filter((record: ValidationHistoryRecord) => {
-												// Exclude if scan has Unknown status
-												if (record.scan && record.scan.status === 'Unknown') return false;
+												// Exclude if scan has Unknown status (cast to string to handle runtime 'Unknown' values)
+												if (record.scan && (record.scan.status as string) === 'Unknown') return false;
 												// Exclude if AI prediction is Unknown
 												if (record.ai_prediction === 'Unknown') return false;
 												// Exclude if expert validation is Unknown
@@ -996,8 +996,8 @@ export default function HistoryPage() {
 											
 											// Filter out Unknown records
 											const validRecords = records.filter((record: ValidationHistoryRecord) => {
-												// Exclude if scan has Unknown status
-												if (record.scan && record.scan.status === 'Unknown') return false;
+												// Exclude if scan has Unknown status (cast to string to handle runtime 'Unknown' values)
+												if (record.scan && (record.scan.status as string) === 'Unknown') return false;
 												// Exclude if AI prediction is Unknown
 												if (record.ai_prediction === 'Unknown') return false;
 												// Exclude if expert validation is Unknown
