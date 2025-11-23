@@ -680,7 +680,8 @@ export default function HistoryPage() {
 																scan_uuid: ''
 															} as Scan;
 														} else {
-															scan.scan_type = isFruitRipeness ? 'fruit_maturity' : 'leaf_disease';
+															// Type assertion to allow assignment to scan_type on union type
+															(scan as Scan & { scan_type: 'leaf_disease' | 'fruit_maturity' }).scan_type = isFruitRipeness ? 'fruit_maturity' : 'leaf_disease';
 														}
 													}
 												});
@@ -975,7 +976,8 @@ export default function HistoryPage() {
 																scan_uuid: ''
 															} as Scan;
 														} else {
-															scan.scan_type = isFruitRipeness ? 'fruit_maturity' : 'leaf_disease';
+															// Type assertion to allow assignment to scan_type on union type
+															(scan as Scan & { scan_type: 'leaf_disease' | 'fruit_maturity' }).scan_type = isFruitRipeness ? 'fruit_maturity' : 'leaf_disease';
 														}
 													}
 												});
