@@ -13,7 +13,7 @@ import { supabase } from "@/components/supabase";
 import { Loader2, AlertCircle, Trash2, X, Download } from "lucide-react";
 import { useUser } from "@/components/UserContext";
 import { useData } from "@/components/DataContext";
-import { getAiPrediction } from "@/types";
+import { getAiPrediction, isLeafDiseaseScan, isFruitRipenessScan } from "@/types";
 import type { Scan } from "@/types";
 import Image from "next/image";
 import { getScanImageUrlWithFallback } from "@/utils/imageUtils";
@@ -709,7 +709,9 @@ export default function HistoryPage() {
 												// Exclude if disease_detected or ripeness_stage is Unknown
 												const scan = record.scan;
 												if (scan) {
-													if (scan.disease_detected === 'Unknown' || scan.ripeness_stage === 'Unknown') return false;
+													// Use type guards to safely access type-specific properties
+													if (isLeafDiseaseScan(scan) && scan.disease_detected === 'Unknown') return false;
+													if (isFruitRipenessScan(scan) && scan.ripeness_stage === 'Unknown') return false;
 												}
 												return true;
 											});
@@ -1005,7 +1007,9 @@ export default function HistoryPage() {
 												// Exclude if disease_detected or ripeness_stage is Unknown
 												const scan = record.scan;
 												if (scan) {
-													if (scan.disease_detected === 'Unknown' || scan.ripeness_stage === 'Unknown') return false;
+													// Use type guards to safely access type-specific properties
+													if (isLeafDiseaseScan(scan) && scan.disease_detected === 'Unknown') return false;
+													if (isFruitRipenessScan(scan) && scan.ripeness_stage === 'Unknown') return false;
 												}
 												return true;
 											});
