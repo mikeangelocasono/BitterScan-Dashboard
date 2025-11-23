@@ -3601,28 +3601,17 @@ export default function ReportsPage() {
                             value: number | string | undefined,
                             name: string,
                             props?: { payload?: MonthlyMostScannedDatum }
-                          ): [string, string] => {
-                            const data = props?.payload as MonthlyMostScannedDatum | undefined;
-                            if (value === undefined || value === null || !data) return ["0", ""];
+                          ) => {
+                            // Ensure value is defined and convert to string
+                            const displayValue = value ?? 0;
                             
-                            let displayName = name;
-                            if (name === "leafDiseaseCount") displayName = "Leaf Disease";
-                            if (name === "fruitRipenessCount") displayName = "Fruit Ripeness";
+                            // Convert to formatted string
+                            const valueStr = typeof displayValue === 'number' 
+                              ? displayValue.toLocaleString("en-US") 
+                              : displayValue.toString();
                             
-                            // Convert value to string, handling both number and string types
-                            const valueStr = typeof value === 'number' 
-                              ? value.toLocaleString("en-US") 
-                              : value.toString();
-                            
-                            // Add context for disease/ripeness if data is available
-                            if (name === "leafDiseaseCount" && data.mostScannedDisease) {
-                              return [`${valueStr} scans`, `Disease: ${data.mostScannedDisease}`];
-                            }
-                            if (name === "fruitRipenessCount" && data.mostScannedRipeness) {
-                              return [`${valueStr} scans`, `Ripeness: ${data.mostScannedRipeness}`];
-                            }
-                            
-                            return [valueStr, displayName];
+                            // Return formatted value with units
+                            return `${valueStr} scans`;
                           }}
                           labelFormatter={(label: string) => {
                             const monthData = sortedData.find(d => d.month === label);
