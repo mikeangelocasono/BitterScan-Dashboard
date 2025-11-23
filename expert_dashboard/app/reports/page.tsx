@@ -68,7 +68,8 @@ type TooltipItem = {
   dataKey?: string;
 };
 
-// Recharts Bar label props type - fields may be optional/undefined/string from Recharts
+// Recharts Bar label props type - compatible with Recharts Props type
+// value can be RenderableText (string | number | null | undefined | ReactNode) per Recharts
 type BarLabelProps = {
   x?: number | string;
   y?: number | string;
@@ -76,7 +77,7 @@ type BarLabelProps = {
   height?: number | string;
   index?: number | string;
   payload?: MonthlyMostScannedDatum;
-  value?: number | string;
+  value?: unknown; // RenderableText from Recharts (string | number | null | undefined | ReactNode)
   [key: string]: unknown; // Allow additional Recharts properties
 };
 import { 
