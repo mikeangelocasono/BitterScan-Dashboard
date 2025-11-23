@@ -3715,20 +3715,26 @@ export default function ReportsPage() {
                           radius={[6, 6, 0, 0]}
                           animationBegin={0}
                           animationDuration={800}
-                          label={(props: BarLabelProps) => {
-                            // Access the data entry from props
+                          label={(props: any) => {
+                            // Use any temporarily to bypass type mismatch
                             const entry = props.payload || sortedData[props.index];
                             if (!entry || !entry.mostScannedDisease || entry.leafDiseaseCount === 0) return null;
+
+                            // Ensure x, y, and width are numbers
+                            const x = typeof props.x === 'number' ? props.x : 0;
+                            const y = typeof props.y === 'number' ? props.y : 0;
+                            const width = typeof props.width === 'number' ? props.width : 0;
+
                             const labelText = entry.mostScannedDisease;
                             return (
                               <text
-                                x={props.x + props.width / 2}
-                                y={props.y - 8}
+                                x={x + width / 2}
+                                y={y - 8}
                                 fill="#374151"
                                 fontSize={10}
                                 fontWeight={600}
                                 textAnchor="middle"
-                                transform={`rotate(-45 ${props.x + props.width / 2} ${props.y - 8})`}
+                                transform={`rotate(-45 ${x + width / 2} ${y - 8})`}
                               >
                                 {labelText}
                               </text>
@@ -3754,19 +3760,25 @@ export default function ReportsPage() {
                           radius={[6, 6, 0, 0]}
                           animationBegin={0}
                           animationDuration={800}
-                          label={(props: BarLabelProps) => {
-                            // Access the data entry from props
+                          label={(props: any) => {
+                            // Use any temporarily to bypass type mismatch
                             const entry = props.payload || sortedData[props.index];
                             if (!entry || !entry.mostScannedRipeness || entry.fruitRipenessCount === 0) return null;
+
+                            // Ensure x, y, and width are numbers
+                            const x = typeof props.x === 'number' ? props.x : 0;
+                            const y = typeof props.y === 'number' ? props.y : 0;
+                            const width = typeof props.width === 'number' ? props.width : 0;
+
                             return (
                               <text
-                                x={props.x + props.width / 2}
-                                y={props.y - 8}
+                                x={x + width / 2}
+                                y={y - 8}
                                 fill="#374151"
                                 fontSize={10}
                                 fontWeight={600}
                                 textAnchor="middle"
-                                transform={`rotate(-45 ${props.x + props.width / 2} ${props.y - 8})`}
+                                transform={`rotate(-45 ${x + width / 2} ${y - 8})`}
                               >
                                 {entry.mostScannedRipeness}
                               </text>
