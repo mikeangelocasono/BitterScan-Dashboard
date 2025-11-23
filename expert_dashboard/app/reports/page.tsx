@@ -181,29 +181,21 @@ function buildScansTrend(range: Range, scans: Scan[], rangeStart: Date, rangeEnd
   }
 
   if (range === "today") {
-    // For "daily" range, bucket scans by hour (0-23) using raw UTC timestamp from database
-    const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
+    // For "today" range, bucket scans by hour using UTC time (as stored in Supabase)
+    // Display shows UTC hours (07:00) instead of local time (15:00 PH)
     const counts = new Map<number, number>();
 
     scans.forEach((scan) => {
       try {
         if (!scan.created_at) return;
         
-        // Use UTC timestamp directly from Supabase (no timezone conversion)
+        // Parse UTC timestamp from Supabase (ensures UTC timezone)
         const scanDate = new Date(scan.created_at);
         if (isNaN(scanDate.getTime())) {
           return;
         }
         
-        // Verify scan is from today (in UTC)
-        const scanDateStr = scanDate.toISOString().split("T")[0];
-        const todayDateStr = today.toISOString().split("T")[0];
-        if (scanDateStr !== todayDateStr) {
-          return;
-        }
-        
-        // Get hour directly from database timestamp (UTC, no conversion)
+        // Get hour in UTC time (as stored in Supabase, no timezone conversion)
         const utcHour = scanDate.getUTCHours();
         
         // Validate hour is in valid range
@@ -211,7 +203,7 @@ function buildScansTrend(range: Range, scans: Scan[], rangeStart: Date, rangeEnd
           return;
         }
         
-        // Bucket the scan by hour as stored in database
+        // Bucket the scan by UTC hour (displays 07:00 instead of 15:00)
         counts.set(utcHour, (counts.get(utcHour) ?? 0) + 1);
       } catch (error) {
         // Skip invalid dates
@@ -235,54 +227,56 @@ function buildScansTrend(range: Range, scans: Scan[], rangeStart: Date, rangeEnd
     });
   }
 
-  // For this_week, this_month, and custom ranges: bucket by day
-  const startDate = new Date(rangeStart);
-  startDate.setUTCHours(0, 0, 0, 0);
+  // For this_week, this_month, and custom ranges: bucket by day using LOCAL time
+  const now = new Date();
+  let startDate: Date;
   let endDate: Date;
   
-  if (range === "this_week" || range === "this_month") {
-    // Use end of today in UTC (inclusive)
-    endDate = new Date();
-    endDate.setUTCHours(23, 59, 59, 999);
+  if (range === "this_week") {
+    // Monday 00:00 local → today 23:59 local
+    const dayOfWeek = now.getDay();
+    const diffToMonday = (dayOfWeek + 6) % 7;
+    startDate = new Date(now);
+    startDate.setDate(now.getDate() - diffToMonday);
+    startDate.setHours(0, 0, 0, 0);
+    
+    endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+  } else if (range === "this_month") {
+    // 1st day of month 00:00 local → today 23:59 local
+    startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
   } else {
-    // Custom range: use provided end date, inclusive end of day
+    // Custom range: use provided dates
+    startDate = new Date(rangeStart);
+    startDate.setHours(0, 0, 0, 0);
     endDate = new Date(rangeEnd);
-    endDate.setUTCHours(23, 59, 59, 999);
+    endDate.setHours(23, 59, 59, 999);
   }
 
   // Calculate total days in range (inclusive)
   const totalDays = Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / ONE_DAY) + 1);
 
-  const bucketCounts = new Map<number, number>();
+  const bucketCounts = new Map<string, number>();
   
   scans.forEach((scan) => {
     if (!scan.created_at) return;
     try {
-      // Use UTC timestamp directly from Supabase
+      // Convert Supabase UTC timestamp to local time
       const scanDate = new Date(scan.created_at);
       if (isNaN(scanDate.getTime())) {
         return;
       }
       
-      // Get the date (start of day) in UTC for bucketing
-      const scanDateStr = scanDate.toISOString().split("T")[0];
-      const scanDateStart = new Date(scanDateStr + "T00:00:00.000Z");
+      // Get the date string in LOCAL time using toLocaleDateString('en-CA') which gives YYYY-MM-DD
+      const scanDateStr = scanDate.toLocaleDateString('en-CA');
       
       // Check if scan is within range (inclusive boundaries)
-      if (scanDateStart < startDate || scanDateStart > endDate) {
+      if (scanDate < startDate || scanDate > endDate) {
         return;
       }
       
-      // Calculate day index: difference in days between scan date and start date
-      const dayIndex = Math.floor((scanDateStart.getTime() - startDate.getTime()) / ONE_DAY);
-      
-      // Validate day index is within range
-      if (dayIndex < 0 || dayIndex >= totalDays) {
-        return;
-      }
-      
-      // Bucket the scan by day index
-      bucketCounts.set(dayIndex, (bucketCounts.get(dayIndex) ?? 0) + 1);
+      // Use date string as bucket key for grouping by local date
+      bucketCounts.set(scanDateStr, (bucketCounts.get(scanDateStr) ?? 0) + 1);
     } catch (error) {
       // Skip invalid dates
       return;
@@ -290,25 +284,40 @@ function buildScansTrend(range: Range, scans: Scan[], rangeStart: Date, rangeEnd
   });
 
   if (range === "this_week") {
-    const buckets = Math.min(7, totalDays);
-    // Generate buckets for each day of the week (Monday to Sunday)
-    return Array.from({ length: buckets }, (_, idx) => {
-      const dayDate = new Date(startDate);
-      dayDate.setUTCDate(startDate.getUTCDate() + idx);
-      return {
+    // Always show all 7 days of the week: Sunday → Monday → Tuesday → ... → Saturday
+    // Pre-fill weekday array and map filtered scans to it
+    const result: TrendDatum[] = [];
+    const now = new Date();
+    
+    // Calculate Sunday of current week (start of week in local time)
+    const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+    const sunday = new Date(now);
+    sunday.setDate(now.getDate() - dayOfWeek);
+    sunday.setHours(0, 0, 0, 0);
+    
+    // Generate all 7 days (Sunday through Saturday) using LOCAL dates
+    for (let idx = 0; idx < 7; idx++) {
+      const dayDate = new Date(sunday);
+      dayDate.setDate(sunday.getDate() + idx);
+      const dayDateStr = dayDate.toLocaleDateString('en-CA');
+      
+      result.push({
         period: WEEKDAY_FORMATTER.format(dayDate),
-        scans: bucketCounts.get(idx) ?? 0,
-      };
-    });
+        scans: bucketCounts.get(dayDateStr) ?? 0, // 0 if no scans for this day
+      });
+    }
+    
+    return result;
   }
 
-  // this_month or Custom: Daily buckets
+  // this_month or Custom: Daily buckets using LOCAL dates
   return Array.from({ length: totalDays }, (_, idx) => {
     const dayDate = new Date(startDate);
-    dayDate.setUTCDate(startDate.getUTCDate() + idx);
+    dayDate.setDate(startDate.getDate() + idx);
+    const dayDateStr = dayDate.toLocaleDateString('en-CA');
     return {
       period: DAY_FORMATTER.format(dayDate),
-      scans: bucketCounts.get(idx) ?? 0,
+      scans: bucketCounts.get(dayDateStr) ?? 0,
     };
   });
 }
@@ -1331,38 +1340,74 @@ export default function ReportsPage() {
           return false;
         }
         
-        // Get scan date string in YYYY-MM-DD format
-        const scanDateStr = scanDate.toISOString().split("T")[0];
-        
         if (range === "today") {
-          // TODAY: Compare date strings
-          const today = new Date();
-          const todayDate = today.toISOString().split("T")[0];
-          return scanDateStr === todayDate;
+          // TODAY: Use LOCAL time boundaries to avoid timezone issues
+          // This ensures scans created today in local time are correctly included
+          const now = new Date();
+          
+          // Calculate local day boundaries correctly
+          const startOfToday = new Date(
+            now.getFullYear(),
+            now.getMonth(),
+            now.getDate()
+          );
+          
+          const endOfToday = new Date(
+            now.getFullYear(),
+            now.getMonth(),
+            now.getDate(),
+            23, 59, 59, 999
+          );
+          
+          // Filter using LOCAL time comparison
+          // scanDate (from Supabase UTC timestamp) is automatically converted to local time
+          return scanDate >= startOfToday && scanDate <= endOfToday;
         }
         
         if (range === "this_week") {
-          // THIS WEEK: Get first day (Sunday) and last day (Saturday) of week
+          // THIS WEEK: Monday 00:00 local → today 23:59:59 local
           const now = new Date();
-          const firstDayOfWeek = new Date(now);
-          firstDayOfWeek.setDate(now.getDate() - now.getDay());
-          const lastDayOfWeek = new Date(firstDayOfWeek);
-          lastDayOfWeek.setDate(firstDayOfWeek.getDate() + 6);
           
-          const firstDayStr = firstDayOfWeek.toISOString().split("T")[0];
-          const lastDayStr = lastDayOfWeek.toISOString().split("T")[0];
+          // Calculate Monday of current week in local time
+          const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+          const diffToMonday = (dayOfWeek + 6) % 7; // Days to subtract to get Monday (0 if Monday)
+          const monday = new Date(now);
+          monday.setDate(now.getDate() - diffToMonday);
+          monday.setHours(0, 0, 0, 0); // Start of Monday
           
-          return scanDateStr >= firstDayStr && scanDateStr <= lastDayStr;
+          // End of today
+          const endOfToday = new Date(
+            now.getFullYear(),
+            now.getMonth(),
+            now.getDate(),
+            23, 59, 59, 999
+          );
+          
+          // Filter using LOCAL time comparison
+          return scanDate >= monday && scanDate <= endOfToday;
         }
         
         if (range === "this_month") {
-          // THIS MONTH: Check if date starts with YYYY-MM
+          // THIS MONTH: 1st day of month 00:00 local → today 23:59:59 local
           const now = new Date();
-          const year = now.getFullYear();
-          const month = String(now.getMonth() + 1).padStart(2, "0");
-          const monthPrefix = `${year}-${month}`;
           
-          return scanDateStr.startsWith(monthPrefix);
+          // Start of current month in local time
+          const startOfMonth = new Date(
+            now.getFullYear(),
+            now.getMonth(),
+            1
+          );
+          
+          // End of today
+          const endOfToday = new Date(
+            now.getFullYear(),
+            now.getMonth(),
+            now.getDate(),
+            23, 59, 59, 999
+          );
+          
+          // Filter using LOCAL time comparison
+          return scanDate >= startOfMonth && scanDate <= endOfToday;
         }
         
         if (range === "custom" && customStartDate && customEndDate) {
@@ -1448,38 +1493,73 @@ export default function ReportsPage() {
         const validationDate = new Date(vh.validated_at);
         if (isNaN(validationDate.getTime())) return false;
         
-        // Get validation date string in YYYY-MM-DD format
-        const validationDateStr = validationDate.toISOString().split("T")[0];
-        
         if (range === "today") {
-          // TODAY: Compare date strings
-          const today = new Date();
-          const todayDate = today.toISOString().split("T")[0];
-          return validationDateStr === todayDate;
+          // TODAY: Use LOCAL time boundaries to avoid timezone issues
+          const now = new Date();
+          
+          // Calculate local day boundaries correctly
+          const startOfToday = new Date(
+            now.getFullYear(),
+            now.getMonth(),
+            now.getDate()
+          );
+          
+          const endOfToday = new Date(
+            now.getFullYear(),
+            now.getMonth(),
+            now.getDate(),
+            23, 59, 59, 999
+          );
+          
+          // Filter using LOCAL time comparison
+          // validationDate (from Supabase UTC timestamp) is automatically converted to local time
+          return validationDate >= startOfToday && validationDate <= endOfToday;
         }
         
         if (range === "this_week") {
-          // THIS WEEK: Get first day (Sunday) and last day (Saturday) of week
+          // THIS WEEK: Monday 00:00 local → today 23:59:59 local
           const now = new Date();
-          const firstDayOfWeek = new Date(now);
-          firstDayOfWeek.setDate(now.getDate() - now.getDay());
-          const lastDayOfWeek = new Date(firstDayOfWeek);
-          lastDayOfWeek.setDate(firstDayOfWeek.getDate() + 6);
           
-          const firstDayStr = firstDayOfWeek.toISOString().split("T")[0];
-          const lastDayStr = lastDayOfWeek.toISOString().split("T")[0];
+          // Calculate Monday of current week in local time
+          const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+          const diffToMonday = (dayOfWeek + 6) % 7; // Days to subtract to get Monday (0 if Monday)
+          const monday = new Date(now);
+          monday.setDate(now.getDate() - diffToMonday);
+          monday.setHours(0, 0, 0, 0); // Start of Monday
           
-          return validationDateStr >= firstDayStr && validationDateStr <= lastDayStr;
+          // End of today
+          const endOfToday = new Date(
+            now.getFullYear(),
+            now.getMonth(),
+            now.getDate(),
+            23, 59, 59, 999
+          );
+          
+          // Filter using LOCAL time comparison
+          return validationDate >= monday && validationDate <= endOfToday;
         }
         
         if (range === "this_month") {
-          // THIS MONTH: Check if date starts with YYYY-MM
+          // THIS MONTH: 1st day of month 00:00 local → today 23:59:59 local
           const now = new Date();
-          const year = now.getFullYear();
-          const month = String(now.getMonth() + 1).padStart(2, "0");
-          const monthPrefix = `${year}-${month}`;
           
-          return validationDateStr.startsWith(monthPrefix);
+          // Start of current month in local time
+          const startOfMonth = new Date(
+            now.getFullYear(),
+            now.getMonth(),
+            1
+          );
+          
+          // End of today
+          const endOfToday = new Date(
+            now.getFullYear(),
+            now.getMonth(),
+            now.getDate(),
+            23, 59, 59, 999
+          );
+          
+          // Filter using LOCAL time comparison
+          return validationDate >= startOfMonth && validationDate <= endOfToday;
         }
         
         if (range === "custom" && customStartDate && customEndDate) {
