@@ -1568,29 +1568,29 @@ export default function HistoryPage() {
 											})()}
 
 											{/* Scan Details (Solution, Products) */}
-											{record.scan && (record.scan.solution || record.scan.recommended_products) && (
+											{record.scan && isLeafDiseaseScan(record.scan) && (record.scan.solution || record.scan.recommendation || (record.scan as any).recommended_products) && (
 												<Card className="shadow-md border border-gray-200 bg-white">
 													<CardHeader className="pb-4 border-b border-gray-200 bg-gradient-to-r from-emerald-50/50 to-white">
 														<CardTitle className="text-lg font-semibold text-gray-900">
-															{isFruitMaturity ? 'Harvest Recommendations' : 'Treatment & Solutions'}
+															Treatment & Solutions
 														</CardTitle>
 													</CardHeader>
 													<CardContent className="pt-6 space-y-4">
 														{record.scan.solution && (
 															<div className="space-y-2">
 																<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">
-																	{isFruitMaturity ? 'Harvest Recommendation' : 'Treatment / Solution'}
+																	Treatment / Solution
 																</label>
 																<div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
 																	<p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{record.scan.solution}</p>
 																</div>
 															</div>
 														)}
-														{record.scan.recommended_products && (
+														{(record.scan.recommendation || (record.scan as any).recommended_products) && (
 															<div className="space-y-2">
 																<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">Recommended Products</label>
 																<div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-																	<p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{record.scan.recommended_products}</p>
+																	<p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{record.scan.recommendation || (record.scan as any).recommended_products}</p>
 																</div>
 															</div>
 														)}
