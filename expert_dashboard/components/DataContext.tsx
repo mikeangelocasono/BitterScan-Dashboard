@@ -270,7 +270,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
 					
 					// Try to find scan by scan_uuid (scan_id in validation_history is UUID)
 					const scanUuid = String(validation.scan_id).trim();
-					const relatedScan = allScans.find((s: Scan) => s.scan_uuid === scanUuid);
+					const relatedScan = allScans
+						.map((s: Scan) => ({
+							...s,
+							// Fix TypeScript error: normalize null to undefined or string
+							recommendation: s.recommendation ?? "",
+						}))
+						.find((s: Scan) => s.scan_uuid === scanUuid);
 					
 					return {
 						...validation,
