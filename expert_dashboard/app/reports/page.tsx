@@ -3597,23 +3597,28 @@ export default function ReportsPage() {
                             fontWeight: 500,
                             boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
                           }}
-                          formatter={(value: number | undefined, name: string, entry?: { payload?: MonthlyMostScannedDatum }) => {
-                            const data = entry?.payload;
+                          formatter={(
+                            value: number | undefined,
+                            name: string,
+                            props: { payload?: MonthlyMostScannedDatum }
+                          ): [string, string] => {
+                            const data = props.payload as MonthlyMostScannedDatum | undefined;
                             if (value === undefined || !data) return ["0", ""];
                             
-                            if (name === "leafDiseaseCount") {
-                              return [
-                                `${value.toLocaleString("en-US")} scans`,
-                                `Disease: ${data.mostScannedDisease || 'N/A'}`
-                              ];
+                            switch (name) {
+                              case "leafDiseaseCount":
+                                return [
+                                  `${value.toLocaleString("en-US")} scans`,
+                                  `Disease: ${data.mostScannedDisease || 'N/A'}`
+                                ];
+                              case "fruitRipenessCount":
+                                return [
+                                  `${value.toLocaleString("en-US")} scans`,
+                                  `Ripeness: ${data.mostScannedRipeness || 'N/A'}`
+                                ];
+                              default:
+                                return [`${value.toString()}`, name];
                             }
-                            if (name === "fruitRipenessCount") {
-                              return [
-                                `${value.toLocaleString("en-US")} scans`,
-                                `Ripeness: ${data.mostScannedRipeness || 'N/A'}`
-                              ];
-                            }
-                            return [`${value.toString()}`, name];
                           }}
                           labelFormatter={(label: string) => {
                             const monthData = sortedData.find(d => d.month === label);
