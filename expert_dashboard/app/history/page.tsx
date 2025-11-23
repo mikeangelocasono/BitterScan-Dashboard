@@ -13,11 +13,11 @@ import { supabase } from "@/components/supabase";
 import { Loader2, AlertCircle, Trash2, X, Download } from "lucide-react";
 import { useUser } from "@/components/UserContext";
 import { useData } from "@/components/DataContext";
-import { getAiPrediction, getSolution, getRecommendedProducts, isLeafDiseaseScan } from "@/types";
+import { getAiPrediction } from "@/types";
 import type { Scan } from "@/types";
 import Image from "next/image";
 import { getScanImageUrlWithFallback } from "@/utils/imageUtils";
-import { formatDate as formatDateUtil, formatScanType, getStatusBadgeColor, getStatusColor, getDateRange } from "@/utils/dateUtils";
+import { formatDate as formatDateUtil, formatScanType, getStatusBadgeColor, getDateRange } from "@/utils/dateUtils";
 
 // Types for Supabase responses
 type ProfileData = {
@@ -680,8 +680,7 @@ export default function HistoryPage() {
 																scan_uuid: ''
 															} as Scan;
 														} else {
-															const item = scan as Scan;
-															item.scan_type = isFruitRipeness ? 'fruit_maturity' : 'leaf_disease';
+															scan.scan_type = isFruitRipeness ? 'fruit_maturity' : 'leaf_disease';
 														}
 													}
 												});
@@ -701,8 +700,7 @@ export default function HistoryPage() {
 											// Filter out Unknown records
 											const validRecords = records.filter((record: ValidationHistoryRecord) => {
 												// Exclude if scan has Unknown status
-												// Use type assertion to handle potential runtime values that don't match TypeScript types
-												if (record.scan && (record.scan.status as string) === 'Unknown') return false;
+												if (record.scan && record.scan.status === 'Unknown') return false;
 												// Exclude if AI prediction is Unknown
 												if (record.ai_prediction === 'Unknown') return false;
 												// Exclude if expert validation is Unknown
@@ -710,9 +708,7 @@ export default function HistoryPage() {
 												// Exclude if disease_detected or ripeness_stage is Unknown
 												const scan = record.scan;
 												if (scan) {
-													// Check scan type to access type-specific properties
-													if (scan.scan_type === 'leaf_disease' && 'disease_detected' in scan && scan.disease_detected === 'Unknown') return false;
-													if (scan.scan_type === 'fruit_maturity' && 'ripeness_stage' in scan && scan.ripeness_stage === 'Unknown') return false;
+													if (scan.disease_detected === 'Unknown' || scan.ripeness_stage === 'Unknown') return false;
 												}
 												return true;
 											});
@@ -979,8 +975,7 @@ export default function HistoryPage() {
 																scan_uuid: ''
 															} as Scan;
 														} else {
-															const item = scan as Scan;
-															item.scan_type = isFruitRipeness ? 'fruit_maturity' : 'leaf_disease';
+															scan.scan_type = isFruitRipeness ? 'fruit_maturity' : 'leaf_disease';
 														}
 													}
 												});
@@ -1000,8 +995,7 @@ export default function HistoryPage() {
 											// Filter out Unknown records
 											const validRecords = records.filter((record: ValidationHistoryRecord) => {
 												// Exclude if scan has Unknown status
-												// Use type assertion to handle potential runtime values that don't match TypeScript types
-												if (record.scan && (record.scan.status as string) === 'Unknown') return false;
+												if (record.scan && record.scan.status === 'Unknown') return false;
 												// Exclude if AI prediction is Unknown
 												if (record.ai_prediction === 'Unknown') return false;
 												// Exclude if expert validation is Unknown
@@ -1009,9 +1003,7 @@ export default function HistoryPage() {
 												// Exclude if disease_detected or ripeness_stage is Unknown
 												const scan = record.scan;
 												if (scan) {
-													// Check scan type to access type-specific properties
-													if (scan.scan_type === 'leaf_disease' && 'disease_detected' in scan && scan.disease_detected === 'Unknown') return false;
-													if (scan.scan_type === 'fruit_maturity' && 'ripeness_stage' in scan && scan.ripeness_stage === 'Unknown') return false;
+													if (scan.disease_detected === 'Unknown' || scan.ripeness_stage === 'Unknown') return false;
 												}
 												return true;
 											});
@@ -1570,7 +1562,7 @@ export default function HistoryPage() {
 											})()}
 
 											{/* Scan Details (Solution, Products) */}
-											{record.scan && (getSolution(record.scan) || getRecommendedProducts(record.scan)) && (
+											{record.scan && (record.scan.solution || record.scan.recommended_products) && (
 												<Card className="shadow-md border border-gray-200 bg-white">
 													<CardHeader className="pb-4 border-b border-gray-200 bg-gradient-to-r from-emerald-50/50 to-white">
 														<CardTitle className="text-lg font-semibold text-gray-900">
@@ -1578,21 +1570,21 @@ export default function HistoryPage() {
 														</CardTitle>
 													</CardHeader>
 													<CardContent className="pt-6 space-y-4">
-														{getSolution(record.scan) && (
+														{record.scan.solution && (
 															<div className="space-y-2">
 																<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">
 																	{isFruitMaturity ? 'Harvest Recommendation' : 'Treatment / Solution'}
 																</label>
 																<div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-																	<p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{getSolution(record.scan)}</p>
+																	<p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{record.scan.solution}</p>
 																</div>
 															</div>
 														)}
-														{getRecommendedProducts(record.scan) && (
+														{record.scan.recommended_products && (
 															<div className="space-y-2">
 																<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">Recommended Products</label>
 																<div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-																	<p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{getRecommendedProducts(record.scan)}</p>
+																	<p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{record.scan.recommended_products}</p>
 																</div>
 															</div>
 														)}

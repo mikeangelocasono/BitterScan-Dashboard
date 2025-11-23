@@ -1,5 +1,7 @@
-/** @type {import('next').NextConfig} */
-const nextConfig = {
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  /* config options here */
   // Ignore TypeScript build errors (Next.js 13.4+)
   typescript: {
     ignoreBuildErrors: true,
@@ -10,12 +12,11 @@ const nextConfig = {
     ignoreDuringBuilds: true,
   },
 
-  // Keep other Next.js features working
-  reactStrictMode: true,
-  swcMinify: true,
-
   // Ensure proper handling of native modules for lightningcss
   serverExternalPackages: ["lightningcss"],
+  
+  // Optimize for Vercel deployment
+  reactStrictMode: true,
   
   // Improve performance
   compress: true,
@@ -119,7 +120,7 @@ const nextConfig = {
     // Number of pages that should be kept simultaneously without being disposed
     pagesBufferLength: 2,
   },
+  
 };
 
-module.exports = nextConfig;
-
+export default nextConfig;

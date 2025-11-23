@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useCallback, useEffect, type ReactNode } from "react";
+import { useMemo, useState, useCallback, useEffect } from "react";
 import AppShell from "@/components/AppShell";
 import AuthGuard from "@/components/AuthGuard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,24 +24,12 @@ import {
 } from "recharts";
 import ChartCard from "@/components/charts/ChartCard";
 import { useData } from "@/components/DataContext";
+import { supabase } from "@/components/supabase";
 import toast from "react-hot-toast";
 import dayjs from "dayjs";
-import utc from "dayjs/plugin/utc";
-import timezone from "dayjs/plugin/timezone";
 
 import type { Scan, ValidationHistory } from "@/types";
-import { getAiPrediction } from "@/types";
-
-// Extended scan type for cases where scan might have additional fields from database joins
-type ExtendedScan = Scan & {
-  disease_detected?: string;
-  ai_prediction?: string;
-  ripeness_stage?: string;
-  leaf_disease_scans?: { disease_detected?: string };
-  leaf_disease_scan?: { disease_detected?: string };
-  fruit_ripeness_scans?: { ripeness_stage?: string };
-  fruit_ripeness_scan?: { ripeness_stage?: string };
-};
+import { getAiPrediction, isLeafDiseaseScan, isFruitRipenessScan } from "@/types";
 
 // Recharts Tooltip payload entry type
 type TooltipPayloadEntry = {
@@ -69,44 +57,7 @@ type BarLabelProps = {
   payload?: MonthlyMostScannedDatum;
 };
 
-// Recharts Tooltip types (matching Recharts' internal types)
-type ValueType = number | string | ReadonlyArray<number | string>;
-type TooltipPayload<TValue extends ValueType, TName extends string | number> = {
-  type?: string;
-  color?: string;
-  formatter?: (value: TValue, name: TName, item: TooltipPayload<TValue, TName>, index: number, payload: ReadonlyArray<TooltipPayload<TValue, TName>>) => [ReactNode, TName] | ReactNode;
-  name?: TName;
-  value?: TValue;
-  unit?: ReactNode;
-  fill?: string;
-  dataKey?: string | number | ((data: any) => any);
-  nameKey?: string | number | ((data: any) => any);
-  payload?: any;
-  chartType?: string;
-  stroke?: string;
-  strokeDasharray?: string | number;
-  strokeWidth?: number | string;
-  className?: string;
-  hide?: boolean;
-};
-import { 
-  parseTimestampToLocal, 
-  normalizeToStartOfDay, 
-  getLocalHour,
-  getStartOfWeek,
-  formatLocalDate,
-  getLocalDateComponents,
-  normalizeToEndOfDay,
-  isDateInRange
-} from "@/utils/timezone";
-
-// Initialize dayjs plugins
-dayjs.extend(utc);
-dayjs.extend(timezone);
-
-const MANILA_TZ = 'Asia/Manila';
-
-type Range = "daily" | "weekly" | "monthly" | "custom";
+type Range = "today" | "this_week" | "this_month" | "custom";
 
 type TrendDatum = {
   period: string;
@@ -137,272 +88,195 @@ const RIPENESS_COLORS: Record<string, string> = {
 };
 
 const RANGE_OPTIONS: { value: Range; label: string }[] = [
-  { value: "daily", label: "Today" },
-  { value: "weekly", label: "This Week" },
-  { value: "monthly", label: "This Month" },
+  { value: "today", label: "Today" },
+  { value: "this_week", label: "This Week" },
+  { value: "this_month", label: "This Month" },
   { value: "custom", label: "Custom" },
 ];
 const RANGE_LABELS: Record<Range, string> = {
-  daily: "Today",
-  weekly: "This Week",
-  monthly: "This Month",
+  today: "Today",
+  this_week: "This Week",
+  this_month: "This Month",
   custom: "Custom Range",
 };
 
 const ONE_DAY = 24 * 60 * 60 * 1000;
-// Use Asia/Manila timezone for all date formatting
+// Date formatters without timezone conversion
 const HOUR_FORMATTER = new Intl.DateTimeFormat("en-US", { 
-  hour: "numeric",
-  timeZone: "Asia/Manila"
+  hour: "numeric"
 });
 const DAY_FORMATTER = new Intl.DateTimeFormat("en-US", { 
   month: "short", 
-  day: "numeric",
-  timeZone: "Asia/Manila"
+  day: "numeric"
 });
 const WEEKDAY_FORMATTER = new Intl.DateTimeFormat("en-US", { 
-  weekday: "short",
-  timeZone: "Asia/Manila"
+  weekday: "short"
 });
-
-// Note: parseTimestampToLocal and normalizeToStartOfDay are now imported from @/utils/timezone
-// This ensures consistent timezone handling using Asia/Manila timezone
 
 function getRangeStart(range: Range, customStart?: Date) {
   if (range === "custom" && customStart) {
-    return normalizeToStartOfDay(customStart);
+    const start = new Date(customStart);
+    start.setUTCHours(0, 0, 0, 0);
+    return start;
   }
-  const now = normalizeToStartOfDay(new Date());
-  if (range === "daily") {
+  const now = new Date();
+  now.setUTCHours(0, 0, 0, 0);
+  if (range === "today") {
     return now;
   }
-  if (range === "weekly") {
-    // Use getStartOfWeek which returns Monday in Asia/Manila timezone
-    return getStartOfWeek(new Date());
+  if (range === "this_week") {
+    // Get Monday of current week in UTC
+    const day = now.getUTCDay();
+    const diff = now.getUTCDate() - day + (day === 0 ? -6 : 1); // Adjust when day is Sunday
+    const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), diff));
+    monday.setUTCHours(0, 0, 0, 0);
+    return monday;
   }
-  // Monthly: start of current month in Asia/Manila timezone
-  const start = normalizeToStartOfDay(new Date());
-  // Set to first day of month
-  const localComponents = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Asia/Manila',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(start);
-  const year = parseInt(localComponents.find(p => p.type === 'year')?.value || '0', 10);
-  const month = parseInt(localComponents.find(p => p.type === 'month')?.value || '0', 10) - 1;
-  // Create UTC date representing first day of month at midnight in Asia/Manila
-  const monthStart = new Date(Date.UTC(year, month, 1, 0, 0, 0, 0));
-  monthStart.setUTCHours(monthStart.getUTCHours() - 8); // Adjust for UTC+8
-  return monthStart;
+  // this_month: start of current month in UTC
+  if (range === "this_month") {
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    monthStart.setUTCHours(0, 0, 0, 0);
+    return monthStart;
+  }
+  return now;
 }
 
 function getRangeEnd(range: Range, customEnd?: Date) {
   if (range === "custom" && customEnd) {
-    // For custom range, set to end of day in Asia/Manila timezone
-    const end = normalizeToStartOfDay(customEnd);
-    // Add 23:59:59.999 in Asia/Manila timezone
-    // This means adding 23 hours, 59 minutes, 59 seconds, 999 milliseconds
-    // But we need to account for timezone offset
-    const endOfDay = new Date(end.getTime() + (23 * 60 * 60 * 1000) + (59 * 60 * 1000) + (59 * 1000) + 999);
-    return endOfDay;
+    // For custom range, set to end of day in UTC
+    const end = new Date(customEnd);
+    end.setUTCHours(23, 59, 59, 999);
+    return end;
   }
   const now = new Date();
-  if (range === "daily") {
-    // For daily range, set to end of today (23:59:59.999) in Asia/Manila timezone
-    const today = normalizeToStartOfDay(now);
-    const endOfDay = new Date(today.getTime() + (23 * 60 * 60 * 1000) + (59 * 60 * 1000) + (59 * 1000) + 999);
-    return endOfDay;
+  if (range === "today") {
+    // For today range, set to end of today (23:59:59.999) in UTC
+    const todayEnd = new Date(now);
+    todayEnd.setUTCHours(23, 59, 59, 999);
+    return todayEnd;
   }
-  // For weekly and monthly, return current time (will be adjusted dynamically in filtering)
+  // For this_week and this_month, return current time (will be adjusted dynamically in filtering)
   return now;
 }
 
 function buildScansTrend(range: Range, scans: Scan[], rangeStart: Date, rangeEnd: Date): TrendDatum[] {
-  // Filter out invalid scans first
-  const validScans = scans.filter((scan) => {
-    // Exclude scans with status = 'Unknown'
-    if ((scan.status as string) === 'Unknown') return false;
-    // Exclude scans with result = 'Unknown' (disease_detected or ripeness_stage)
-    const result = getAiPrediction(scan);
-    if (result === 'Unknown') return false;
-    // Ensure scan has created_at timestamp
-    if (!scan.created_at) return false;
-    return true;
-  });
+  if (!scans || scans.length === 0) {
+    // Return empty state based on range
+    if (range === "today") {
+      // Return all 24 hours with 0 counts (12-hour format with AM/PM)
+      return Array.from({ length: 24 }, (_, hour) => {
+        // Convert hour (0-23) to 12-hour format with AM/PM
+        let hours = hour;
+        const ampm = hours >= 12 ? 'PM' : 'AM';
+        hours = hours % 12;
+        hours = hours === 0 ? 12 : hours;
+        const hourLabel = `${hours} ${ampm}`;
+        return {
+          period: hourLabel,
+          scans: 0,
+        };
+      });
+    }
+    return [];
+  }
 
-  if (range === "daily") {
-    // For "daily" range, bucket scans by hour (0-23) in Asia/Manila timezone
-    // Note: filteredScans already filters by date range, so we just need to bucket by hour
-    const todayManila = dayjs().tz(MANILA_TZ).startOf('day');
+  if (range === "today") {
+    // For "daily" range, bucket scans by hour (0-23) using raw UTC timestamp from database
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
     const counts = new Map<number, number>();
 
-    validScans.forEach((scan) => {
+    scans.forEach((scan) => {
       try {
         if (!scan.created_at) return;
         
-        // Parse timestamp - handle case where timestamp value is already in Manila time
-        // Based on user feedback: timestamp "2025-11-23T11:07:16+00:00" means 11:07:16 Manila time
-        // The timestamp value itself represents Manila time, not UTC
-        let hour: number;
-        
-        if (typeof scan.created_at === 'string') {
-          const timestampStr = scan.created_at.trim();
-          
-          // Extract hour directly from timestamp string
-          // Format: "2025-11-23T11:07:16.498698+00:00" -> extract "11"
-          const timeMatch = timestampStr.match(/T(\d{2}):(\d{2}):(\d{2})/);
-          if (timeMatch) {
-            // Extract hour directly from timestamp (already in Manila time)
-            hour = parseInt(timeMatch[1], 10);
-          } else {
-            // Fallback: parse with dayjs and convert
-            // If timestamp has +00:00, the time value is likely already in Manila time
-            // So we need to subtract 8 hours to get UTC, then convert to Manila
-            let normalizedStr = timestampStr;
-            if (normalizedStr.includes('+00:00') || normalizedStr.endsWith('Z')) {
-              // Extract time components
-              const match = normalizedStr.match(/T(\d{2}):(\d{2}):(\d{2})/);
-              if (match) {
-                const [, h, m, s] = match;
-                const hourNum = parseInt(h, 10);
-                // Subtract 8 hours to get UTC (since value is in Manila time)
-                const utcHour = (hourNum - 8 + 24) % 24;
-                const datePart = normalizedStr.match(/^(\d{4}-\d{2}-\d{2})/)?.[1] || '';
-                normalizedStr = `${datePart}T${String(utcHour).padStart(2, '0')}:${m}:${s}Z`;
-              }
-            }
-            const scanManila = dayjs.utc(normalizedStr).tz(MANILA_TZ);
-            if (!scanManila.isValid()) {
-              console.warn('Invalid timestamp:', scan.created_at);
-              return;
-            }
-            hour = scanManila.hour();
-          }
-        } else {
-          // If it's a Date object, convert to Manila timezone
-          const scanManila = dayjs.utc(scan.created_at).tz(MANILA_TZ);
-          if (!scanManila.isValid()) {
-            console.warn('Invalid timestamp:', scan.created_at);
-            return;
-          }
-          hour = scanManila.hour();
-        }
-        
-        // Validate hour is in valid range
-        if (hour < 0 || hour > 23) {
-          console.warn('Hour out of range:', hour, 'for timestamp:', scan.created_at);
+        // Use UTC timestamp directly from Supabase (no timezone conversion)
+        const scanDate = new Date(scan.created_at);
+        if (isNaN(scanDate.getTime())) {
           return;
         }
         
-        // Bucket the scan by hour
-        // A scan at 11:00 AM Manila time should be in hour 11 bucket
-        counts.set(hour, (counts.get(hour) ?? 0) + 1);
+        // Verify scan is from today (in UTC)
+        const scanDateStr = scanDate.toISOString().split("T")[0];
+        const todayDateStr = today.toISOString().split("T")[0];
+        if (scanDateStr !== todayDateStr) {
+          return;
+        }
+        
+        // Get hour directly from database timestamp (UTC, no conversion)
+        const utcHour = scanDate.getUTCHours();
+        
+        // Validate hour is in valid range
+        if (utcHour < 0 || utcHour > 23) {
+          return;
+        }
+        
+        // Bucket the scan by hour as stored in database
+        counts.set(utcHour, (counts.get(utcHour) ?? 0) + 1);
       } catch (error) {
         // Skip invalid dates
-        console.warn('Error parsing scan timestamp:', scan.created_at, error);
         return;
       }
     });
 
-    // Generate data points for all 24 hours (00:00 to 23:59) in Asia/Manila timezone
+    // Generate data points for all 24 hours (12-hour format with AM/PM)
     // Always show all 24 hours to ensure complete chart display
     return Array.from({ length: 24 }, (_, hour) => {
-      // Create a dayjs object representing this hour in Manila timezone
-      const hourManila = todayManila.add(hour, 'hour');
-      
-      // Format hour label (e.g., "10 AM", "2 PM", "11 PM")
-      // Use 12-hour format with AM/PM for readability
-      const period = hourManila.format('h A');
-      
+      // Convert hour (0-23) to 12-hour format with AM/PM
+      let hours = hour;
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      hours = hours % 12;
+      hours = hours === 0 ? 12 : hours;
+      const hourLabel = `${hours} ${ampm}`;
       return {
-        period,
+        period: hourLabel,
         scans: counts.get(hour) ?? 0,
       };
     });
   }
 
-  // For weekly, monthly, and custom ranges: bucket by day
-  // Convert range boundaries to Manila timezone using dayjs
-  // Note: filteredScans already filters by date range, so we just need to bucket by day
-  const startManila = dayjs(rangeStart).tz(MANILA_TZ).startOf('day');
-  let endManila: dayjs.Dayjs;
+  // For this_week, this_month, and custom ranges: bucket by day
+  const startDate = new Date(rangeStart);
+  startDate.setUTCHours(0, 0, 0, 0);
+  let endDate: Date;
   
-  if (range === "weekly" || range === "monthly") {
-    // Use end of today in Manila timezone (inclusive)
-    endManila = dayjs().tz(MANILA_TZ).endOf('day');
+  if (range === "this_week" || range === "this_month") {
+    // Use end of today in UTC (inclusive)
+    endDate = new Date();
+    endDate.setUTCHours(23, 59, 59, 999);
   } else {
     // Custom range: use provided end date, inclusive end of day
-    endManila = dayjs(rangeEnd).tz(MANILA_TZ).endOf('day');
+    endDate = new Date(rangeEnd);
+    endDate.setUTCHours(23, 59, 59, 999);
   }
 
   // Calculate total days in range (inclusive)
-  // Add 1 to include both start and end days
-  const totalDays = Math.max(1, endManila.diff(startManila, 'day') + 1);
+  const totalDays = Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / ONE_DAY) + 1);
 
   const bucketCounts = new Map<number, number>();
   
-  validScans.forEach((scan) => {
+  scans.forEach((scan) => {
     if (!scan.created_at) return;
     try {
-      // Parse UTC timestamp and convert to Manila timezone using dayjs
-      // Supabase timestamptz is always stored as UTC in the database
-      // We need to parse it correctly as UTC, ignoring any timezone offsets in the string
-      let scanManila: dayjs.Dayjs;
-      
-      if (typeof scan.created_at === 'string') {
-        let timestampStr = scan.created_at.trim();
-        
-        // Remove any timezone offset (e.g., +08:00, -05:00) and treat as UTC
-        // Supabase stores timestamptz as UTC, but might return it with timezone offset
-        timestampStr = timestampStr.replace(/[+-]\d{2}:?\d{2}$/, '');
-        
-        // Replace space with T if needed for ISO format
-        if (timestampStr.includes(' ') && !timestampStr.includes('T')) {
-          timestampStr = timestampStr.replace(' ', 'T');
-        }
-        
-        // Remove 'Z' if present (we'll add it back to ensure UTC parsing)
-        timestampStr = timestampStr.replace(/Z$/, '');
-        
-        // Ensure we have seconds if missing
-        if (timestampStr.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/)) {
-          timestampStr = timestampStr + ':00';
-        }
-        
-        // Append 'Z' to explicitly mark as UTC
-        if (!timestampStr.endsWith('Z')) {
-          timestampStr = timestampStr + 'Z';
-        }
-        
-        // Parse as UTC, then convert to Manila timezone
-        scanManila = dayjs.utc(timestampStr).tz(MANILA_TZ);
-      } else {
-        // If it's a Date object, create dayjs in UTC mode, then convert to Manila
-        scanManila = dayjs.utc(scan.created_at).tz(MANILA_TZ);
-      }
-      
-      // Validate the parsed date
-      if (!scanManila.isValid()) {
+      // Use UTC timestamp directly from Supabase
+      const scanDate = new Date(scan.created_at);
+      if (isNaN(scanDate.getTime())) {
         return;
       }
       
-      // Get the date (start of day) in Manila timezone for bucketing
-      // This ensures scans at any time during the day are included in the correct day bucket
-      const scanDateStart = scanManila.startOf('day');
+      // Get the date (start of day) in UTC for bucketing
+      const scanDateStr = scanDate.toISOString().split("T")[0];
+      const scanDateStart = new Date(scanDateStr + "T00:00:00.000Z");
       
       // Check if scan is within range (inclusive boundaries)
-      // Use 'day' granularity to include scans at any time during the day
-      if (scanDateStart.isBefore(startManila, 'day') || scanDateStart.isAfter(endManila, 'day')) {
+      if (scanDateStart < startDate || scanDateStart > endDate) {
         return;
       }
       
       // Calculate day index: difference in days between scan date and start date
-      // This gives us the bucket index (0 = start day, 1 = next day, etc.)
-      const dayIndex = scanDateStart.diff(startManila, 'day');
+      const dayIndex = Math.floor((scanDateStart.getTime() - startDate.getTime()) / ONE_DAY);
       
       // Validate day index is within range
-      // dayIndex should be >= 0 and < totalDays
       if (dayIndex < 0 || dayIndex >= totalDays) {
         return;
       }
@@ -411,33 +285,29 @@ function buildScansTrend(range: Range, scans: Scan[], rangeStart: Date, rangeEnd
       bucketCounts.set(dayIndex, (bucketCounts.get(dayIndex) ?? 0) + 1);
     } catch (error) {
       // Skip invalid dates
-      console.warn('Error parsing scan timestamp:', scan.created_at, error);
       return;
     }
   });
 
-  if (range === "weekly") {
+  if (range === "this_week") {
     const buckets = Math.min(7, totalDays);
     // Generate buckets for each day of the week (Monday to Sunday)
     return Array.from({ length: buckets }, (_, idx) => {
-      const dayManila = startManila.add(idx, 'day');
-      const period = dayManila.format('ddd'); // Short weekday name (Mon, Tue, etc.)
-      
+      const dayDate = new Date(startDate);
+      dayDate.setUTCDate(startDate.getUTCDate() + idx);
       return {
-        period,
+        period: WEEKDAY_FORMATTER.format(dayDate),
         scans: bucketCounts.get(idx) ?? 0,
       };
     });
   }
 
-  // Monthly or Custom: Daily buckets
-  // Generate buckets for each day in the range
+  // this_month or Custom: Daily buckets
   return Array.from({ length: totalDays }, (_, idx) => {
-    const dayManila = startManila.add(idx, 'day');
-    const period = dayManila.format('MMM D'); // e.g., "Nov 22"
-    
+    const dayDate = new Date(startDate);
+    dayDate.setUTCDate(startDate.getUTCDate() + idx);
     return {
-      period,
+      period: DAY_FORMATTER.format(dayDate),
       scans: bucketCounts.get(idx) ?? 0,
     };
   });
@@ -460,13 +330,14 @@ function buildAppPerformance(scans: Scan[], validationHistory?: ValidationHistor
   
   // Generate last 12 months with zero initialization
   for (let i = 11; i >= 0; i--) {
-    const monthDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    // Calculate month in UTC
+    const monthDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
     // Format as "Jan" (month only, no year) for cleaner display
     const monthName = monthDate.toLocaleDateString("en-US", { month: "short" });
     
-    // Calculate month boundaries (start of month to end of month)
-    const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1, 0, 0, 0, 0);
-    const monthEnd = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0, 23, 59, 59, 999);
+    // Calculate month boundaries in UTC (start of month to end of month)
+    const monthStart = new Date(Date.UTC(monthDate.getUTCFullYear(), monthDate.getUTCMonth(), 1, 0, 0, 0, 0));
+    const monthEnd = new Date(Date.UTC(monthDate.getUTCFullYear(), monthDate.getUTCMonth() + 1, 0, 23, 59, 59, 999));
     
     // Filter scans for this month (optimized with early returns)
     // Also exclude Unknown scans from metrics
@@ -479,11 +350,15 @@ function buildAppPerformance(scans: Scan[], validationHistory?: ValidationHistor
       
       if (!scan?.created_at) return false;
       try {
-        // Use parseTimestampToLocal for consistent timezone conversion
-        const scanDate = parseTimestampToLocal(scan.created_at);
+        // Use UTC timestamp directly from Supabase
+        const scanDate = new Date(scan.created_at);
         if (isNaN(scanDate.getTime())) return false;
-        const scanTime = scanDate.getTime();
-        return scanTime >= monthStart.getTime() && scanTime <= monthEnd.getTime();
+        
+        // Compare in UTC (using date string for date comparison)
+        const scanDateStr = scanDate.toISOString().split("T")[0];
+        const monthStartStr = monthStart.toISOString().split("T")[0];
+        const monthEndStr = monthEnd.toISOString().split("T")[0];
+        return scanDateStr >= monthStartStr && scanDateStr <= monthEndStr;
       } catch {
         return false;
       }
@@ -515,11 +390,15 @@ function buildAppPerformance(scans: Scan[], validationHistory?: ValidationHistor
         }
         
         try {
-          // Use parseTimestampToLocal for consistent timezone conversion
-          const validationDate = parseTimestampToLocal(vh.validated_at);
+          // Use UTC timestamp directly from Supabase
+          const validationDate = new Date(vh.validated_at);
           if (isNaN(validationDate.getTime())) return false;
-          const validationTime = validationDate.getTime();
-          return validationTime >= monthStart.getTime() && validationTime <= monthEnd.getTime();
+          
+          // Compare in UTC (using date string for date comparison)
+          const validationDateStr = validationDate.toISOString().split("T")[0];
+          const monthStartStr = monthStart.toISOString().split("T")[0];
+          const monthEndStr = monthEnd.toISOString().split("T")[0];
+          return validationDateStr >= monthStartStr && validationDateStr <= monthEndStr;
         } catch {
           return false;
         }
@@ -583,11 +462,13 @@ function buildMonthlyMostScanned(scans: Scan[]): MonthlyMostScannedDatum[] {
   
   // Generate last 12 months
   for (let i = 11; i >= 0; i--) {
-    const monthDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    // Calculate month in UTC
+    const monthDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
     const monthName = monthDate.toLocaleDateString("en-US", { month: "short" });
     
-    const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1, 0, 0, 0, 0);
-    const monthEnd = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0, 23, 59, 59, 999);
+    // Calculate month boundaries in UTC
+    const monthStart = new Date(Date.UTC(monthDate.getUTCFullYear(), monthDate.getUTCMonth(), 1, 0, 0, 0, 0));
+    const monthEnd = new Date(Date.UTC(monthDate.getUTCFullYear(), monthDate.getUTCMonth() + 1, 0, 23, 59, 59, 999));
     
     // Filter scans for this month (exclude Unknown scans)
     const monthScans = scans.filter((scan) => {
@@ -599,9 +480,15 @@ function buildMonthlyMostScanned(scans: Scan[]): MonthlyMostScannedDatum[] {
       
       if (!scan?.created_at) return false;
       try {
+        // Use UTC timestamp directly from Supabase
         const scanDate = new Date(scan.created_at);
         if (isNaN(scanDate.getTime())) return false;
-        return scanDate >= monthStart && scanDate <= monthEnd;
+        
+        // Compare in UTC (using date string for date comparison)
+        const scanDateStr = scanDate.toISOString().split("T")[0];
+        const monthStartStr = monthStart.toISOString().split("T")[0];
+        const monthEndStr = monthEnd.toISOString().split("T")[0];
+        return scanDateStr >= monthStartStr && scanDateStr <= monthEndStr;
       } catch {
         return false;
       }
@@ -676,48 +563,6 @@ type ExpertValidationDatum = {
   totalValidations: number;
 };
 
-// Build Expert Validation Performance data - Last 12 months (legacy, for backward compatibility)
-function buildExpertValidationPerformance(validationHistory: ValidationHistory[]): ExpertValidationDatum[] {
-  const now = new Date();
-  const months: ExpertValidationDatum[] = [];
-  
-  // Generate last 12 months
-  for (let i = 11; i >= 0; i--) {
-    const monthDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const monthName = monthDate.toLocaleDateString("en-US", { month: "short" });
-    
-    const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1, 0, 0, 0, 0);
-    const monthEnd = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0, 23, 59, 59, 999);
-    
-    // Filter validations for this month
-    const monthValidations = validationHistory.filter((vh) => {
-      if (!vh?.validated_at) return false;
-      try {
-        const validationDate = new Date(vh.validated_at);
-        if (isNaN(validationDate.getTime())) return false;
-        return validationDate >= monthStart && validationDate <= monthEnd;
-      } catch {
-        return false;
-      }
-    });
-    
-    const aiValidated = monthValidations.filter((vh) => vh.status === "Validated").length;
-    const aiCorrected = monthValidations.filter((vh) => vh.status === "Corrected").length;
-    const totalValidations = monthValidations.length;
-    const mismatchRate = totalValidations > 0 ? (aiCorrected / totalValidations) * 100 : 0;
-    
-    months.push({
-      month: monthName,
-      aiValidated,
-      aiCorrected,
-      mismatchRate: parseFloat(mismatchRate.toFixed(1)),
-      totalValidations,
-    });
-  }
-  
-  return months;
-}
-
 // Build Expert Validation Performance data based on selected range
 function buildExpertValidationPerformanceFiltered(
   range: Range,
@@ -729,7 +574,7 @@ function buildExpertValidationPerformanceFiltered(
   
   // Filter validations within the selected range
   // Also exclude validations for scans with Unknown status or Unknown result
-  // Use parseTimestampToLocal for consistent timezone handling
+  // Use UTC timestamps directly from Supabase
   const filteredValidations = validationHistory.filter((vh) => {
     if (!vh?.validated_at) return false;
     
@@ -743,8 +588,8 @@ function buildExpertValidationPerformanceFiltered(
     }
     
     try {
-      // Use parseTimestampToLocal for consistent timezone conversion
-      const validationDate = parseTimestampToLocal(vh.validated_at);
+      // Use UTC timestamp directly from Supabase
+      const validationDate = new Date(vh.validated_at);
       if (isNaN(validationDate.getTime())) return false;
       
       // Compare timestamps for accurate date range filtering
@@ -762,25 +607,29 @@ function buildExpertValidationPerformanceFiltered(
 
   const data: ExpertValidationDatum[] = [];
 
-  if (range === "daily") {
+  if (range === "today") {
     // Group by hour
-    // For "daily" range, always use today's date dynamically (not the memoized rangeEnd)
+    // For "today" range, always use today's date dynamically (not the memoized rangeEnd)
     // This ensures real-time updates work correctly - new validations added today are immediately included
-    const today = normalizeToStartOfDay(new Date());
-    const base = normalizeToStartOfDay(rangeStart);
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    const base = new Date(rangeStart);
+    base.setUTCHours(0, 0, 0, 0);
     const isToday = today.getTime() === base.getTime();
     const now = new Date();
-    const currentHour = isToday ? Math.min(now.getHours() + 1, 24) : 24;
+    const currentHour = isToday ? Math.min(now.getUTCHours() + 1, 24) : 24;
     
     for (let hour = 0; hour < currentHour; hour++) {
       const hourStart = new Date(base);
-      hourStart.setHours(hour, 0, 0, 0);
+      hourStart.setUTCHours(hour, 0, 0, 0);
       const hourEnd = new Date(base);
-      hourEnd.setHours(hour, 59, 59, 999);
+      hourEnd.setUTCHours(hour, 59, 59, 999);
       
       const hourValidations = filteredValidations.filter((vh) => {
         try {
-          const validationDate = parseTimestampToLocal(vh.validated_at);
+          // Use UTC timestamp directly from Supabase
+          const validationDate = new Date(vh.validated_at);
+          if (isNaN(validationDate.getTime())) return false;
           const validationTime = validationDate.getTime();
           return validationTime >= hourStart.getTime() && validationTime <= hourEnd.getTime();
         } catch {
@@ -794,7 +643,7 @@ function buildExpertValidationPerformanceFiltered(
       const mismatchRate = totalValidations > 0 ? (aiCorrected / totalValidations) * 100 : 0;
       
       const stamp = new Date(base);
-      stamp.setHours(hour);
+      stamp.setUTCHours(hour);
       const periodLabel = HOUR_FORMATTER.format(stamp);
       
       data.push({
@@ -805,24 +654,28 @@ function buildExpertValidationPerformanceFiltered(
         totalValidations,
       });
     }
-  } else if (range === "weekly") {
+  } else if (range === "this_week") {
     // Group by day
-    const startDay = normalizeToStartOfDay(rangeStart);
-    const endDay = normalizeToStartOfDay(rangeEnd);
+    const startDay = new Date(rangeStart);
+    startDay.setUTCHours(0, 0, 0, 0);
+    const endDay = new Date(rangeEnd);
+    endDay.setUTCHours(0, 0, 0, 0);
     const totalDays = Math.ceil((endDay.getTime() - startDay.getTime()) / (1000 * 60 * 60 * 24)) + 1;
     const buckets = Math.min(7, totalDays);
     
     for (let idx = 0; idx < buckets; idx++) {
       const stamp = new Date(startDay);
-      stamp.setDate(startDay.getDate() + idx);
+      stamp.setUTCDate(startDay.getUTCDate() + idx);
       const dayStart = new Date(stamp);
-      dayStart.setHours(0, 0, 0, 0);
+      dayStart.setUTCHours(0, 0, 0, 0);
       const dayEnd = new Date(stamp);
-      dayEnd.setHours(23, 59, 59, 999);
+      dayEnd.setUTCHours(23, 59, 59, 999);
       
       const dayValidations = filteredValidations.filter((vh) => {
         try {
-          const validationDate = parseTimestampToLocal(vh.validated_at);
+          // Use UTC timestamp directly from Supabase
+          const validationDate = new Date(vh.validated_at);
+          if (isNaN(validationDate.getTime())) return false;
           const validationTime = validationDate.getTime();
           return validationTime >= dayStart.getTime() && validationTime <= dayEnd.getTime();
         } catch {
@@ -851,22 +704,25 @@ function buildExpertValidationPerformanceFiltered(
     
     if (totalDays <= 31) {
       // If less than a month, group by day
-      const startDay = normalizeToStartOfDay(rangeStart);
-      const endDay = normalizeToStartOfDay(rangeEnd);
+      const startDay = new Date(rangeStart);
+      startDay.setUTCHours(0, 0, 0, 0);
+      const endDay = new Date(rangeEnd);
+      endDay.setUTCHours(0, 0, 0, 0);
       const buckets = totalDays;
       
       for (let idx = 0; idx < buckets; idx++) {
         const stamp = new Date(startDay);
-        stamp.setDate(startDay.getDate() + idx);
+        stamp.setUTCDate(startDay.getUTCDate() + idx);
         const dayStart = new Date(stamp);
-        dayStart.setHours(0, 0, 0, 0);
+        dayStart.setUTCHours(0, 0, 0, 0);
         const dayEnd = new Date(stamp);
-        dayEnd.setHours(23, 59, 59, 999);
+        dayEnd.setUTCHours(23, 59, 59, 999);
         
         const dayValidations = filteredValidations.filter((vh) => {
           try {
-            // Use parseTimestampToLocal for consistent timezone conversion
-            const validationDate = parseTimestampToLocal(vh.validated_at);
+            // Use UTC timestamp directly from Supabase
+            const validationDate = new Date(vh.validated_at);
+            if (isNaN(validationDate.getTime())) return false;
             const validationTime = validationDate.getTime();
             return validationTime >= dayStart.getTime() && validationTime <= dayEnd.getTime();
           } catch {
@@ -891,13 +747,13 @@ function buildExpertValidationPerformanceFiltered(
       }
     } else {
       // If more than a month, group by month
-      const startMonth = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), 1);
-      const endMonth = new Date(rangeEnd.getFullYear(), rangeEnd.getMonth(), 1);
+      const startMonth = new Date(Date.UTC(rangeStart.getUTCFullYear(), rangeStart.getUTCMonth(), 1));
+      const endMonth = new Date(Date.UTC(rangeEnd.getUTCFullYear(), rangeEnd.getUTCMonth(), 1));
       
       const currentMonth = new Date(startMonth);
       while (currentMonth <= endMonth) {
-        const monthStart = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1, 0, 0, 0, 0);
-        const monthEnd = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0, 23, 59, 59, 999);
+        const monthStart = new Date(Date.UTC(currentMonth.getUTCFullYear(), currentMonth.getUTCMonth(), 1, 0, 0, 0, 0));
+        const monthEnd = new Date(Date.UTC(currentMonth.getUTCFullYear(), currentMonth.getUTCMonth() + 1, 0, 23, 59, 59, 999));
         
         // Adjust for actual range boundaries
         const actualStart = monthStart < rangeStart ? rangeStart : monthStart;
@@ -905,7 +761,9 @@ function buildExpertValidationPerformanceFiltered(
         
         const monthValidations = filteredValidations.filter((vh) => {
           try {
-            const validationDate = parseTimestampToLocal(vh.validated_at);
+            // Use UTC timestamp directly from Supabase
+            const validationDate = new Date(vh.validated_at);
+            if (isNaN(validationDate.getTime())) return false;
             const validationTime = validationDate.getTime();
             return validationTime >= actualStart.getTime() && validationTime <= actualEnd.getTime();
           } catch {
@@ -929,7 +787,7 @@ function buildExpertValidationPerformanceFiltered(
         });
         
         // Move to next month
-        currentMonth.setMonth(currentMonth.getMonth() + 1);
+        currentMonth.setUTCMonth(currentMonth.getUTCMonth() + 1);
       }
     }
   }
@@ -1156,10 +1014,158 @@ function generateInsights(
 
 export default function ReportsPage() {
   const { scans, validationHistory, loading, error, refreshData } = useData();
-  const [range, setRange] = useState<Range>("daily");
+  const [range, setRange] = useState<Range>("today");
   const [customStartDate, setCustomStartDate] = useState<string>("");
   const [customEndDate, setCustomEndDate] = useState<string>("");
   const [showCustomPicker, setShowCustomPicker] = useState(false);
+  
+  // Fallback state for direct database fetching if DataContext is empty
+  const [fallbackScans, setFallbackScans] = useState<Scan[]>([]);
+  const [fallbackValidations, setFallbackValidations] = useState<ValidationHistory[]>([]);
+  const [fallbackLoading, setFallbackLoading] = useState(false);
+  const [hasFetchedFallback, setHasFetchedFallback] = useState(false);
+
+  // Direct database fetch - Always fetch directly from tables to ensure we have data
+  useEffect(() => {
+    const fetchDirectData = async () => {
+      // Always fetch directly if we haven't fetched yet
+      // This ensures we have data even if DataContext fails or is slow
+      if (!hasFetchedFallback) {
+        setFallbackLoading(true);
+        setHasFetchedFallback(true);
+        
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[Reports] 🔄 Starting direct database fetch from leaf_disease_scans and fruit_ripeness_scans...');
+        }
+        
+        try {
+          // Fetch from both tables directly
+          const [leafScansResponse, fruitScansResponse, validationsResponse] = await Promise.all([
+            supabase
+              .from("leaf_disease_scans")
+              .select("*")
+              .order("created_at", { ascending: false }),
+            supabase
+              .from("fruit_ripeness_scans")
+              .select("*")
+              .order("created_at", { ascending: false }),
+            supabase
+              .from("validation_history")
+              .select("*")
+              .order("validated_at", { ascending: false }),
+          ]);
+
+          // Log errors but don't throw - we want to show whatever data we can get
+          if (leafScansResponse.error) {
+            console.error('[Reports] ❌ Error fetching leaf_disease_scans:', leafScansResponse.error);
+          } else {
+            console.log('[Reports] ✅ Successfully fetched leaf_disease_scans:', leafScansResponse.data?.length || 0, 'records');
+          }
+          
+          if (fruitScansResponse.error) {
+            console.error('[Reports] ❌ Error fetching fruit_ripeness_scans:', fruitScansResponse.error);
+          } else {
+            console.log('[Reports] ✅ Successfully fetched fruit_ripeness_scans:', fruitScansResponse.data?.length || 0, 'records');
+          }
+          
+          if (validationsResponse.error) {
+            console.error('[Reports] ❌ Error fetching validation_history:', validationsResponse.error);
+          } else {
+            console.log('[Reports] ✅ Successfully fetched validation_history:', validationsResponse.data?.length || 0, 'records');
+          }
+
+          // Transform leaf scans
+          const leafScans: Scan[] = (leafScansResponse.data || []).map((scan: any) => ({
+            ...scan,
+            scan_type: 'leaf_disease' as const,
+            ai_prediction: scan.disease_detected,
+            solution: scan.solution,
+            recommended_products: scan.recommendation,
+          }));
+
+          // Transform fruit scans
+          const fruitScans: Scan[] = (fruitScansResponse.data || []).map((scan: any) => ({
+            ...scan,
+            scan_type: 'fruit_maturity' as const,
+            ai_prediction: scan.ripeness_stage,
+            solution: scan.harvest_recommendation,
+            recommended_products: undefined,
+          }));
+
+          // Merge and sort
+          const allScans = [...leafScans, ...fruitScans].sort((a, b) => {
+            const dateA = new Date(a.created_at).getTime();
+            const dateB = new Date(b.created_at).getTime();
+            return dateB - dateA;
+          });
+
+          // Transform validations
+          const validations: ValidationHistory[] = (validationsResponse.data || []).map((vh: any) => ({
+            ...vh,
+            scan: allScans.find(s => s.scan_uuid === String(vh.scan_id).trim()),
+          }));
+
+          setFallbackScans(allScans);
+          setFallbackValidations(validations);
+          
+          console.log('[Reports] 📊 Direct fetch completed:', {
+            totalScans: allScans.length,
+            leafScans: leafScans.length,
+            fruitScans: fruitScans.length,
+            validations: validations.length,
+            hasErrors: !!(leafScansResponse.error || fruitScansResponse.error || validationsResponse.error),
+            sampleScan: allScans.length > 0 ? {
+              id: allScans[0].id,
+              type: allScans[0].scan_type,
+              created_at: allScans[0].created_at,
+              status: allScans[0].status
+            } : null
+          });
+        } catch (err) {
+          console.error('[Reports] ❌ Error in direct fetch:', err);
+          setFallbackLoading(false);
+        } finally {
+          setFallbackLoading(false);
+        }
+      }
+    };
+
+    fetchDirectData();
+  }, [hasFetchedFallback]);
+
+  // Use DataContext data if available, otherwise use fallback
+  // Always prefer DataContext if it has data, but use fallback if DataContext is empty
+  const safeScans = useMemo(() => {
+    // Prefer DataContext if it has data, otherwise use fallback
+    const scansArray = (Array.isArray(scans) && scans.length > 0) ? scans : fallbackScans;
+    
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[Reports] safeScans:', {
+        total: scansArray.length,
+        leaf: scansArray.filter(s => s.scan_type === 'leaf_disease').length,
+        fruit: scansArray.filter(s => s.scan_type === 'fruit_maturity').length,
+        loading: loading || fallbackLoading,
+        error,
+        source: (Array.isArray(scans) && scans.length > 0) ? 'DataContext' : 'DirectFetch',
+        dataContextScans: Array.isArray(scans) ? scans.length : 0,
+        fallbackScans: fallbackScans.length,
+        sampleScan: scansArray.length > 0 ? {
+          id: scansArray[0].id,
+          type: scansArray[0].scan_type,
+          created_at: scansArray[0].created_at,
+          status: scansArray[0].status
+        } : null
+      });
+    }
+    return scansArray;
+  }, [scans, fallbackScans, loading, fallbackLoading, error]);
+
+  // Use DataContext validations if available, otherwise use fallback
+  const safeValidations = useMemo(() => {
+    return Array.isArray(validationHistory) && validationHistory.length > 0 
+      ? validationHistory 
+      : fallbackValidations;
+  }, [validationHistory, fallbackValidations]);
 
   // Validate custom date range
   useEffect(() => {
@@ -1193,8 +1199,10 @@ export default function ReportsPage() {
       }
       return getRangeStart(range);
     } catch {
-      // Fallback to daily if date parsing fails
-      return normalizeToStartOfDay(new Date());
+      // Fallback to today if date parsing fails
+      const fallback = new Date();
+      fallback.setUTCHours(0, 0, 0, 0);
+      return fallback;
     }
   }, [range, customStartDate]);
   
@@ -1229,122 +1237,206 @@ export default function ReportsPage() {
     return RANGE_LABELS[range];
   }, [range, customStartDate, customEndDate]);
 
-  // Filter scans to exclude only Unknown scans (no date filtering)
-  // This is used for Total Scans and Total Validated cards to show ALL scans
-  // Real-time updates will immediately reflect new scans regardless of date
+  // Filter scans to exclude Unknown scans
   const allValidScans = useMemo(() => {
-    if (!scans || scans.length === 0) return [];
+    if (!safeScans || safeScans.length === 0) {
+      console.log('[Reports] ⚠️ allValidScans: No safeScans available', {
+        safeScansLength: safeScans?.length || 0,
+        safeScansType: Array.isArray(safeScans) ? 'array' : typeof safeScans
+      });
+      return [];
+    }
     
-    return scans.filter((scan) => {
-      // Ensure scan has required fields
-      if (!scan || !scan.id) return false;
-      
-      // Exclude scans with status = 'Unknown'
-      if ((scan.status as string) === 'Unknown') return false;
-      
-      // Exclude scans with result = 'Unknown' (disease_detected or ripeness_stage)
-      // But allow scans with empty/null results (they might be pending)
-      try {
-        const result = getAiPrediction(scan);
-        // Only exclude if result is explicitly 'Unknown', allow empty/null/undefined
-        if (result && String(result).trim().toLowerCase() === 'unknown') return false;
-      } catch {
-        // If getAiPrediction fails, still include the scan (might be a data issue)
+    const valid = safeScans.filter((scan) => {
+      if (!scan || !scan.id) {
+        if (process.env.NODE_ENV === 'development') {
+          console.warn('[Reports] Filtering out scan - missing id:', scan);
+        }
+        return false;
+      }
+      if ((scan.status as string) === 'Unknown') {
+        if (process.env.NODE_ENV === 'development') {
+          console.warn('[Reports] Filtering out scan - Unknown status:', scan.id);
+        }
+        return false;
       }
       
-      return true; // Include all valid scans regardless of date
+      try {
+        const result = getAiPrediction(scan);
+        if (result && String(result).trim().toLowerCase() === 'unknown') {
+          if (process.env.NODE_ENV === 'development') {
+            console.warn('[Reports] Filtering out scan - Unknown result:', scan.id, result);
+          }
+          return false;
+        }
+      } catch {
+        // Continue if getAiPrediction fails
+      }
+      
+      return true;
     });
-  }, [scans]);
-
-  // Filter scans by date range for charts (excludes Unknown + date filtering)
-  // For "daily" range, compares date portions to ensure all scans from today are included
-  // This ensures real-time updates work correctly - new scans added today are immediately included
-  const filteredScans = useMemo(() => {
-    if (!allValidScans || allValidScans.length === 0) return [];
     
-    return allValidScans.filter((scan) => {
-      // Ensure scan has created_at timestamp for date filtering
-      if (!scan.created_at) return false;
+    console.log('[Reports] ✅ allValidScans filtered:', {
+      inputTotal: safeScans.length,
+      outputTotal: valid.length,
+      leaf: valid.filter(s => s.scan_type === 'leaf_disease').length,
+      fruit: valid.filter(s => s.scan_type === 'fruit_maturity').length,
+      filteredOut: safeScans.length - valid.length,
+      sampleValidScan: valid.length > 0 ? {
+        id: valid[0].id,
+        type: valid[0].scan_type,
+        created_at: valid[0].created_at,
+        status: valid[0].status
+      } : null
+    });
+    
+    return valid;
+  }, [safeScans]);
+
+  // Filter scans by date range
+  const filteredScans = useMemo(() => {
+    if (!allValidScans || allValidScans.length === 0) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[Reports] filteredScans: No allValidScans available');
+      }
+      return [];
+    }
+    
+    // Log range boundaries for debugging
+    if (process.env.NODE_ENV === 'development' && range === "today") {
+      const today = new Date();
+      const todayDate = today.toISOString().split("T")[0];
+      console.log('[Reports] Today filter range boundaries:', {
+        rangeStartUTC: rangeStart.toISOString(),
+        rangeEndUTC: rangeEnd.toISOString(),
+        todayDate
+      });
+    }
+    
+    const filtered = allValidScans.filter((scan) => {
+      if (!scan.created_at) {
+        if (process.env.NODE_ENV === 'development') {
+          console.warn('[Reports] Scan missing created_at:', scan.id);
+        }
+        return false;
+      }
       
       try {
-        // Use parseTimestampToLocal for consistent timezone conversion
-        // This ensures timezone conversion is handled correctly
-        const createdAt = parseTimestampToLocal(scan.created_at);
+        // Use UTC timestamp directly from Supabase
+        const scanDate = new Date(scan.created_at);
+        if (isNaN(scanDate.getTime())) {
+          if (process.env.NODE_ENV === 'development') {
+            console.warn('[Reports] Invalid scan date:', scan.created_at, scan.id);
+          }
+          return false;
+        }
         
-        // Ensure valid date
-        if (isNaN(createdAt.getTime())) return false;
+        // Get scan date string in YYYY-MM-DD format
+        const scanDateStr = scanDate.toISOString().split("T")[0];
         
-        // For "daily" range, compare date portions (day/month/year) in Asia/Manila timezone
-        // This ensures all scans created today are included, even if rangeEnd was calculated earlier
-        if (range === "daily") {
-          const scanManila = getLocalDateComponents(createdAt);
-          const nowManila = getLocalDateComponents(new Date());
+        if (range === "today") {
+          // TODAY: Compare date strings
+          const today = new Date();
+          const todayDate = today.toISOString().split("T")[0];
+          return scanDateStr === todayDate;
+        }
+        
+        if (range === "this_week") {
+          // THIS WEEK: Get first day (Sunday) and last day (Saturday) of week
+          const now = new Date();
+          const firstDayOfWeek = new Date(now);
+          firstDayOfWeek.setDate(now.getDate() - now.getDay());
+          const lastDayOfWeek = new Date(firstDayOfWeek);
+          lastDayOfWeek.setDate(firstDayOfWeek.getDate() + 6);
           
-          // Compare date portions in Manila timezone - if scan date matches today, include it
-          // This ensures real-time updates work correctly for "today" analysis
-          return (
-            scanManila.year === nowManila.year &&
-            scanManila.month === nowManila.month &&
-            scanManila.day === nowManila.day
-          );
+          const firstDayStr = firstDayOfWeek.toISOString().split("T")[0];
+          const lastDayStr = lastDayOfWeek.toISOString().split("T")[0];
+          
+          return scanDateStr >= firstDayStr && scanDateStr <= lastDayStr;
         }
         
-        // For other ranges (weekly, monthly, custom), use inclusive timestamp comparison
-        // Convert range boundaries to proper inclusive start/end in Manila timezone
-        const scanTime = createdAt.getTime();
-        const rangeStartTime = normalizeToStartOfDay(rangeStart).getTime();
-        let rangeEndTime: number;
-        
-        // For weekly and monthly ranges, use inclusive end of today
-        // For custom range, use inclusive end of the selected end date
-        if (range === "weekly" || range === "monthly") {
-          rangeEndTime = normalizeToEndOfDay(new Date()).getTime();
-        } else {
-          rangeEndTime = normalizeToEndOfDay(rangeEnd).getTime();
+        if (range === "this_month") {
+          // THIS MONTH: Check if date starts with YYYY-MM
+          const now = new Date();
+          const year = now.getFullYear();
+          const month = String(now.getMonth() + 1).padStart(2, "0");
+          const monthPrefix = `${year}-${month}`;
+          
+          return scanDateStr.startsWith(monthPrefix);
         }
         
-        // Use inclusive range: scanTime >= rangeStartTime && scanTime <= rangeEndTime
-        // This ensures scans at boundary times are included correctly
-        return scanTime >= rangeStartTime && scanTime <= rangeEndTime;
-      } catch {
-        // If date parsing fails, exclude the scan (invalid timestamp)
+        if (range === "custom" && customStartDate && customEndDate) {
+          // Custom range: compare using UTC timestamps
+          const scanTime = scanDate.getTime();
+          const startTime = rangeStart.getTime();
+          const endTime = rangeEnd.getTime();
+          
+          return scanTime >= startTime && scanTime <= endTime;
+        }
+        
+        return false;
+      } catch (error) {
+        if (process.env.NODE_ENV === 'development') {
+          console.warn('[Reports] Error filtering scan by date range:', scan.created_at, scan.id, error);
+        }
         return false;
       }
     });
-  }, [allValidScans, rangeStart, rangeEnd, range]);
+    
+    console.log('[Reports] 📊 filteredScans result:', {
+      range,
+      total: filtered.length,
+      leaf: filtered.filter(s => s.scan_type === 'leaf_disease').length,
+      fruit: filtered.filter(s => s.scan_type === 'fruit_maturity').length,
+      allValidScansCount: allValidScans.length,
+      filteredOut: allValidScans.length - filtered.length,
+      sampleFilteredScan: filtered.length > 0 ? {
+        id: filtered[0].id,
+        type: filtered[0].scan_type,
+        created_at: filtered[0].created_at,
+        scanDateUTC: filtered[0].created_at ? new Date(filtered[0].created_at).toISOString().split("T")[0] : 'N/A',
+        today: new Date().toISOString().split("T")[0]
+      } : null,
+      sampleUnfilteredScan: allValidScans.length > 0 && filtered.length === 0 ? {
+        id: allValidScans[0].id,
+        type: allValidScans[0].scan_type,
+        created_at: allValidScans[0].created_at,
+        scanDateUTC: allValidScans[0].created_at ? new Date(allValidScans[0].created_at).toISOString().split("T")[0] : 'N/A',
+        today: new Date().toISOString().split("T")[0]
+      } : null
+    });
+    
+    return filtered;
+  }, [allValidScans, range, customStartDate, customEndDate]);
 
-  // Calculate total scans count - Filtered by selected date range
-  // Counts valid scans from both tables within the selected date range, excluding only "Unknown" results
-  // Includes all validation statuses (Pending Validation, Validated, Corrected)
-  // This updates automatically when scans are added/updated via real-time subscriptions
-  // Real-time updates will immediately reflect new scans within the selected date range
   const totalScansCount = useMemo(() => {
-    // Use filteredScans to show only scans within the selected date range
-    // This ensures the count matches the selected filter (Today, This Week, This Month, Custom)
-    if (!filteredScans || filteredScans.length === 0) return 0;
-    
-    // Count all valid scans from both leaf_disease_scans and fruit_ripeness_scans within the date range
-    // This will automatically update when scans state changes or date range filter changes
-    return filteredScans.length;
-  }, [filteredScans]);
-
-
-  const aiAccuracyRate = useMemo(() => {
-    // AI Accuracy Rate = (Validated count) / (Validated + Corrected count) * 100
-    // Note: Both "Confirm" and "Correct" actions set scan.status to "Validated"
-    // The validation_history table tracks whether it was "Validated" or "Corrected" for AI accuracy
-    // This updates automatically when validations are added/updated via real-time subscriptions
-    
-    if (!validationHistory || validationHistory.length === 0) {
+    if (!filteredScans || !Array.isArray(filteredScans)) {
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('[Reports] filteredScans is not an array:', filteredScans);
+      }
       return 0;
     }
     
-    // Filter validation history by date range and exclude Unknown scans
-    // Use parseTimestampToLocal for consistent timezone handling
-    const filteredValidations = validationHistory.filter((vh) => {
+    const count = filteredScans.length;
+    
+    if (process.env.NODE_ENV === 'development' && count > 0) {
+      const leafCount = filteredScans.filter(s => s.scan_type === 'leaf_disease').length;
+      const fruitCount = filteredScans.filter(s => s.scan_type === 'fruit_maturity').length;
+      console.log(`[Reports] Total Scans (${range}):`, count, `(Leaf: ${leafCount}, Fruit: ${fruitCount})`);
+    }
+    
+    return typeof count === 'number' && !isNaN(count) ? count : 0;
+  }, [filteredScans, range]);
+
+
+  const aiAccuracyRate = useMemo(() => {
+    if (!safeValidations || safeValidations.length === 0) {
+      return 0;
+    }
+    
+    const filteredValidations = safeValidations.filter((vh) => {
       if (!vh?.validated_at) return false;
       
-      // Exclude validations for Unknown scans
       if (vh.scan) {
         if ((vh.scan.status as string) === 'Unknown') return false;
         const result = getAiPrediction(vh.scan);
@@ -1352,57 +1444,90 @@ export default function ReportsPage() {
       }
       
       try {
-        // Use parseTimestampToLocal for consistent timezone conversion
-        const validationDate = parseTimestampToLocal(vh.validated_at);
+        // Use UTC timestamp directly from Supabase
+        const validationDate = new Date(vh.validated_at);
         if (isNaN(validationDate.getTime())) return false;
         
-        // Compare timestamps for accurate date range filtering
-        const validationTime = validationDate.getTime();
-        const rangeStartTime = rangeStart.getTime();
-        let rangeEndTime = rangeEnd.getTime();
+        // Get validation date string in YYYY-MM-DD format
+        const validationDateStr = validationDate.toISOString().split("T")[0];
         
-        // For weekly and monthly ranges, ensure rangeEnd is current time to include new validations
-        // This fixes the issue where memoized rangeEnd might be stale
-        if (range === "weekly" || range === "monthly") {
-          rangeEndTime = new Date().getTime();
+        if (range === "today") {
+          // TODAY: Compare date strings
+          const today = new Date();
+          const todayDate = today.toISOString().split("T")[0];
+          return validationDateStr === todayDate;
         }
         
-        // Check if validation is within the selected date range
-        return validationTime >= rangeStartTime && validationTime <= rangeEndTime;
+        if (range === "this_week") {
+          // THIS WEEK: Get first day (Sunday) and last day (Saturday) of week
+          const now = new Date();
+          const firstDayOfWeek = new Date(now);
+          firstDayOfWeek.setDate(now.getDate() - now.getDay());
+          const lastDayOfWeek = new Date(firstDayOfWeek);
+          lastDayOfWeek.setDate(firstDayOfWeek.getDate() + 6);
+          
+          const firstDayStr = firstDayOfWeek.toISOString().split("T")[0];
+          const lastDayStr = lastDayOfWeek.toISOString().split("T")[0];
+          
+          return validationDateStr >= firstDayStr && validationDateStr <= lastDayStr;
+        }
+        
+        if (range === "this_month") {
+          // THIS MONTH: Check if date starts with YYYY-MM
+          const now = new Date();
+          const year = now.getFullYear();
+          const month = String(now.getMonth() + 1).padStart(2, "0");
+          const monthPrefix = `${year}-${month}`;
+          
+          return validationDateStr.startsWith(monthPrefix);
+        }
+        
+        if (range === "custom" && customStartDate && customEndDate) {
+          // Custom range: compare using UTC timestamps
+          const validationTime = validationDate.getTime();
+          const startTime = rangeStart.getTime();
+          const endTime = rangeEnd.getTime();
+          return validationTime >= startTime && validationTime <= endTime;
+        }
+        
+        return false;
       } catch {
         return false;
       }
     });
     
-    // Count validated (AI was correct, expert confirmed) and corrected (AI was wrong, expert corrected)
     const validatedCount = filteredValidations.filter((vh) => vh.status === "Validated").length;
     const correctedCount = filteredValidations.filter((vh) => vh.status === "Corrected").length;
     const total = validatedCount + correctedCount;
     
-    if (total === 0) {
-      // If no validated scans in range, return 0
-      return 0;
-    }
+    if (total === 0) return 0;
     
     const rate = (validatedCount / total) * 100;
-    return parseFloat(rate.toFixed(1));
-  }, [validationHistory, rangeStart, rangeEnd, range]);
+      return parseFloat(rate.toFixed(1));
+  }, [safeValidations, range, customStartDate, customEndDate]);
 
 
-  // Calculate validated scans: Filtered by selected date range
-  // This updates automatically when scans are validated via real-time subscriptions
-  // A scan is considered validated if its status is NOT "Pending Validation"
-  // Uses filteredScans to show only validated scans within the selected date range
   const validatedScansCount = useMemo(() => {
-    if (!filteredScans || filteredScans.length === 0) return 0;
+    if (!filteredScans || !Array.isArray(filteredScans) || filteredScans.length === 0) return 0;
     
-    // Count scans that are NOT "Pending Validation" within the selected date range
-    // This includes scans with status "Validated", "Corrected", or any other non-pending status
-    // Uses filteredScans to show only validated scans within the selected date range
-    // This ensures the count matches the selected filter (Today, This Week, This Month, Custom)
-    const validated = filteredScans.filter((s) => s.status !== "Pending Validation").length;
-    return validated;
-  }, [filteredScans]);
+    const validatedLeaf = filteredScans.filter((s) => {
+      if (!s || !s.status || s.scan_type !== 'leaf_disease') return false;
+      return s.status !== "Pending Validation";
+    }).length;
+    
+    const validatedFruit = filteredScans.filter((s) => {
+      if (!s || !s.status || s.scan_type !== 'fruit_maturity') return false;
+      return s.status !== "Pending Validation";
+    }).length;
+    
+    const totalValidated = validatedLeaf + validatedFruit;
+    
+    if (process.env.NODE_ENV === 'development' && totalValidated > 0) {
+      console.log(`[Reports] Total Validated (${range}):`, totalValidated, `(Leaf: ${validatedLeaf}, Fruit: ${validatedFruit})`);
+    }
+    
+    return typeof totalValidated === 'number' && !isNaN(totalValidated) ? totalValidated : 0;
+  }, [filteredScans, range]);
 
   // Scan Trends - Filtered by selected range, updates in real-time
   // Uses filteredScans which respects the date range filter
@@ -1417,19 +1542,19 @@ export default function ReportsPage() {
   // App Performance - Always 12 months from all scans (not filtered by date range)
   // Includes validation history to calculate accurate AI Accuracy Rate
   const appPerformance = useMemo(() => {
-    return buildAppPerformance(scans, validationHistory);
-  }, [scans, validationHistory]);
+    return buildAppPerformance(safeScans, safeValidations);
+  }, [safeScans, safeValidations]);
 
   // Monthly Most Scanned - Last 12 months
   const monthlyMostScanned = useMemo(() => {
-    return buildMonthlyMostScanned(scans);
-  }, [scans]);
+    return buildMonthlyMostScanned(safeScans);
+  }, [safeScans]);
 
   // Expert Validation Performance - Filtered by selected range
   const expertValidationPerformance = useMemo(() => {
-    if (!validationHistory || validationHistory.length === 0) return [];
-    return buildExpertValidationPerformanceFiltered(range, validationHistory, rangeStart, rangeEnd);
-  }, [validationHistory, range, rangeStart, rangeEnd]);
+    if (!safeValidations || safeValidations.length === 0) return [];
+    return buildExpertValidationPerformanceFiltered(range, safeValidations, rangeStart, rangeEnd);
+  }, [safeValidations, range, rangeStart, rangeEnd]);
 
   // Most Scanned Categories (excludes Unknown - filteredScans already excludes Unknown)
   const mostScannedDiseases = useMemo(() => {
@@ -1469,9 +1594,8 @@ export default function ReportsPage() {
   }, [filteredScans]);
 
   // Leaf Disease Distribution - Updates in real-time via filteredScans dependency
-  // filteredScans uses allValidScans which updates automatically when new scans are added
-  // For "today" filter, filteredScans correctly compares date portions to include all scans from today
-  // This ensures new scans added today are immediately reflected in the chart
+  // Uses UTC timestamps directly from Supabase (no timezone conversion)
+  // Real-time updates: When new scans are added/updated, filteredScans updates → distribution recalculates → chart re-renders
   const diseaseDistribution = useMemo((): DistributionDatum[] => {
     const counts = new Map<string, number>();
     
@@ -1489,29 +1613,11 @@ export default function ReportsPage() {
       }));
     }
     
-    // Filter for leaf disease scans only from leaf_disease_scans table
-    // Only count scans with scan_type === "leaf_disease" (data from leaf_disease_scans table)
-    // This ensures we're only counting scans from the leaf_disease_scans database table
-    const leafDiseaseScans = filteredScans.filter((scan) => {
-      // Ensure scan exists and has required properties
-      if (!scan || !scan.id) return false;
-      
-      // Explicitly check for leaf_disease type - ensures we only count from leaf_disease_scans
-      if (!scan.scan_type) return false;
-      
-      return scan.scan_type === "leaf_disease";
-    });
-    
-    // Debug: Log leaf disease scans count in development
-    if (process.env.NODE_ENV === 'development') {
-      console.debug('[Disease Distribution] Leaf disease scans found:', leafDiseaseScans.length, {
-        totalFilteredScans: filteredScans.length,
-        range: range
-      });
-    }
+    // Filter for leaf disease scans only from leaf_disease_scans table using type guard
+    // Type-safe filtering ensures we only process leaf disease scans
+    const leafDiseaseScans = filteredScans.filter(isLeafDiseaseScan);
     
     // Helper function to normalize disease name for consistent matching
-    // More flexible matching to handle variations in disease names
     const normalizeDiseaseName = (diseaseName: string): string | null => {
       if (!diseaseName) return null;
       
@@ -1523,180 +1629,93 @@ export default function ReportsPage() {
       }
       
       // Map to standard disease names (case-insensitive matching with flexible patterns)
-      // Check most specific matches first, then broader matches
-      
-      // Cercospora - exact match or contains
       if (normalized === "cercospora" || normalized.includes("cercospora")) {
         return "Cercospora";
       }
-      
-      // Yellow Mosaic Virus - check for "yellow mosaic virus", "yellow mosaic", or both words
       if (normalized === "yellow mosaic virus" || 
           normalized === "yellow mosaic" ||
-          (normalized.includes("yellow") && normalized.includes("mosaic")) ||
-          (normalized.includes("yellow") && normalized.includes("virus") && normalized.includes("mosaic"))) {
+          (normalized.includes("yellow") && normalized.includes("mosaic"))) {
         return "Yellow Mosaic Virus";
       }
-      
-      // Healthy - exact match or contains
       if (normalized === "healthy" || normalized.includes("healthy")) {
         return "Healthy";
       }
-      
-      // Fusarium Wilt - check for "fusarium wilt" or just "fusarium" (likely means wilt)
       if (normalized === "fusarium wilt" || 
           normalized === "fusarium" ||
           (normalized.includes("fusarium") && normalized.includes("wilt")) ||
           (normalized.includes("fusarium") && !normalized.includes("dry"))) {
         return "Fusarium Wilt";
       }
-      
-      // Downy Mildew - check for "downy mildew" or just "downy" or "mildew" (but not powdery)
       if (normalized === "downy mildew" || 
           normalized === "downy" ||
           (normalized.includes("downy") && normalized.includes("mildew")) ||
           (normalized.includes("downy") && !normalized.includes("powdery")) ||
-          (normalized.includes("mildew") && !normalized.includes("powdery") && !normalized.includes("powdery"))) {
+          (normalized.includes("mildew") && !normalized.includes("powdery"))) {
         return "Downy Mildew";
       }
       
-      // If no match found, log in development for debugging
-      if (process.env.NODE_ENV === 'development') {
-        console.debug('[Disease Distribution] Unmatched disease name:', diseaseName, 'normalized:', normalized);
-      }
-      
-      // Return null if no match (will be excluded from chart)
       return null;
     };
     
     // Aggregate counts for each disease type from leaf_disease_scans
-    // This processes all leaf disease scans and groups them by disease type
+    // Process all leaf disease scans and group them by disease_detected
     // Real-time updates: When new scans are added, filteredScans updates, triggering recalculation
-    let processedCount = 0;
-    let skippedCount = 0;
-    
     leafDiseaseScans.forEach((scan) => {
       try {
-        // Get disease_detected from leaf_disease_scans table
-        // Try multiple methods to ensure we get the disease value:
-        // 1. Use getAiPrediction helper (handles both disease_detected and ai_prediction fallback)
-        // 2. Direct access to disease_detected field as fallback
-        // 3. Check nested structures if needed
-        let diseaseDetected: string | null | undefined = null;
+        // Type-safe access: scan is narrowed to LeafDiseaseScan by type guard
+        // Access disease_detected directly from the typed scan
+        let diseaseDetected: string | null | undefined = scan.disease_detected;
         
-        // First try getAiPrediction helper
-        diseaseDetected = getAiPrediction(scan);
-        
-        // If getAiPrediction returns empty, try direct access to disease_detected field
-        // This handles cases where the scan object might have the field directly
-        if (!diseaseDetected || diseaseDetected.trim() === '') {
-          const scanExtended = scan as ExtendedScan;
-          // Try multiple possible field paths
-          diseaseDetected = scanExtended.disease_detected 
-            || scanExtended.ai_prediction 
-            || scanExtended.leaf_disease_scans?.disease_detected
-            || scanExtended.leaf_disease_scan?.disease_detected
-            || null;
+        // Fallback to getAiPrediction if disease_detected is empty
+        if (!diseaseDetected || (typeof diseaseDetected === 'string' && diseaseDetected.trim() === '')) {
+          diseaseDetected = getAiPrediction(scan);
         }
         
-        // Handle null/undefined/empty values - skip only if truly empty
+        // Skip if still empty or null/undefined
         if (!diseaseDetected || (typeof diseaseDetected === 'string' && diseaseDetected.trim() === '')) {
-          skippedCount++;
-          if (process.env.NODE_ENV === 'development') {
-            const scanExtended = scan as ExtendedScan;
-            console.debug('[Disease Distribution] Skipping scan with empty disease_detected:', {
-              scanId: scan?.id,
-              scanType: scan?.scan_type,
-              hasDiseaseDetected: !!scanExtended?.disease_detected,
-              hasAiPrediction: !!scanExtended?.ai_prediction,
-              scanKeys: scan ? Object.keys(scan) : []
-            });
-          }
           return;
         }
         
         const diseaseStr = String(diseaseDetected).trim();
-        
-        // Skip if empty after trimming
-        if (!diseaseStr) {
-          skippedCount++;
-          return;
-        }
+        if (!diseaseStr) return;
         
         // Normalize and match disease name
         const normalizedDisease = normalizeDiseaseName(diseaseStr);
         
         // Skip if disease name couldn't be normalized or is Unknown
         if (!normalizedDisease) {
-          skippedCount++;
-          if (process.env.NODE_ENV === 'development') {
-            console.debug('[Disease Distribution] Skipping scan with unmatched disease name:', {
-              scanId: scan?.id,
-              originalDisease: diseaseStr,
-              normalized: diseaseStr.toLowerCase()
-            });
-          }
           return;
         }
         
         // Increment count for matched disease type
-        // This ensures each disease type is counted correctly for the distribution chart
         counts.set(normalizedDisease, (counts.get(normalizedDisease) || 0) + 1);
-        processedCount++;
       } catch (error) {
         // Skip on error - don't count invalid scans
-        skippedCount++;
         if (process.env.NODE_ENV === 'development') {
-          const scanExtended = scan as ExtendedScan;
           console.debug('[Disease Distribution] Error processing scan:', error, {
             scanId: scan?.id,
-            scanType: scan?.scan_type,
-            hasDiseaseDetected: !!scanExtended?.disease_detected,
-            hasAiPrediction: !!scanExtended?.ai_prediction,
-            errorMessage: error instanceof Error ? error.message : String(error)
+            scanType: scan?.scan_type
           });
         }
       }
     });
     
-    // Debug: Log aggregation results in development
-    if (process.env.NODE_ENV === 'development') {
-      console.debug('[Disease Distribution] Aggregation summary:', {
-        totalLeafScans: leafDiseaseScans.length,
-        processed: processedCount,
-        skipped: skippedCount,
-        counts: Object.fromEntries(counts)
-      });
-    }
-    
     // Return in specific order with all items (even if 0), excluding Unknown
     // This ensures the chart always shows all disease types even if they have 0 counts
     // Real-time update flow:
-    // 1. New scan added → DataContext updates scans state via Supabase Realtime
+    // 1. New scan added → DataContext updates scans state via Supabase Realtime (INSERT/UPDATE)
     // 2. allValidScans recalculates (excludes only Unknown)
-    // 3. filteredScans recalculates (applies date filter, uses date portion comparison for "daily")
+    // 3. filteredScans recalculates (applies date filter using UTC timestamps)
     // 4. diseaseDistribution recalculates → Chart re-renders with new data
-    const result = diseaseTypes.map((name) => ({
+    return diseaseTypes.map((name) => ({
       name,
       value: counts.get(name) || 0,
     }));
-    
-    // Debug: Log final distribution in development
-    if (process.env.NODE_ENV === 'development') {
-      console.debug('[Disease Distribution] Final distribution:', result, {
-        totalScans: leafDiseaseScans.length,
-        range: range,
-        timestamp: new Date().toISOString()
-      });
-    }
-    
-    return result;
-  }, [filteredScans, range]);
+  }, [filteredScans]);
 
   // Fruit Ripeness Distribution - Updates in real-time via filteredScans dependency
-  // filteredScans uses allValidScans which updates automatically when new scans are added
-  // For "today" filter, filteredScans correctly compares date portions to include all scans from today
-  // This ensures new scans added today are immediately reflected in the chart
+  // Uses UTC timestamps directly from Supabase (no timezone conversion)
+  // Real-time updates: When new scans are added/updated, filteredScans updates → distribution recalculates → chart re-renders
   const ripenessDistribution = useMemo((): DistributionDatum[] => {
     const counts = new Map<string, number>();
     
@@ -1713,108 +1732,86 @@ export default function ReportsPage() {
       }));
     }
     
-    // Filter for fruit ripeness scans only from fruit_ripeness_scans table
-    // Only count scans with scan_type === "fruit_maturity" (data from fruit_ripeness_scans table)
-    filteredScans
-      .filter((scan) => {
-        // Ensure scan exists and has required properties
-        if (!scan || !scan.id) return false;
+    // Filter for fruit ripeness scans only from fruit_ripeness_scans table using type guard
+    // Type-safe filtering ensures we only process fruit ripeness scans
+    const fruitRipenessScans = filteredScans.filter(isFruitRipenessScan);
+    
+    // Aggregate counts for each ripeness stage from fruit_ripeness_scans
+    // Process all fruit ripeness scans and group them by ripeness_stage
+    // Real-time updates: When new scans are added, filteredScans updates, triggering recalculation
+    fruitRipenessScans.forEach((scan) => {
+      try {
+        // Type-safe access: scan is narrowed to FruitRipenessScan by type guard
+        // Access ripeness_stage directly from the typed scan
+        let ripenessStage: string | null | undefined = scan.ripeness_stage;
         
-        // Explicitly check for fruit_maturity type - ensures we only count from fruit_ripeness_scans
-        if (!scan.scan_type) return false;
-        
-        return scan.scan_type === "fruit_maturity";
-      })
-      .forEach((scan) => {
-        try {
-          // Get ripeness_stage directly from fruit_ripeness_scans table
-          // Use getAiPrediction helper which returns ripeness_stage for fruit scans
-          let prediction = getAiPrediction(scan);
-          
-          // If getAiPrediction returns empty, try direct access
-          if (!prediction || prediction.trim() === '') {
-            const scanExtended = scan as ExtendedScan;
-            // Try multiple possible field paths
-            prediction = scanExtended.ripeness_stage 
-              || scanExtended.ai_prediction 
-              || scanExtended.fruit_ripeness_scans?.ripeness_stage
-              || scanExtended.fruit_ripeness_scan?.ripeness_stage
-              || '';
-          }
-          
-          const predictionStr = String(prediction).trim();
-          
-          // Skip empty predictions and Unknown results
-          if (!predictionStr || predictionStr === 'Unknown' || predictionStr.toLowerCase() === 'unknown') {
-            if (process.env.NODE_ENV === 'development') {
-              const scanExtended = scan as ExtendedScan;
-              console.debug('[Ripeness Distribution] Skipping scan with empty/unknown ripeness_stage:', {
-                scanId: scan?.id,
-                scanType: scan?.scan_type,
-                hasRipenessStage: !!scanExtended?.ripeness_stage,
-                hasAiPrediction: !!scanExtended?.ai_prediction
-              });
-            }
-            return;
-          }
-          
-          // Normalize prediction for matching (case-insensitive)
-          const normalized = predictionStr.toLowerCase();
-          
-          // Exact or partial matching with priority (check longer matches first)
-          if (normalized === "overmature" || normalized.includes("overmature")) {
-            counts.set("Overmature", (counts.get("Overmature") || 0) + 1);
-          } else if (normalized === "overripe" || normalized.includes("overripe")) {
-            counts.set("Overripe", (counts.get("Overripe") || 0) + 1);
-          } else if (normalized === "immature" || normalized.includes("immature")) {
-            counts.set("Immature", (counts.get("Immature") || 0) + 1);
-          } else if (normalized === "mature" || (normalized.includes("mature") && !normalized.includes("over"))) {
-            counts.set("Mature", (counts.get("Mature") || 0) + 1);
-          } else {
-            // Log unmatched ripeness stages in development
-            if (process.env.NODE_ENV === 'development') {
-              console.debug('[Ripeness Distribution] Unmatched ripeness stage:', {
-                scanId: scan?.id,
-                originalRipeness: predictionStr,
-                normalized: normalized
-              });
-            }
-          }
-          // Unknown cases are now skipped
-        } catch (error) {
-          // Skip on error - don't count invalid scans
-          if (process.env.NODE_ENV === 'development') {
-            console.debug('[Ripeness Distribution] Error processing scan:', error, {
-              scanId: scan?.id,
-              scanType: scan?.scan_type,
-              errorMessage: error instanceof Error ? error.message : String(error)
-            });
-          }
+        // Fallback to getAiPrediction if ripeness_stage is empty
+        if (!ripenessStage || (typeof ripenessStage === 'string' && ripenessStage.trim() === '')) {
+          ripenessStage = getAiPrediction(scan);
         }
-      });
-
+        
+        // Skip if still empty or null/undefined
+        if (!ripenessStage || (typeof ripenessStage === 'string' && ripenessStage.trim() === '')) {
+          return;
+        }
+        
+        const predictionStr = String(ripenessStage).trim();
+        
+        // Skip empty predictions and Unknown results (case-insensitive)
+        if (!predictionStr || 
+            predictionStr.toLowerCase() === 'unknown' || 
+            predictionStr.toLowerCase() === 'n/a' ||
+            predictionStr.toLowerCase() === 'null') {
+          return;
+        }
+        
+        // Normalize prediction for matching (case-insensitive)
+        const normalized = predictionStr.toLowerCase();
+        
+        // Exact or partial matching with priority (check longer matches first)
+        if (normalized === "overmature" || normalized.includes("overmature")) {
+          counts.set("Overmature", (counts.get("Overmature") || 0) + 1);
+        } else if (normalized === "overripe" || normalized.includes("overripe")) {
+          counts.set("Overripe", (counts.get("Overripe") || 0) + 1);
+        } else if (normalized === "immature" || normalized.includes("immature")) {
+          counts.set("Immature", (counts.get("Immature") || 0) + 1);
+        } else if (normalized === "mature" || (normalized.includes("mature") && !normalized.includes("over"))) {
+          counts.set("Mature", (counts.get("Mature") || 0) + 1);
+        }
+        // Unknown/unmatched cases are skipped
+      } catch (error) {
+        // Skip on error - don't count invalid scans
+        if (process.env.NODE_ENV === 'development') {
+          console.debug('[Ripeness Distribution] Error processing scan:', error, {
+            scanId: scan?.id,
+            scanType: scan?.scan_type
+          });
+        }
+      }
+    });
+    
     // Return in specific order with all items (even if 0), excluding Unknown
     // This ensures the chart always shows all ripeness types even if they have 0 counts
     // Real-time update flow:
-    // 1. New scan added → DataContext updates scans state via Supabase Realtime
+    // 1. New scan added → DataContext updates scans state via Supabase Realtime (INSERT/UPDATE)
     // 2. allValidScans recalculates (excludes only Unknown)
-    // 3. filteredScans recalculates (applies date filter, uses date portion comparison for "daily")
+    // 3. filteredScans recalculates (applies date filter using UTC timestamps)
     // 4. ripenessDistribution recalculates → Chart re-renders with new data
     return ripenessTypes.map((name) => ({
       name,
       value: counts.get(name) || 0,
     }));
-  }, [filteredScans, range]);
+  }, [filteredScans]);
 
   // Generate insights - after all data is calculated
   const insights = useMemo(() => {
-    return generateInsights(scans, validationHistory || [], appPerformance, diseaseDistribution, ripenessDistribution, monthlyMostScanned);
-  }, [scans, validationHistory, appPerformance, diseaseDistribution, ripenessDistribution, monthlyMostScanned]);
+    return generateInsights(safeScans, safeValidations || [], appPerformance, diseaseDistribution, ripenessDistribution, monthlyMostScanned);
+  }, [safeScans, safeValidations, appPerformance, diseaseDistribution, ripenessDistribution, monthlyMostScanned]);
 
   // Build monthly scans summary (Jan-Dec) for report export
   const monthlyScansSummary = useMemo(() => {
     const now = new Date();
-    const currentYear = now.getFullYear();
+    const currentYear = now.getUTCFullYear();
     const months: Array<{
       month: string;
       totalScans: number;
@@ -1825,22 +1822,30 @@ export default function ReportsPage() {
 
     // Generate all 12 months of current year
     for (let i = 0; i < 12; i++) {
-      const monthDate = new Date(currentYear, i, 1);
+      // Calculate month in UTC
+      const monthDate = new Date(Date.UTC(currentYear, i, 1));
       const monthName = monthDate.toLocaleDateString("en-US", { month: "short" });
-      const monthStart = new Date(currentYear, i, 1, 0, 0, 0, 0);
-      const monthEnd = new Date(currentYear, i + 1, 0, 23, 59, 59, 999);
+      
+      // Calculate month boundaries in UTC
+      const monthStart = new Date(Date.UTC(currentYear, i, 1, 0, 0, 0, 0));
+      const monthEnd = new Date(Date.UTC(currentYear, i + 1, 0, 23, 59, 59, 999));
 
       // Filter scans for this month
-      const monthScans = scans.filter((scan) => {
+      const monthScans = safeScans.filter((scan) => {
         if ((scan.status as string) === 'Unknown') return false;
         const result = getAiPrediction(scan);
         if (result === 'Unknown') return false;
         if (!scan?.created_at) return false;
         try {
-          const scanDate = parseTimestampToLocal(scan.created_at);
+          // Use UTC timestamp directly from Supabase
+          const scanDate = new Date(scan.created_at);
           if (isNaN(scanDate.getTime())) return false;
-          const scanTime = scanDate.getTime();
-          return scanTime >= monthStart.getTime() && scanTime <= monthEnd.getTime();
+          
+          // Compare in UTC (using date string for date comparison)
+          const scanDateStr = scanDate.toISOString().split("T")[0];
+          const monthStartStr = monthStart.toISOString().split("T")[0];
+          const monthEndStr = monthEnd.toISOString().split("T")[0];
+          return scanDateStr >= monthStartStr && scanDateStr <= monthEndStr;
         } catch {
           return false;
         }
@@ -1851,13 +1856,18 @@ export default function ReportsPage() {
       const successRate = totalScans > 0 ? (validatedScans / totalScans) * 100 : 0;
 
       // Calculate AI Accuracy for this month
-      const monthValidations = (validationHistory || []).filter((vh) => {
+      const monthValidations = (safeValidations || []).filter((vh) => {
         if (!vh?.validated_at) return false;
         try {
-          const validationDate = parseTimestampToLocal(vh.validated_at);
+          // Use UTC timestamp directly from Supabase
+          const validationDate = new Date(vh.validated_at);
           if (isNaN(validationDate.getTime())) return false;
-          const validationTime = validationDate.getTime();
-          return validationTime >= monthStart.getTime() && validationTime <= monthEnd.getTime();
+          
+          // Compare in UTC (using date string for date comparison)
+          const validationDateStr = validationDate.toISOString().split("T")[0];
+          const monthStartStr = monthStart.toISOString().split("T")[0];
+          const monthEndStr = monthEnd.toISOString().split("T")[0];
+          return validationDateStr >= monthStartStr && validationDateStr <= monthEndStr;
         } catch {
           return false;
         }
@@ -1878,7 +1888,7 @@ export default function ReportsPage() {
     }
 
     return months;
-  }, [scans, validationHistory]);
+  }, [safeScans, safeValidations]);
 
   // Calculate Success Rate for KPI
   const successRate = useMemo(() => {
@@ -1888,7 +1898,7 @@ export default function ReportsPage() {
 
   // Expert Validation Performance Summary
   const expertValidationSummary = useMemo(() => {
-    const filteredValidations = (validationHistory || []).filter((vh) => {
+    const filteredValidations = (safeValidations || []).filter((vh) => {
       if (!vh?.validated_at) return false;
       if (vh.scan) {
         if ((vh.scan.status as string) === 'Unknown') return false;
@@ -1896,12 +1906,13 @@ export default function ReportsPage() {
         if (result === 'Unknown') return false;
       }
       try {
-        const validationDate = parseTimestampToLocal(vh.validated_at);
+        // Use UTC timestamp directly from Supabase
+        const validationDate = new Date(vh.validated_at);
         if (isNaN(validationDate.getTime())) return false;
         const validationTime = validationDate.getTime();
         const rangeStartTime = rangeStart.getTime();
         let rangeEndTime = rangeEnd.getTime();
-        if (range === "weekly" || range === "monthly") {
+        if (range === "this_week" || range === "this_month") {
           rangeEndTime = new Date().getTime();
         }
         return validationTime >= rangeStartTime && validationTime <= rangeEndTime;
@@ -1918,7 +1929,7 @@ export default function ReportsPage() {
       aiIncorrect,
       total: aiCorrect + aiIncorrect,
     };
-  }, [validationHistory, rangeStart, rangeEnd, range]);
+  }, [safeValidations, rangeStart, rangeEnd, range]);
 
   // Generate CSV Export
   const generateCSV = useCallback(() => {
@@ -1929,7 +1940,7 @@ export default function ReportsPage() {
     rows.push('');
     rows.push(`Date Range,${dateRangeLabel}`);
     rows.push(`Generated By,Expert Dashboard`);
-    rows.push(`Generated On,${dayjs().tz(MANILA_TZ).format('YYYY-MM-DD HH:mm:ss')}`);
+    rows.push(`Generated On,${new Date().toISOString()}`);
     rows.push('');
 
     // Report Overview Table
@@ -2009,7 +2020,7 @@ export default function ReportsPage() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `bitterscan-performance-report-${dayjs().tz(MANILA_TZ).format('YYYY-MM-DD')}.csv`;
+    link.download = `bitterscan-performance-report-${new Date().toISOString().split('T')[0]}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -2039,7 +2050,7 @@ export default function ReportsPage() {
       return;
     }
 
-    const currentDate = dayjs().tz(MANILA_TZ).format('YYYY-MM-DD HH:mm:ss');
+    const currentDate = new Date().toISOString().replace('T', ' ').substring(0, 19);
     const reportDate = dateRangeLabel;
 
     const htmlContent = `
@@ -2326,7 +2337,9 @@ export default function ReportsPage() {
     insights,
   ]);
 
-  if (loading) {
+  const isLoading = loading || fallbackLoading;
+  
+  if (isLoading) {
     return (
       <AuthGuard>
         <AppShell>
@@ -2470,19 +2483,19 @@ export default function ReportsPage() {
               {
                 icon: TrendingUp,
                 label: "AI Accuracy Rate",
-                value: `${aiAccuracyRate}%`,
+                value: `${typeof aiAccuracyRate === 'number' ? aiAccuracyRate : 0}%`,
                 color: "text-green-600",
               },
               {
                 icon: Camera,
                 label: "Total Scans",
-                value: totalScansCount.toLocaleString("en-US"),
+                value: (typeof totalScansCount === 'number' ? totalScansCount : 0).toLocaleString("en-US"),
                 color: "text-green-600",
               },
               {
                 icon: CheckCircle2,
                 label: "Total Validated",
-                value: validatedScansCount.toLocaleString("en-US"),
+                value: (typeof validatedScansCount === 'number' ? validatedScansCount : 0).toLocaleString("en-US"),
                 color: "text-green-600",
               },
             ].map((metric, idx) => {
@@ -2525,9 +2538,9 @@ export default function ReportsPage() {
                         tick={{ fill: "#374151", fontWeight: 500 }}
                         tickLine={false}
                         axisLine={false}
-                        angle={range === "daily" ? 0 : -45}
-                        textAnchor={range === "daily" ? "middle" : "end"}
-                        height={range === "daily" ? 30 : 60}
+                        angle={range === "today" ? 0 : -45}
+                        textAnchor={range === "today" ? "middle" : "end"}
+                        height={range === "today" ? 30 : 60}
                       />
                       <YAxis 
                         stroke="#6B7280" 
@@ -2932,8 +2945,8 @@ export default function ReportsPage() {
                     {expertValidationPerformance.length > 0 ? (() => {
                       // Sort data based on range type
                       let sortedData = [...expertValidationPerformance];
-                      if (range === "monthly" || range === "custom") {
-                        // For monthly/custom, try to sort by month names if they are month abbreviations
+                      if (range === "this_month" || range === "custom") {
+                        // For this_month/custom, try to sort by month names if they are month abbreviations
                         const monthOrder = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
                         const isMonthFormat = sortedData.some(d => monthOrder.includes(d.month));
                         if (isMonthFormat) {
@@ -2968,10 +2981,10 @@ export default function ReportsPage() {
                                 tick={{ fill: "#374151", fontWeight: 600 }}
                                 tickLine={false}
                                 axisLine={false}
-                                interval={range === "daily" ? Math.max(0, Math.floor(expertValidationPerformance.length / 12)) : 0}
-                                angle={range === "monthly" && expertValidationPerformance.length > 7 ? -45 : 0}
-                                textAnchor={range === "monthly" && expertValidationPerformance.length > 7 ? "end" : "middle"}
-                                height={range === "monthly" && expertValidationPerformance.length > 7 ? 60 : 40}
+                                interval={range === "today" ? Math.max(0, Math.floor(expertValidationPerformance.length / 12)) : 0}
+                                angle={range === "this_month" && expertValidationPerformance.length > 7 ? -45 : 0}
+                                textAnchor={range === "this_month" && expertValidationPerformance.length > 7 ? "end" : "middle"}
+                                height={range === "this_month" && expertValidationPerformance.length > 7 ? 60 : 40}
                               />
                               <YAxis 
                                 stroke="#6B7280" 
@@ -3000,8 +3013,8 @@ export default function ReportsPage() {
                                   return [`${value}`, name];
                                 }}
                                 labelFormatter={(label: string) => {
-                                  if (range === "daily") return `Hour: ${label}`;
-                                  if (range === "weekly") return `Day: ${label}`;
+                                  if (range === "today") return `Hour: ${label}`;
+                                  if (range === "this_week") return `Day: ${label}`;
                                   return `Period: ${label}`;
                                 }}
                                 cursor={{ fill: "rgba(56, 142, 60, 0.1)" }}
@@ -3345,13 +3358,13 @@ export default function ReportsPage() {
                     let monthEnd: Date | null = null;
                     
                     for (let i = 11; i >= 0; i--) {
-                      const monthDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                      const monthDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
                       const calculatedMonthName = monthDate.toLocaleDateString("en-US", { month: "short" });
                       
                       if (calculatedMonthName === monthName) {
                         // Found the matching month - use exact same boundaries as buildAppPerformance
-                        monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1, 0, 0, 0, 0);
-                        monthEnd = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0, 23, 59, 59, 999);
+                        monthStart = new Date(Date.UTC(monthDate.getUTCFullYear(), monthDate.getUTCMonth(), 1, 0, 0, 0, 0));
+                        monthEnd = new Date(Date.UTC(monthDate.getUTCFullYear(), monthDate.getUTCMonth() + 1, 0, 23, 59, 59, 999));
                         break;
                       }
                     }
@@ -3370,12 +3383,16 @@ export default function ReportsPage() {
                       if (!vh?.validated_at) return false;
                       
                       try {
+                        // Use UTC timestamp directly from Supabase
                         const validationDate = new Date(vh.validated_at);
                         if (isNaN(validationDate.getTime())) return false;
                         
                         // Check if validation happened within the target month
-                        // Use same comparison logic as buildAppPerformance (>= and <=)
-                        return validationDate >= monthStart && validationDate <= monthEnd;
+                        // Use same comparison logic as buildAppPerformance (using date string for date comparison)
+                        const validationDateStr = validationDate.toISOString().split("T")[0];
+                        const monthStartStr = monthStart.toISOString().split("T")[0];
+                        const monthEndStr = monthEnd.toISOString().split("T")[0];
+                        return validationDateStr >= monthStartStr && validationDateStr <= monthEndStr;
                       } catch {
                         return false;
                       }
@@ -3609,13 +3626,9 @@ export default function ReportsPage() {
                             fontWeight: 500,
                             boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
                           }}
-                          formatter={(value: ValueType, name: string, item: TooltipPayload<ValueType, string>) => {
-                            // Handle value which can be number, string, or array
-                            const numValue = Array.isArray(value) 
-                              ? (typeof value[0] === 'number' ? value[0] : typeof value[0] === 'string' ? parseFloat(value[0]) || 0 : 0)
-                              : (typeof value === 'number' ? value : typeof value === 'string' ? parseFloat(value) || 0 : 0);
-                            
-                            const data = item.payload as MonthlyMostScannedDatum | undefined;
+                          formatter={((value: any, name: string, props: any) => {
+                            const data = props?.payload as MonthlyMostScannedDatum | undefined;
+                            const numValue = typeof value === 'number' ? value : (typeof value === 'string' ? parseFloat(value) || 0 : 0);
                             if (name === "leafDiseaseCount") {
                               return [
                                 `${numValue.toLocaleString("en-US")} scans`,
@@ -3629,7 +3642,7 @@ export default function ReportsPage() {
                               ];
                             }
                             return [`${numValue}`, name];
-                          }}
+                          }) as any}
                           labelFormatter={(label: string) => {
                             const monthData = sortedData.find(d => d.month === label);
                             if (!monthData) return `Month: ${label}`;
@@ -3646,20 +3659,24 @@ export default function ReportsPage() {
                           radius={[6, 6, 0, 0]}
                           animationBegin={0}
                           animationDuration={800}
-                          label={(props: BarLabelProps) => {
+                          label={(props: any) => {
                             // Access the data entry from props
-                            const entry = props.payload || sortedData[props.index];
+                            const x = typeof props.x === 'number' ? props.x : 0;
+                            const y = typeof props.y === 'number' ? props.y : 0;
+                            const width = typeof props.width === 'number' ? props.width : 0;
+                            const index = typeof props.index === 'number' ? props.index : 0;
+                            const entry = props.payload || sortedData[index];
                             if (!entry || !entry.mostScannedDisease || entry.leafDiseaseCount === 0) return null;
                             const labelText = entry.mostScannedDisease;
                             return (
                               <text
-                                x={props.x + props.width / 2}
-                                y={props.y - 8}
+                                x={x + width / 2}
+                                y={y - 8}
                                 fill="#374151"
                                 fontSize={10}
                                 fontWeight={600}
                                 textAnchor="middle"
-                                transform={`rotate(-45 ${props.x + props.width / 2} ${props.y - 8})`}
+                                transform={`rotate(-45 ${x + width / 2} ${y - 8})`}
                               >
                                 {labelText}
                               </text>
@@ -3685,19 +3702,23 @@ export default function ReportsPage() {
                           radius={[6, 6, 0, 0]}
                           animationBegin={0}
                           animationDuration={800}
-                          label={(props: BarLabelProps) => {
+                          label={(props: any) => {
                             // Access the data entry from props
-                            const entry = props.payload || sortedData[props.index];
+                            const x = typeof props.x === 'number' ? props.x : 0;
+                            const y = typeof props.y === 'number' ? props.y : 0;
+                            const width = typeof props.width === 'number' ? props.width : 0;
+                            const index = typeof props.index === 'number' ? props.index : 0;
+                            const entry = props.payload || sortedData[index];
                             if (!entry || !entry.mostScannedRipeness || entry.fruitRipenessCount === 0) return null;
                             return (
                               <text
-                                x={props.x + props.width / 2}
-                                y={props.y - 8}
+                                x={x + width / 2}
+                                y={y - 8}
                                 fill="#374151"
                                 fontSize={10}
                                 fontWeight={600}
                                 textAnchor="middle"
-                                transform={`rotate(-45 ${props.x + props.width / 2} ${props.y - 8})`}
+                                transform={`rotate(-45 ${x + width / 2} ${y - 8})`}
                               >
                                 {entry.mostScannedRipeness}
                               </text>
