@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useCallback, useEffect } from "react";
+import { useMemo, useState, useCallback, useEffect, type ReactNode } from "react";
 import AppShell from "@/components/AppShell";
 import AuthGuard from "@/components/AuthGuard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -67,6 +67,27 @@ type BarLabelProps = {
   height: number;
   index: number;
   payload?: MonthlyMostScannedDatum;
+};
+
+// Recharts Tooltip types (matching Recharts' internal types)
+type ValueType = number | string | ReadonlyArray<number | string>;
+type TooltipPayload<TValue extends ValueType, TName extends string | number> = {
+  type?: string;
+  color?: string;
+  formatter?: (value: TValue, name: TName, item: TooltipPayload<TValue, TName>, index: number, payload: ReadonlyArray<TooltipPayload<TValue, TName>>) => [ReactNode, TName] | ReactNode;
+  name?: TName;
+  value?: TValue;
+  unit?: ReactNode;
+  fill?: string;
+  dataKey?: string | number | ((data: any) => any);
+  nameKey?: string | number | ((data: any) => any);
+  payload?: any;
+  chartType?: string;
+  stroke?: string;
+  strokeDasharray?: string | number;
+  strokeWidth?: number | string;
+  className?: string;
+  hide?: boolean;
 };
 import { 
   parseTimestampToLocal, 
@@ -3588,21 +3609,26 @@ export default function ReportsPage() {
                             fontWeight: 500,
                             boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
                           }}
-                          formatter={(value: number | string | undefined, name: string, props: { payload?: MonthlyMostScannedDatum }) => {
-                            const data = props.payload as MonthlyMostScannedDatum | undefined;
+                          formatter={(value: ValueType, name: string, item: TooltipPayload<ValueType, string>) => {
+                            // Handle value which can be number, string, or array
+                            const numValue = Array.isArray(value) 
+                              ? (typeof value[0] === 'number' ? value[0] : typeof value[0] === 'string' ? parseFloat(value[0]) || 0 : 0)
+                              : (typeof value === 'number' ? value : typeof value === 'string' ? parseFloat(value) || 0 : 0);
+                            
+                            const data = item.payload as MonthlyMostScannedDatum | undefined;
                             if (name === "leafDiseaseCount") {
                               return [
-                                `${(value ?? 0).toLocaleString("en-US")} scans`,
+                                `${numValue.toLocaleString("en-US")} scans`,
                                 `Disease: ${data?.mostScannedDisease || 'N/A'}`
                               ];
                             }
                             if (name === "fruitRipenessCount") {
                               return [
-                                `${value.toLocaleString("en-US")} scans`,
+                                `${numValue.toLocaleString("en-US")} scans`,
                                 `Ripeness: ${data?.mostScannedRipeness || 'N/A'}`
                               ];
                             }
-                            return [`${value}`, name];
+                            return [`${numValue}`, name];
                           }}
                           labelFormatter={(label: string) => {
                             const monthData = sortedData.find(d => d.month === label);
