@@ -7,6 +7,7 @@ import { UsersRound, Camera, CheckCircle2, AlertCircle } from "lucide-react";
 import { Table, Thead, Tbody, Tr, Th, Td } from "./ui/table";
 import { useUser } from "./UserContext";
 import { useData } from "./DataContext";
+import { getAiPrediction, type Scan } from "../types";
 import Image from "next/image";
 
 // Format timestamp from database (UTC) to readable format with correct AM/PM
@@ -35,6 +36,7 @@ const formatDate = (dateString: string): string => {
 		return 'Invalid Date';
 	}
 };
+
 
 // Memoized helper functions outside component
 const formatScanType = (type: string) => {
@@ -120,9 +122,21 @@ function DashboardContent() {
 		return profile?.role || user?.user_metadata?.role || "Expert";
 	}, [profile?.role, user?.user_metadata?.role]);
 
+	// Filter out Unknown scans from all metrics and display
+	const validScans = useMemo(() => {
+		if (!scans || scans.length === 0) return [];
+		
+		return scans.filter(scan => {
+			if (scan.status === 'Unknown') return false;
+			const result = getAiPrediction(scan);
+			if (result === 'Unknown') return false;
+			return true;
+		});
+	}, [scans]);
+
 	const { totalScans, validatedScans, pendingValidations, recentScans } = useMemo(() => {
-		// Early return if scans is null/undefined or empty
-		if (!scans || scans.length === 0) {
+		// Early return if no valid scans
+		if (!validScans || validScans.length === 0) {
 			return { 
 				totalScans: 0, 
 				validatedScans: 0, 
@@ -131,20 +145,21 @@ function DashboardContent() {
 			};
 		}
 		
-		// Get latest values from database
-		const total = scans.length; // Total Scans
+		// Get latest values from database (excluding Unknown scans)
+		const total = validScans.length; // Total Scans
 		
 		// Count pending scans (status === 'Pending Validation')
-		const pending = scans.filter(scan => scan.status === 'Pending Validation').length;
+		const pending = validScans.filter(scan => scan.status === 'Pending Validation').length;
 		
 		// Calculate Validated: Count scans where status !== "Pending Validation"
 		// This includes scans with status "Validated", "Corrected", or any other non-pending status
-		const validated = scans.filter(scan => {
+		const validated = validScans.filter(scan => {
 			return scan.status && scan.status !== 'Pending Validation';
 		}).length;
 		
 		// Get recent scans sorted by date (most recent first), limit to 5
-		const recent = [...scans]
+		// All Unknown scans are already filtered out above
+		const recent = [...validScans]
 			.sort((a, b) => {
 				// Sort by created_at descending (newest first)
 				const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
@@ -159,7 +174,8 @@ function DashboardContent() {
 			pendingValidations: pending, 
 			recentScans: recent 
 		};
-	}, [scans]);
+	}, [validScans]);
+
 
 	if (loading) {
 		return <LoadingSkeleton />;

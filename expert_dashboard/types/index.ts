@@ -54,10 +54,21 @@ export function isFruitRipenessScan(scan: Scan): scan is FruitRipenessScan {
 
 // Helper to get ai_prediction from either scan type (for backward compatibility)
 export function getAiPrediction(scan: Scan): string {
-  if (isLeafDiseaseScan(scan)) {
-    return scan.disease_detected;
+  if (!scan) return '';
+  
+  // Check scan_type to determine which property to use
+  if (scan.scan_type === 'leaf_disease') {
+    // For leaf disease scans, check disease_detected first (from database), then fallback to ai_prediction (mapped field)
+    const scanAny = scan as any;
+    return scanAny.disease_detected || scanAny.ai_prediction || '';
+  } else if (scan.scan_type === 'fruit_maturity') {
+    // For fruit ripeness scans, check ripeness_stage first (from database), then fallback to ai_prediction (mapped field)
+    const scanAny = scan as any;
+    return scanAny.ripeness_stage || scanAny.ai_prediction || '';
   }
-  return scan.ripeness_stage;
+  
+  // Fallback: try to get ai_prediction if scan_type is not set or unknown
+  return (scan as any).ai_prediction || '';
 }
 
 // Helper to get solution/recommendation from either scan type

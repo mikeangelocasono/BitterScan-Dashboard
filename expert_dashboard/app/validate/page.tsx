@@ -291,6 +291,23 @@ export default function ValidatePage() {
 		}
 	}, [detailId, scans]);
 
+	// Set default dropdown value when a scan is selected
+	useEffect(() => {
+		if (detailId) {
+			const selectedScan = scans.find((scan: Scan) => scan.id.toString() === detailId);
+			if (selectedScan && !decision[detailId]) {
+				// Get the default value from database (disease_detected or ripeness_stage)
+				const defaultValue = getAiPrediction(selectedScan);
+				if (defaultValue) {
+					setDecision((prev: Record<string, string>) => ({
+						...prev,
+						[detailId]: defaultValue
+					}));
+				}
+			}
+		}
+	}, [detailId, scans, decision]);
+
 	// Prevent body scroll when modal is open and fix dialog sizing
 	useEffect(() => {
 		if (detailId) {
@@ -327,10 +344,31 @@ export default function ValidatePage() {
 	}, [decision]);
 
 	// Helper function to check if Confirm button should be disabled
-	// Confirm is disabled when a diagnosis is selected (expert wants to correct, not confirm)
+	// Confirm is enabled when:
+	// - No decision is selected (user can confirm with default AI prediction)
+	// - Decision matches the AI prediction (user confirms the default value)
+	// Confirm is disabled when:
+	// - Decision is different from AI prediction (user wants to correct, not confirm)
 	const isConfirmDisabled = useCallback((scanId: number): boolean => {
-		return hasDecision(scanId);
-	}, [hasDecision]);
+		const decisionValue = decision[scanId.toString()];
+		// If no decision selected, allow confirmation (will use AI prediction as default)
+		if (!decisionValue || decisionValue.trim() === '') {
+			return false;
+		}
+		
+		// Find the scan to get AI prediction
+		const selectedScan = scans.find((scan) => scan.id === scanId);
+		if (!selectedScan) {
+			return true; // Disable if scan not found
+		}
+		
+		// Get AI prediction (default value)
+		const aiPrediction = getAiPrediction(selectedScan);
+		
+		// If decision matches AI prediction, allow confirmation
+		// If decision is different, disable confirmation (user should use Correct instead)
+		return decisionValue.trim() !== aiPrediction?.trim();
+	}, [decision, scans]);
 
 	/**
 	 * REAL-TIME VALIDATION: Mark scan as Confirmed or Corrected
@@ -702,7 +740,21 @@ export default function ValidatePage() {
 		
 		// Filter for pending validation scans only
 		// This automatically excludes scans that have been validated/corrected
-		const pendingScans = scans.filter(scan => scan.status === 'Pending Validation');
+		// Also exclude scans with status = 'Unknown' or result = 'Unknown' from display (but they're still counted in Total Scans)
+		const pendingScans = scans.filter(scan => {
+			// Runtime check for status to handle potential 'Unknown' status
+			const status = (scan as any).status as string;
+			// Exclude 'Unknown' status scans from display
+			if (status === 'Unknown') return false;
+			// Only show pending validation scans
+			if (status !== 'Pending Validation') return false;
+			
+			// Check for result = 'Unknown' (disease_detected or ripeness_stage)
+			const result = getAiPrediction(scan);
+			if (result === 'Unknown') return false;
+			
+			return true;
+		});
 		
 		// Early return if no pending scans
 		if (!pendingScans.length) return [];
@@ -740,14 +792,34 @@ export default function ValidatePage() {
 		const solution = getSolution(scan); // Gets solution or harvest_recommendation
 		const recommendedProducts = getRecommendedProducts(scan); // Gets recommendation (only for leaf scans)
 
-		// Format confidence as "Confidence: X%" (display exact value from database)
+		// Format confidence as "Confidence: X.XX%" (convert decimal to percentage with 2 decimal places)
+		// Formula: confidence (%) = confidence * 100
+		// Example: 0.835 → 83.50%
 		let formattedConfidence = null;
 		if (confidence !== null && confidence !== undefined) {
+			let confidenceValue: number;
+			
 			if (typeof confidence === 'number') {
-				formattedConfidence = `Confidence: ${confidence}%`;
+				confidenceValue = confidence;
 			} else {
-				formattedConfidence = `Confidence: ${String(confidence)}%`;
+				// Try to parse string to number
+				const parsedConfidence = parseFloat(String(confidence));
+				if (!isNaN(parsedConfidence)) {
+					confidenceValue = parsedConfidence;
+				} else {
+					formattedConfidence = 'Confidence: N/A';
+					return {
+						disease: disease || 'N/A',
+						confidence: formattedConfidence,
+						solution: solution || null,
+						recommendedProducts: recommendedProducts || null,
+					};
+				}
 			}
+			
+			// Convert decimal (0-1) to percentage (0-100) and format with 2 decimal places
+			const confidencePercentage = confidenceValue * 100;
+			formattedConfidence = `Confidence: ${confidencePercentage.toFixed(2)}%`;
 		} else {
 			formattedConfidence = 'Confidence: N/A';
 		}
@@ -816,7 +888,7 @@ export default function ValidatePage() {
 									setEndDate("");
 								}}
 							>
-								Daily
+								Today
 							</button>
 							<button 
 								className={`px-4 py-2 text-xs font-medium transition-all ${
@@ -831,7 +903,7 @@ export default function ValidatePage() {
 									setEndDate("");
 								}}
 							>
-								Weekly
+								This Week
 							</button>
 							<button 
 								className={`px-4 py-2 text-xs font-medium transition-all ${
@@ -846,7 +918,7 @@ export default function ValidatePage() {
 									setEndDate("");
 								}}
 							>
-								Monthly
+								This Month
 							</button>
 							<button 
 								className={`px-4 py-2 text-xs font-medium transition-all ${
@@ -1450,7 +1522,7 @@ export default function ValidatePage() {
 													}}
 													disabled={isConfirmDisabled(parseInt(detailId)) || processingScanId === parseInt(detailId)}
 													className="text-base font-semibold bg-[var(--primary)] text-white hover:bg-[var(--primary-600)] active:bg-[var(--primary-700)] disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg transition-all duration-200"
-													title={isConfirmDisabled(parseInt(detailId)) ? "Confirm is disabled when a diagnosis is selected. Use Correct instead." : "Confirm the AI prediction is correct"}
+													title={isConfirmDisabled(parseInt(detailId)) ? "Confirm is disabled when the selected value differs from the AI prediction. Use Correct instead." : "Confirm the AI prediction is correct"}
 												>
 													{processingScanId === parseInt(detailId) ? 'Processing...' : 'Confirm'}
 												</Button>

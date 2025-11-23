@@ -13,6 +13,7 @@ import { supabase } from "@/components/supabase";
 import { Loader2, AlertCircle, Trash2, X, Download } from "lucide-react";
 import { useUser } from "@/components/UserContext";
 import { useData } from "@/components/DataContext";
+import { getAiPrediction } from "@/types";
 import Image from "next/image";
 import { getScanImageUrlWithFallback } from "@/utils/imageUtils";
 
@@ -98,21 +99,43 @@ export default function HistoryPage() {
 		return { start: null, end: null };
 	}, [startDate, endDate]);
 
-	// Filter scans based on date range (for stats calculation)
+	// Filter scans to exclude only Unknown scans (no date filtering)
+	// This is used for Total Scans and Total Validated cards to show ALL scans
+	// Real-time updates will immediately reflect new scans regardless of date filter
+	const allValidScans = useMemo(() => {
+		if (!scans || scans.length === 0) return [];
+		
+		// Filter out Unknown scans only (no date filtering)
+		return scans.filter(scan => {
+			// Exclude scans with status = 'Unknown'
+			if (scan.status === 'Unknown') return false;
+			// Exclude scans with result = 'Unknown' (disease_detected or ripeness_stage)
+			const result = getAiPrediction(scan);
+			if (result === 'Unknown') return false;
+			return true;
+		});
+	}, [scans]);
+
+	// Filter scans based on date range (for displayed records list)
+	// This respects the selected date filter for the records table
 	const filteredScans = useMemo(() => {
+		if (!allValidScans || allValidScans.length === 0) return [];
+		
+		// If no filter is selected, return all valid scans
 		if (dateRangeType === 'none') {
-			return scans;
+			return allValidScans;
 		}
 		
 		const { start, end } = getDateRange(dateRangeType);
 		if (!start || !end) {
-			return scans;
+			return allValidScans;
 		}
 		
 		const startTime = start.getTime();
 		const endTime = end.getTime();
 		
-		return scans.filter(scan => {
+		// Apply date range filtering for the records list
+		return allValidScans.filter(scan => {
 			if (!scan.created_at) return false;
 			try {
 				const scanDate = new Date(scan.created_at);
@@ -123,34 +146,40 @@ export default function HistoryPage() {
 				return false;
 			}
 		});
-	}, [scans, dateRangeType, getDateRange]);
+	}, [allValidScans, dateRangeType, getDateRange]);
 
 	// Filter validation history based on date range
+	// This ensures the report only includes records that match the selected filter
 	const filtered = useMemo(() => {
+		// If no filter is selected, return all records
 		if (dateRangeType === 'none') {
 			return validationHistory;
 		}
 		
+		// Get the date range based on the selected filter type
 		const { start, end } = getDateRange(dateRangeType);
 		if (!start || !end) {
 			return validationHistory;
 		}
 		
+		// Convert dates to timestamps for comparison
 		const startTime = start.getTime();
 		const endTime = end.getTime();
 		
+		// Filter records by validated_at date to match the selected range
 		return validationHistory.filter(record => {
 			if (!record.validated_at) return false;
 			try {
 				const recordDate = new Date(record.validated_at);
 				if (isNaN(recordDate.getTime())) return false;
 				const recordTime = recordDate.getTime();
+				// Include records where validated_at is within the selected date range
 				return recordTime >= startTime && recordTime <= endTime;
 			} catch {
 				return false;
 			}
 		});
-	}, [validationHistory, dateRangeType, getDateRange]);
+	}, [validationHistory, dateRangeType, getDateRange, startDate, endDate]);
 
 	// Memoized helper functions to prevent recreation on every render
 	const formatScanType = useCallback((type: string) => {
@@ -301,16 +330,23 @@ export default function HistoryPage() {
 		}
 	}, [deleteIdx, filtered, user, refreshData, detailIdx]);
 
-	// Calculate statistics from filtered data (respects date range filters)
-	// Total Scans: Total number of scans in the filtered date range
-	const totalRecords = filteredScans.length;
+	// Calculate statistics from ALL scans (not filtered by date range)
+	// These update automatically when scans are added/updated via real-time subscriptions
+	// Total Scans: Total number of ALL valid scans (excluding only Unknown)
+	// Uses allValidScans to ensure new scans are immediately counted regardless of date filter
+	const totalRecords = useMemo(() => {
+		if (!allValidScans || allValidScans.length === 0) return 0;
+		return allValidScans.length;
+	}, [allValidScans]);
 	
-	// Total Validated: Count of all scans that are NOT "Pending Validation"
+	// Total Validated: Count of ALL scans that are NOT "Pending Validation"
 	// A scan is considered validated if its status is NOT "Pending Validation"
 	// This includes scans with status "Validated", "Confirmed", "Corrected", or any other non-pending status
+	// Uses allValidScans to ensure new validations are immediately counted regardless of date filter
 	const totalValidated = useMemo(() => {
-		return filteredScans.filter(scan => scan.status !== 'Pending Validation').length;
-	}, [filteredScans]);
+		if (!allValidScans || allValidScans.length === 0) return 0;
+		return allValidScans.filter(scan => scan.status !== 'Pending Validation').length;
+	}, [allValidScans]);
 	
 	// Validation Rate: Percentage of scans that have been validated
 	// Formula: (Total Validated Scans / Total Scans) × 100
@@ -341,6 +377,12 @@ export default function HistoryPage() {
 								<span>
 									{dateRangeType === 'custom' && startDate && endDate
 										? ` • Filtered: ${startDate} to ${endDate}`
+										: dateRangeType === 'daily'
+										? ` • Filtered: Today`
+										: dateRangeType === 'weekly'
+										? ` • Filtered: This Week`
+										: dateRangeType === 'monthly'
+										? ` • Filtered: This Month`
 										: ` • Filtered: ${dateRangeType.charAt(0).toUpperCase() + dateRangeType.slice(1)}`
 									}
 								</span>
@@ -402,7 +444,7 @@ export default function HistoryPage() {
 									setEndDate("");
 								}}
 							>
-								Daily
+								Today
 							</button>
 							<button 
 								className={`px-4 py-2 text-xs font-medium transition-all ${
@@ -416,7 +458,7 @@ export default function HistoryPage() {
 									setEndDate("");
 								}}
 							>
-								Weekly
+								This Week
 							</button>
 							<button 
 								className={`px-4 py-2 text-xs font-medium transition-all ${
@@ -430,7 +472,7 @@ export default function HistoryPage() {
 									setEndDate("");
 								}}
 							>
-								Monthly
+								This Month
 							</button>
 							<button 
 								className={`px-4 py-2 text-xs font-medium transition-all ${
@@ -495,40 +537,258 @@ export default function HistoryPage() {
 								<Button 
 									variant="outline" 
 									size="sm"
-									onClick={() => {
+									onClick={async () => {
 										try {
-											// CSV Headers matching table columns
+											const loadingToast = toast.loading('Fetching data from database...');
+											
+											// Get date range for filtering
+											const { start, end } = getDateRange(dateRangeType);
+											
+											// Build query to fetch validation_history directly from database
+											let query = supabase
+												.from('validation_history')
+												.select('*')
+												.order('validated_at', { ascending: false });
+											
+											// Apply date filter at database level
+											if (start && end) {
+												query = query
+													.gte('validated_at', start.toISOString())
+													.lte('validated_at', end.toISOString());
+											}
+											
+											const { data: records, error: fetchError } = await query;
+											
+											// Fetch related scan data, farmer profiles, and expert profiles separately
+											if (records && records.length > 0) {
+												const scanUuids = records.map(r => String(r.scan_id).trim()).filter(Boolean);
+												const farmerIds = new Set<string>();
+												const expertIds = new Set<string>();
+												
+												// Collect expert IDs
+												records.forEach((record: any) => {
+													if (record.expert_id) expertIds.add(record.expert_id);
+												});
+												
+												// Create a map of scan_uuid to scan data
+												const scanMap = new Map();
+												
+												if (scanUuids.length > 0) {
+													// Fetch from both scan tables (each table has different fields)
+													const [leafScansResponse, fruitScansResponse] = await Promise.all([
+														supabase.from('leaf_disease_scans').select('scan_uuid, farmer_id, expert_comment').in('scan_uuid', scanUuids),
+														supabase.from('fruit_ripeness_scans').select('scan_uuid, farmer_id, expert_comment').in('scan_uuid', scanUuids)
+													]);
+													
+													const leafScans = leafScansResponse.data || [];
+													const fruitScans = fruitScansResponse.data || [];
+													
+													// Process leaf disease scans - normalize UUIDs to lowercase for consistent matching
+													leafScans.forEach((scan: any) => {
+														if (scan && scan.scan_uuid) {
+															const normalizedUuid = String(scan.scan_uuid).trim().toLowerCase();
+															scanMap.set(normalizedUuid, { 
+																...scan, 
+																scan_type: 'leaf_disease',
+																farmer_id: scan.farmer_id 
+															});
+															if (scan.farmer_id) farmerIds.add(scan.farmer_id);
+														}
+													});
+													
+													// Process fruit ripeness scans - normalize UUIDs to lowercase for consistent matching
+													fruitScans.forEach((scan: any) => {
+														if (scan && scan.scan_uuid) {
+															const normalizedUuid = String(scan.scan_uuid).trim().toLowerCase();
+															scanMap.set(normalizedUuid, { 
+																...scan, 
+																scan_type: 'fruit_maturity',
+																farmer_id: scan.farmer_id 
+															});
+															if (scan.farmer_id) farmerIds.add(scan.farmer_id);
+														}
+													});
+													
+													// Attach scan data to records - normalize UUID to lowercase for matching
+													records.forEach((record: any) => {
+														const scanId = record.scan_id;
+														if (!scanId) {
+															record.scan = null;
+															return;
+														}
+														
+														// Normalize UUID to lowercase for consistent matching
+														const normalizedUuid = String(scanId).trim().toLowerCase();
+														const scan = scanMap.get(normalizedUuid);
+														
+														if (scan) {
+															record.scan = scan;
+														} else {
+															// If scan not found, try to determine scan_type from AI prediction
+															// Leaf diseases typically have specific names, fruit ripeness has stages
+															const aiPred = (record.ai_prediction || '').toLowerCase();
+															const isFruitRipeness = ['immature', 'mature', 'overmature', 'overripe'].some(stage => aiPred.includes(stage));
+															record.scan = {
+																scan_type: isFruitRipeness ? 'fruit_maturity' : 'leaf_disease',
+																farmer_id: null,
+																expert_comment: null
+															};
+														}
+													});
+												}
+												
+												// Fetch farmer and expert profiles from profiles table
+												// Use expert_name from validation_history table if available, otherwise fetch from profiles
+												const [farmerProfilesResponse, expertProfilesResponse] = await Promise.all([
+													farmerIds.size > 0 ? supabase.from('profiles').select('id, full_name, username, email').in('id', Array.from(farmerIds)) : Promise.resolve({ data: [], error: null }),
+													expertIds.size > 0 ? supabase.from('profiles').select('id, full_name, username, email').in('id', Array.from(expertIds)) : Promise.resolve({ data: [], error: null })
+												]);
+												
+												// Create maps for quick lookup - prioritize full_name, fallback to username
+												// Use normalized (lowercase) IDs for case-insensitive matching to ensure we find profiles even with case mismatches
+												const farmerMap = new Map<string, string>();
+												(farmerProfilesResponse.data || []).forEach((profile: any) => {
+													if (profile && profile.id) {
+														// Normalize ID to lowercase for consistent matching (UUIDs can have case variations)
+														const normalizedId = String(profile.id).trim().toLowerCase();
+														// Get farmer name: prioritize full_name, fallback to username
+														const farmerName = (profile.full_name && profile.full_name.trim()) 
+															|| (profile.username && profile.username.trim()) 
+															|| 'N/A';
+														// Store with normalized ID (primary key for lookups)
+														farmerMap.set(normalizedId, farmerName);
+														// Also store with original case as fallback
+														farmerMap.set(String(profile.id).trim(), farmerName);
+													}
+												});
+												
+												const expertMap = new Map<string, string>();
+												(expertProfilesResponse.data || []).forEach((profile: any) => {
+													if (profile && profile.id) {
+														// Normalize ID to lowercase for consistent matching
+														const normalizedId = String(profile.id).trim().toLowerCase();
+														const expertName = (profile.full_name && profile.full_name.trim()) 
+															|| (profile.username && profile.username.trim()) 
+															|| 'N/A';
+														// Store with normalized ID (primary key for lookups)
+														expertMap.set(normalizedId, expertName);
+														// Also store with original case as fallback
+														expertMap.set(String(profile.id).trim(), expertName);
+													}
+												});
+												
+												// Attach profile data to records - fetch farmer name from validation_history context
+												records.forEach((record: any) => {
+													const scan = record.scan as any;
+													
+													// Fetch farmer name from scan's farmer_id -> profiles table
+													// Normalize farmer_id for case-insensitive matching to ensure we find the profile
+													if (scan && scan.farmer_id) {
+														const normalizedFarmerId = String(scan.farmer_id).trim().toLowerCase();
+														// Try normalized ID first (most common case), then original ID as fallback
+														const farmerName = farmerMap.get(normalizedFarmerId) 
+															|| farmerMap.get(String(scan.farmer_id).trim())
+															|| 'N/A';
+														record.farmerName = farmerName;
+													} else {
+														record.farmerName = 'N/A';
+													}
+													
+													// Fetch expert name - use expert_name from validation_history if available, otherwise lookup from profiles
+													if (record.expert_name && record.expert_name.trim()) {
+														record.expertName = record.expert_name.trim();
+													} else if (record.expert_id) {
+														const normalizedExpertId = String(record.expert_id).trim().toLowerCase();
+														record.expertName = expertMap.get(normalizedExpertId) 
+															|| expertMap.get(String(record.expert_id).trim())
+															|| 'N/A';
+													} else {
+														record.expertName = 'N/A';
+													}
+													
+													// Ensure scan_type is set
+													if (!scan || !scan.scan_type) {
+														// Try to infer from AI prediction
+														const aiPred = (record.ai_prediction || '').toLowerCase();
+														const isFruitRipeness = ['immature', 'mature', 'overmature', 'overripe'].some(stage => aiPred.includes(stage));
+														if (!scan) {
+															record.scan = { scan_type: isFruitRipeness ? 'fruit_maturity' : 'leaf_disease' };
+														} else {
+															scan.scan_type = isFruitRipeness ? 'fruit_maturity' : 'leaf_disease';
+														}
+													}
+												});
+											}
+											
+											if (fetchError) {
+												toast.dismiss(loadingToast);
+												throw fetchError;
+											}
+											
+											if (!records || records.length === 0) {
+												toast.dismiss(loadingToast);
+												toast.error('No records found for the selected period');
+												return;
+											}
+											
+											// Filter out Unknown records
+											const validRecords = records.filter(record => {
+												// Exclude if scan has Unknown status
+												if (record.scan && (record.scan as any).status === 'Unknown') return false;
+												// Exclude if AI prediction is Unknown
+												if (record.ai_prediction === 'Unknown') return false;
+												// Exclude if expert validation is Unknown
+												if (record.expert_validation === 'Unknown') return false;
+												// Exclude if disease_detected or ripeness_stage is Unknown
+												const scan = record.scan as any;
+												if (scan) {
+													if (scan.disease_detected === 'Unknown' || scan.ripeness_stage === 'Unknown') return false;
+												}
+												return true;
+											});
+											
+											// CSV Headers - required fields as per requirements (Farmer Name excluded)
 											const headers = [
-												'Farmer Name',
-												'Farmer Email',
-												'Expert Name',
 												'Scan Type',
+												'Expert Name',
 												'AI Prediction',
 												'Expert Validation',
 												'Status',
-												'Validated At'
+												'Validated At',
+												'Expert Comment'
 											];
 
-											// Build CSV rows with proper escaping (use all filtered records, not just displayed)
-											const rows = filtered.map(record => {
-												const farmerName = record.scan?.farmer_profile?.full_name || record.scan?.farmer_profile?.username || 'Unknown';
-												const farmerEmail = record.scan?.farmer_profile?.email || record.scan?.farmer_id || 'N/A';
-												const expertName = record.expert_profile?.full_name || record.expert_profile?.username || 'Unknown Expert';
-												const scanType = record.scan ? formatScanType(record.scan.scan_type) : 'N/A';
+											// Build CSV rows with required fields (Farmer Name excluded)
+											const rows = validRecords.map(record => {
+												const scan = record.scan as any;
+												// Determine scan type - check scan object first, then try to infer from AI prediction
+												let scanType = 'N/A';
+												if (scan && scan.scan_type) {
+													scanType = scan.scan_type === 'leaf_disease' ? 'Leaf Disease' 
+														: scan.scan_type === 'fruit_maturity' ? 'Fruit Maturity' 
+														: 'N/A';
+												} else if (record.ai_prediction) {
+													// Try to infer from AI prediction
+													const aiPred = (record.ai_prediction || '').toLowerCase();
+													const isFruitRipeness = ['immature', 'mature', 'overmature', 'overripe'].some(stage => aiPred.includes(stage));
+													scanType = isFruitRipeness ? 'Fruit Maturity' : 'Leaf Disease';
+												}
+												
 												const aiPrediction = record.ai_prediction || 'N/A';
 												const expertValidation = record.expert_validation || 'N/A';
 												const status = record.status || 'N/A';
-												const validatedAt = formatDate(record.validated_at);
+												const validatedAt = record.validated_at ? formatDate(record.validated_at) : 'N/A';
+												const expertComment = scan?.expert_comment || record.expert_comment || 'N/A';
+												const expertName = (record as any).expertName || 'N/A';
 
 												return [
-													escapeCSV(farmerName),
-													escapeCSV(farmerEmail),
-													escapeCSV(expertName),
 													escapeCSV(scanType),
+													escapeCSV(expertName),
 													escapeCSV(aiPrediction),
 													escapeCSV(expertValidation),
 													escapeCSV(status),
-													escapeCSV(validatedAt)
+													escapeCSV(validatedAt),
+													escapeCSV(expertComment)
 												].join(',');
 											});
 
@@ -546,7 +806,9 @@ export default function HistoryPage() {
 											a.click();
 											document.body.removeChild(a);
 											URL.revokeObjectURL(url);
-											toast.success(`CSV exported (${filtered.length} records)`);
+											
+											toast.dismiss(loadingToast);
+											toast.success(`CSV exported (${validRecords.length} records)`);
 										} catch (error: unknown) {
 											if (process.env.NODE_ENV === 'development') {
 												console.error('Error exporting CSV:', error);
@@ -561,36 +823,402 @@ export default function HistoryPage() {
 								</Button>
 								<Button 
 									size="sm"
-									onClick={() => {
-										// Temporarily show all records for printing
-										const wasShowAll = showAll;
-										if (!wasShowAll && filtered.length > 5) {
-											setShowAll(true);
-											// Wait for React to re-render with all records
-											setTimeout(() => {
-												// Add print-specific class to body
-												document.body.classList.add('printing');
-												window.print();
+									onClick={async () => {
+										try {
+											const loadingToast = toast.loading('Generating PDF...');
+											
+											// Get date range for filtering
+											const { start, end } = getDateRange(dateRangeType);
+											
+											// Build query to fetch validation_history directly from database
+											let query = supabase
+												.from('validation_history')
+												.select('*')
+												.order('validated_at', { ascending: false });
+											
+											// Apply date filter at database level
+											if (start && end) {
+												query = query
+													.gte('validated_at', start.toISOString())
+													.lte('validated_at', end.toISOString());
+											}
+											
+											const { data: records, error: fetchError } = await query;
+											
+											// Fetch related scan data, farmer profiles, and expert profiles separately
+											if (records && records.length > 0) {
+												const scanUuids = records.map(r => String(r.scan_id).trim()).filter(Boolean);
+												const farmerIds = new Set<string>();
+												const expertIds = new Set<string>();
 												
-												// Remove class and restore state after print dialog closes
-												setTimeout(() => {
-													document.body.classList.remove('printing');
-													setShowAll(wasShowAll);
-												}, 1000);
-											}, 200);
-										} else {
-											// Already showing all or less than 5 records
-											document.body.classList.add('printing');
-											window.print();
-											setTimeout(() => {
-												document.body.classList.remove('printing');
-											}, 1000);
+												// Collect expert IDs
+												records.forEach((record: any) => {
+													if (record.expert_id) expertIds.add(record.expert_id);
+												});
+												
+												// Create a map of scan_uuid to scan data
+												const scanMap = new Map();
+												
+												if (scanUuids.length > 0) {
+													// Fetch from both scan tables (each table has different fields)
+													const [leafScansResponse, fruitScansResponse] = await Promise.all([
+														supabase.from('leaf_disease_scans').select('scan_uuid, farmer_id, expert_comment').in('scan_uuid', scanUuids),
+														supabase.from('fruit_ripeness_scans').select('scan_uuid, farmer_id, expert_comment').in('scan_uuid', scanUuids)
+													]);
+													
+													const leafScans = leafScansResponse.data || [];
+													const fruitScans = fruitScansResponse.data || [];
+													
+													// Process leaf disease scans - normalize UUIDs to lowercase for consistent matching
+													leafScans.forEach((scan: any) => {
+														if (scan && scan.scan_uuid) {
+															const normalizedUuid = String(scan.scan_uuid).trim().toLowerCase();
+															scanMap.set(normalizedUuid, { 
+																...scan, 
+																scan_type: 'leaf_disease',
+																farmer_id: scan.farmer_id 
+															});
+															if (scan.farmer_id) farmerIds.add(scan.farmer_id);
+														}
+													});
+													
+													// Process fruit ripeness scans - normalize UUIDs to lowercase for consistent matching
+													fruitScans.forEach((scan: any) => {
+														if (scan && scan.scan_uuid) {
+															const normalizedUuid = String(scan.scan_uuid).trim().toLowerCase();
+															scanMap.set(normalizedUuid, { 
+																...scan, 
+																scan_type: 'fruit_maturity',
+																farmer_id: scan.farmer_id 
+															});
+															if (scan.farmer_id) farmerIds.add(scan.farmer_id);
+														}
+													});
+													
+													// Attach scan data to records - normalize UUID to lowercase for matching
+													records.forEach((record: any) => {
+														const scanId = record.scan_id;
+														if (!scanId) {
+															record.scan = null;
+															return;
+														}
+														
+														// Normalize UUID to lowercase for consistent matching
+														const normalizedUuid = String(scanId).trim().toLowerCase();
+														const scan = scanMap.get(normalizedUuid);
+														
+														if (scan) {
+															record.scan = scan;
+														} else {
+															// If scan not found, try to determine scan_type from AI prediction
+															// Leaf diseases typically have specific names, fruit ripeness has stages
+															const aiPred = (record.ai_prediction || '').toLowerCase();
+															const isFruitRipeness = ['immature', 'mature', 'overmature', 'overripe'].some(stage => aiPred.includes(stage));
+															record.scan = {
+																scan_type: isFruitRipeness ? 'fruit_maturity' : 'leaf_disease',
+																farmer_id: null,
+																expert_comment: null
+															};
+														}
+													});
+												}
+												
+												// Fetch farmer and expert profiles from profiles table
+												// Use expert_name from validation_history table if available, otherwise fetch from profiles
+												const [farmerProfilesResponse, expertProfilesResponse] = await Promise.all([
+													farmerIds.size > 0 ? supabase.from('profiles').select('id, full_name, username, email').in('id', Array.from(farmerIds)) : Promise.resolve({ data: [], error: null }),
+													expertIds.size > 0 ? supabase.from('profiles').select('id, full_name, username, email').in('id', Array.from(expertIds)) : Promise.resolve({ data: [], error: null })
+												]);
+												
+												// Create maps for quick lookup - prioritize full_name, fallback to username
+												// Use normalized (lowercase) IDs for case-insensitive matching to ensure we find profiles even with case mismatches
+												const farmerMap = new Map<string, string>();
+												(farmerProfilesResponse.data || []).forEach((profile: any) => {
+													if (profile && profile.id) {
+														// Normalize ID to lowercase for consistent matching (UUIDs can have case variations)
+														const normalizedId = String(profile.id).trim().toLowerCase();
+														// Get farmer name: prioritize full_name, fallback to username
+														const farmerName = (profile.full_name && profile.full_name.trim()) 
+															|| (profile.username && profile.username.trim()) 
+															|| 'N/A';
+														// Store with normalized ID (primary key for lookups)
+														farmerMap.set(normalizedId, farmerName);
+														// Also store with original case as fallback
+														farmerMap.set(String(profile.id).trim(), farmerName);
+													}
+												});
+												
+												const expertMap = new Map<string, string>();
+												(expertProfilesResponse.data || []).forEach((profile: any) => {
+													if (profile && profile.id) {
+														// Normalize ID to lowercase for consistent matching
+														const normalizedId = String(profile.id).trim().toLowerCase();
+														const expertName = (profile.full_name && profile.full_name.trim()) 
+															|| (profile.username && profile.username.trim()) 
+															|| 'N/A';
+														// Store with normalized ID (primary key for lookups)
+														expertMap.set(normalizedId, expertName);
+														// Also store with original case as fallback
+														expertMap.set(String(profile.id).trim(), expertName);
+													}
+												});
+												
+												// Attach profile data to records - fetch farmer name from validation_history context
+												records.forEach((record: any) => {
+													const scan = record.scan as any;
+													
+													// Fetch farmer name from scan's farmer_id -> profiles table
+													// Normalize farmer_id for case-insensitive matching to ensure we find the profile
+													if (scan && scan.farmer_id) {
+														const normalizedFarmerId = String(scan.farmer_id).trim().toLowerCase();
+														// Try normalized ID first (most common case), then original ID as fallback
+														const farmerName = farmerMap.get(normalizedFarmerId) 
+															|| farmerMap.get(String(scan.farmer_id).trim())
+															|| 'N/A';
+														record.farmerName = farmerName;
+													} else {
+														record.farmerName = 'N/A';
+													}
+													
+													// Fetch expert name - use expert_name from validation_history if available, otherwise lookup from profiles
+													if (record.expert_name && record.expert_name.trim()) {
+														record.expertName = record.expert_name.trim();
+													} else if (record.expert_id) {
+														const normalizedExpertId = String(record.expert_id).trim().toLowerCase();
+														record.expertName = expertMap.get(normalizedExpertId) 
+															|| expertMap.get(String(record.expert_id).trim())
+															|| 'N/A';
+													} else {
+														record.expertName = 'N/A';
+													}
+													
+													// Ensure scan_type is set
+													if (!scan || !scan.scan_type) {
+														// Try to infer from AI prediction
+														const aiPred = (record.ai_prediction || '').toLowerCase();
+														const isFruitRipeness = ['immature', 'mature', 'overmature', 'overripe'].some(stage => aiPred.includes(stage));
+														if (!scan) {
+															record.scan = { scan_type: isFruitRipeness ? 'fruit_maturity' : 'leaf_disease' };
+														} else {
+															scan.scan_type = isFruitRipeness ? 'fruit_maturity' : 'leaf_disease';
+														}
+													}
+												});
+											}
+											
+											if (fetchError) {
+												toast.dismiss(loadingToast);
+												throw fetchError;
+											}
+											
+											if (!records || records.length === 0) {
+												toast.dismiss(loadingToast);
+												toast.error('No records found for the selected period');
+												return;
+											}
+											
+											// Filter out Unknown records
+											const validRecords = records.filter(record => {
+												// Exclude if scan has Unknown status
+												if (record.scan && (record.scan as any).status === 'Unknown') return false;
+												// Exclude if AI prediction is Unknown
+												if (record.ai_prediction === 'Unknown') return false;
+												// Exclude if expert validation is Unknown
+												if (record.expert_validation === 'Unknown') return false;
+												// Exclude if disease_detected or ripeness_stage is Unknown
+												const scan = record.scan as any;
+												if (scan) {
+													if (scan.disease_detected === 'Unknown' || scan.ripeness_stage === 'Unknown') return false;
+												}
+												return true;
+											});
+											
+											// Create printable HTML content
+											const printWindow = window.open("", "_blank");
+											if (!printWindow) {
+												toast.dismiss(loadingToast);
+												alert("Please allow pop-ups to generate PDF");
+												return;
+											}
+											
+											const dateRangeLabel = dateRangeType === 'daily' ? 'Today' 
+												: dateRangeType === 'weekly' ? 'This Week'
+												: dateRangeType === 'monthly' ? 'This Month'
+												: start && end ? `${start.toLocaleDateString()} - ${end.toLocaleDateString()}`
+												: 'All Time';
+											
+											const startDateStr = start ? start.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : 'N/A';
+											const endDateStr = end ? end.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : 'N/A';
+											const generatedDate = new Date().toLocaleDateString("en-US", { 
+												month: "long", 
+												day: "numeric", 
+												year: "numeric",
+												hour: "2-digit",
+												minute: "2-digit"
+											});
+											
+											// Build table rows with required fields as per requirements (Farmer Name excluded)
+											const tableRows = validRecords.map(record => {
+												const scan = record.scan as any;
+												// Determine scan type - check scan object first, then try to infer from AI prediction
+												let scanType = 'N/A';
+												if (scan && scan.scan_type) {
+													scanType = scan.scan_type === 'leaf_disease' ? 'Leaf Disease' 
+														: scan.scan_type === 'fruit_maturity' ? 'Fruit Maturity' 
+														: 'N/A';
+												} else if (record.ai_prediction) {
+													// Try to infer from AI prediction
+													const aiPred = (record.ai_prediction || '').toLowerCase();
+													const isFruitRipeness = ['immature', 'mature', 'overmature', 'overripe'].some(stage => aiPred.includes(stage));
+													scanType = isFruitRipeness ? 'Fruit Maturity' : 'Leaf Disease';
+												}
+												
+												const aiPrediction = record.ai_prediction || 'N/A';
+												const expertValidation = record.expert_validation || 'N/A';
+												const status = record.status || 'N/A';
+												const validatedAt = record.validated_at ? formatDate(record.validated_at) : 'N/A';
+												const expertComment = scan?.expert_comment || record.expert_comment || 'N/A';
+												const expertName = (record as any).expertName || 'N/A';
+												
+												return `
+													<tr>
+														<td style="padding: 8px; border: 1px solid #ddd;">${scanType}</td>
+														<td style="padding: 8px; border: 1px solid #ddd;">${expertName}</td>
+														<td style="padding: 8px; border: 1px solid #ddd;">${aiPrediction}</td>
+														<td style="padding: 8px; border: 1px solid #ddd;">${expertValidation}</td>
+														<td style="padding: 8px; border: 1px solid #ddd;">${status}</td>
+														<td style="padding: 8px; border: 1px solid #ddd;">${validatedAt}</td>
+														<td style="padding: 8px; border: 1px solid #ddd;">${expertComment}</td>
+													</tr>
+												`;
+											}).join('');
+											
+											const htmlContent = `
+												<!DOCTYPE html>
+												<html>
+													<head>
+														<title>Validation History Report - ${dateRangeLabel}</title>
+														<meta charset="UTF-8">
+														<style>
+															* { margin: 0; padding: 0; box-sizing: border-box; }
+															body { 
+																font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+																padding: 40px 30px; 
+																color: #1a1a1a; 
+																background: #ffffff;
+																line-height: 1.6;
+															}
+															.header {
+																border-bottom: 3px solid #388E3C;
+																padding-bottom: 20px;
+																margin-bottom: 30px;
+															}
+															.header h1 {
+																color: #388E3C;
+																font-size: 32px;
+																font-weight: 700;
+																margin-bottom: 10px;
+															}
+															.report-info {
+																margin-bottom: 30px;
+																padding: 15px;
+																background: #f8f9fa;
+																border-radius: 6px;
+															}
+															.report-info p {
+																margin: 5px 0;
+																font-size: 14px;
+																color: #555;
+															}
+															table { 
+																width: 100%; 
+																border-collapse: collapse; 
+																margin: 25px 0;
+																page-break-inside: avoid;
+																box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+																font-size: 13px;
+															}
+															th { 
+																background: linear-gradient(135deg, #388E3C 0%, #2F7A33 100%);
+																color: #ffffff;
+																padding: 12px 10px;
+																text-align: left;
+																font-weight: 600;
+																font-size: 12px;
+																text-transform: uppercase;
+																letter-spacing: 0.5px;
+															}
+															td { 
+																border: 1px solid #e0e0e0;
+																padding: 10px;
+																color: #333;
+																font-size: 12px;
+																word-wrap: break-word;
+															}
+															tr:nth-child(even) { 
+																background-color: #f8f9fa;
+															}
+															@media print { 
+																body { margin: 0; padding: 20px 15px; }
+																@page { margin: 1.5cm; size: A4; }
+																table { font-size: 11px; }
+																th, td { padding: 8px 6px; }
+															}
+														</style>
+													</head>
+													<body>
+														<div class="header">
+															<h1>Validation History Report</h1>
+														</div>
+														<div class="report-info">
+															<p><strong>Report Period:</strong> ${dateRangeLabel}</p>
+															<p><strong>Date Range:</strong> ${startDateStr} to ${endDateStr}</p>
+															<p><strong>Generated On:</strong> ${generatedDate}</p>
+															<p><strong>Total Records:</strong> ${validRecords.length}</p>
+														</div>
+														<table>
+															<thead>
+																<tr>
+																	<th>Scan Type</th>
+																	<th>Expert Name</th>
+																	<th>AI Prediction</th>
+																	<th>Expert Validation</th>
+																	<th>Status</th>
+																	<th>Validated At</th>
+																	<th>Expert Comment</th>
+																</tr>
+															</thead>
+															<tbody>
+																${tableRows}
+															</tbody>
+														</table>
+														<script>
+															window.onload = function() {
+																setTimeout(function() {
+																	window.print();
+																}, 500);
+															};
+														</script>
+													</body>
+												</html>
+											`;
+											
+											printWindow.document.write(htmlContent);
+											printWindow.document.close();
+											
+											toast.dismiss(loadingToast);
+											toast.success("PDF generated successfully. Please use your browser's print dialog to save as PDF.");
+										} catch (error: unknown) {
+											if (process.env.NODE_ENV === 'development') {
+												console.error('Error generating PDF:', error);
+											}
+											toast.error('Failed to generate PDF');
 										}
 									}}
-									className="flex items-center gap-2"
+									className="flex items-center gap-2 text-white bg-[#388E3C] border-[#388E3C] hover:bg-[#2F7A33] hover:border-[#2F7A33] transition-colors"
 								>
 									<Download className="h-4 w-4" />
-									Generate Report
+									Export PDF
 								</Button>
 							</div>
 						</CardHeader>
@@ -861,9 +1489,23 @@ export default function HistoryPage() {
 																<div className="space-y-2">
 																	<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">AI Confidence</label>
 																	<p className="text-sm font-semibold text-blue-600">
-																		{typeof record.scan.confidence === 'number' 
-																			? `${record.scan.confidence}%` 
-																			: `${String(record.scan.confidence)}%`}
+																		{(() => {
+																			const confidence = record.scan.confidence;
+																			if (confidence === null || confidence === undefined) return 'N/A';
+																			
+																			// Convert to number if string
+																			const confidenceNum = typeof confidence === 'number' 
+																				? confidence 
+																				: parseFloat(String(confidence));
+																			
+																			// Check if valid number
+																			if (isNaN(confidenceNum)) return 'N/A';
+																			
+																			// Convert decimal (0-1) to percentage (0-100) and format to 2 decimal places
+																			const confidencePercent = (confidenceNum * 100).toFixed(2);
+																			
+																			return `${confidencePercent}%`;
+																		})()}
 																	</p>
 																</div>
 															)}

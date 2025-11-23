@@ -1,7 +1,7 @@
 "use client";
 
 import { ReactNode, createContext, useContext, useMemo, useState, useCallback, useEffect } from "react";
-import { Scan } from "../types";
+import { Scan, getAiPrediction } from "../types";
 import { useData } from "./DataContext";
 
 const READ_SCANS_STORAGE_KEY = "bs:read-scans";
@@ -104,7 +104,17 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 	const pendingScans = useMemo(() => {
 		if (!scans || scans.length === 0) return [];
 		// Filter for scans with status = 'Pending Validation' (exact match required)
-		const pending = scans.filter((scan) => scan.status === "Pending Validation");
+		// Also exclude scans with status = 'Unknown' or result = 'Unknown' to suppress notifications
+		const pending = scans.filter((scan) => {
+			// Exclude 'Unknown' status scans
+			if (scan.status === 'Unknown') return false;
+			// Only include pending validation scans
+			if (scan.status !== "Pending Validation") return false;
+			// Exclude scans with result = 'Unknown' (disease_detected or ripeness_stage)
+			const result = getAiPrediction(scan);
+			if (result === 'Unknown') return false;
+			return true;
+		});
 		// Sort by created_at descending (newest first) for consistent ordering
 		return pending.sort((a, b) => {
 			const dateA = new Date(a.created_at).getTime();
