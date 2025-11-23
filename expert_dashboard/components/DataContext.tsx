@@ -218,13 +218,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
 				);
 
 				// Helper function to transform profile data
-				type PartialProfile = {
-					id: string;
-					username: string;
-					full_name: string;
-					email: string;
-					profile_picture?: string | null;
-				};
 				const transformProfile = (profile: PartialProfile | null | undefined) => {
 					if (!profile) return undefined;
 					return {
