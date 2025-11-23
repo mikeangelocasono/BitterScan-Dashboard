@@ -59,6 +59,15 @@ type TooltipFormatterProps = {
   payload?: AppPerformanceDatum | MonthlyMostScannedDatum;
 };
 
+// Recharts Tooltip item type for formatter
+type TooltipItem = {
+  payload?: MonthlyMostScannedDatum;
+  value?: number;
+  name?: string;
+  color?: string;
+  dataKey?: string;
+};
+
 // Recharts Bar label props type
 type BarLabelProps = {
   x: number;
@@ -3588,8 +3597,8 @@ export default function ReportsPage() {
                             fontWeight: 500,
                             boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
                           }}
-                          formatter={(value: number | undefined, name: string, item: any) => {
-                            const data = item?.payload as MonthlyMostScannedDatum | undefined;
+                          formatter={(value: number | undefined, name: string, item: TooltipItem | undefined) => {
+                            const data = item?.payload;
                             if (!value || !data) return ["0", ""];
                             
                             if (name === "leafDiseaseCount") {
