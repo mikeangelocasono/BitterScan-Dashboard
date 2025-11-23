@@ -1568,35 +1568,42 @@ export default function HistoryPage() {
 											})()}
 
 											{/* Scan Details (Solution, Products) */}
-											{record.scan && isLeafDiseaseScan(record.scan) && (record.scan.solution || record.scan.recommendation || (record.scan as any).recommended_products) && (
-												<Card className="shadow-md border border-gray-200 bg-white">
-													<CardHeader className="pb-4 border-b border-gray-200 bg-gradient-to-r from-emerald-50/50 to-white">
-														<CardTitle className="text-lg font-semibold text-gray-900">
-															Treatment & Solutions
-														</CardTitle>
-													</CardHeader>
-													<CardContent className="pt-6 space-y-4">
-														{record.scan.solution && (
-															<div className="space-y-2">
-																<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">
-																	Treatment / Solution
-																</label>
-																<div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-																	<p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{record.scan.solution}</p>
+											{record.scan && isLeafDiseaseScan(record.scan) && (() => {
+												const leafScan = record.scan;
+												// Type-safe access: check both recommendation (type definition) and recommended_products (runtime data)
+												// Use Record type to safely check for optional runtime property
+												const scanWithOptionalProps = leafScan as typeof leafScan & Record<string, unknown>;
+												const recommendedProducts: string | undefined = leafScan.recommendation || (typeof scanWithOptionalProps.recommended_products === 'string' ? scanWithOptionalProps.recommended_products : undefined);
+												return (leafScan.solution || recommendedProducts) && (
+													<Card className="shadow-md border border-gray-200 bg-white">
+														<CardHeader className="pb-4 border-b border-gray-200 bg-gradient-to-r from-emerald-50/50 to-white">
+															<CardTitle className="text-lg font-semibold text-gray-900">
+																Treatment & Solutions
+															</CardTitle>
+														</CardHeader>
+														<CardContent className="pt-6 space-y-4">
+															{leafScan.solution && (
+																<div className="space-y-2">
+																	<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">
+																		Treatment / Solution
+																	</label>
+																	<div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+																		<p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{leafScan.solution}</p>
+																	</div>
 																</div>
-															</div>
-														)}
-														{(record.scan.recommendation || (record.scan as any).recommended_products) && (
-															<div className="space-y-2">
-																<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">Recommended Products</label>
-																<div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-																	<p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{record.scan.recommendation || (record.scan as any).recommended_products}</p>
+															)}
+															{recommendedProducts && (
+																<div className="space-y-2">
+																	<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">Recommended Products</label>
+																	<div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+																		<p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{recommendedProducts}</p>
+																	</div>
 																</div>
-															</div>
-														)}
-													</CardContent>
-												</Card>
-											)}
+															)}
+														</CardContent>
+													</Card>
+												);
+											})()}
 
 											{/* Expert Comment Card */}
 											<Card className="shadow-md border border-gray-200 bg-white">
