@@ -3597,9 +3597,9 @@ export default function ReportsPage() {
                             fontWeight: 500,
                             boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
                           }}
-                          formatter={(value: number | undefined, name: string, item: TooltipItem | undefined) => {
-                            const data = item?.payload;
-                            if (!value || !data) return ["0", ""];
+                          formatter={(value: number | undefined, name: string, item?: TooltipItem) => {
+                            const data = item?.payload as MonthlyMostScannedDatum | undefined;
+                            if (value === undefined || !data) return ["0", ""];
                             
                             if (name === "leafDiseaseCount") {
                               return [
