@@ -70,7 +70,8 @@ type TooltipItem = {
 
 // Recharts Bar label props type - compatible with Recharts Props type
 // value can be RenderableText (string | number | null | undefined | ReactNode) per Recharts
-type BarLabelProps = Record<string, unknown> & {
+// Using a flexible type that accepts Recharts' Props and our specific properties
+type BarLabelProps = {
   x?: number | string;
   y?: number | string;
   width?: number | string;
@@ -78,6 +79,7 @@ type BarLabelProps = Record<string, unknown> & {
   index?: number | string;
   payload?: MonthlyMostScannedDatum;
   value?: unknown; // RenderableText from Recharts (string | number | null | undefined | ReactNode)
+  [key: string]: unknown; // Allow additional Recharts properties via index signature
 };
 import { 
   parseTimestampToLocal, 
@@ -3717,24 +3719,25 @@ export default function ReportsPage() {
                           radius={[6, 6, 0, 0]}
                           animationBegin={0}
                           animationDuration={800}
-                          label={(props: BarLabelProps): JSX.Element | null => {
+                          label={(props: unknown): JSX.Element | null => {
+                            const p = props as BarLabelProps;
                             // Safely convert index to number with fallback
-                            const index: number = typeof props.index === 'number' 
-                              ? props.index 
-                              : (typeof props.index === 'string' ? Number(props.index) || 0 : 0);
-                            const entry = props.payload || sortedData[index];
+                            const index: number = typeof p.index === 'number' 
+                              ? p.index 
+                              : (typeof p.index === 'string' ? Number(p.index) || 0 : 0);
+                            const entry = p.payload || sortedData[index];
                             if (!entry || !entry.mostScannedDisease || entry.leafDiseaseCount === 0) return null;
 
                             // Safely convert x, y, and width to numbers with fallbacks
-                            const x: number = typeof props.x === 'number' 
-                              ? props.x 
-                              : (typeof props.x === 'string' ? Number(props.x) || 0 : 0);
-                            const y: number = typeof props.y === 'number' 
-                              ? props.y 
-                              : (typeof props.y === 'string' ? Number(props.y) || 0 : 0);
-                            const width: number = typeof props.width === 'number' 
-                              ? props.width 
-                              : (typeof props.width === 'string' ? Number(props.width) || 0 : 0);
+                            const x: number = typeof p.x === 'number' 
+                              ? p.x 
+                              : (typeof p.x === 'string' ? Number(p.x) || 0 : 0);
+                            const y: number = typeof p.y === 'number' 
+                              ? p.y 
+                              : (typeof p.y === 'string' ? Number(p.y) || 0 : 0);
+                            const width: number = typeof p.width === 'number' 
+                              ? p.width 
+                              : (typeof p.width === 'string' ? Number(p.width) || 0 : 0);
 
                             const labelText = entry.mostScannedDisease;
                             return (
@@ -3771,24 +3774,25 @@ export default function ReportsPage() {
                           radius={[6, 6, 0, 0]}
                           animationBegin={0}
                           animationDuration={800}
-                          label={(props: BarLabelProps): JSX.Element | null => {
+                          label={(props: unknown): JSX.Element | null => {
+                            const p = props as BarLabelProps;
                             // Safely convert index to number with fallback
-                            const index: number = typeof props.index === 'number' 
-                              ? props.index 
-                              : (typeof props.index === 'string' ? Number(props.index) || 0 : 0);
-                            const entry = props.payload || sortedData[index];
+                            const index: number = typeof p.index === 'number' 
+                              ? p.index 
+                              : (typeof p.index === 'string' ? Number(p.index) || 0 : 0);
+                            const entry = p.payload || sortedData[index];
                             if (!entry || !entry.mostScannedRipeness || entry.fruitRipenessCount === 0) return null;
 
                             // Safely convert x, y, and width to numbers with fallbacks
-                            const x: number = typeof props.x === 'number' 
-                              ? props.x 
-                              : (typeof props.x === 'string' ? Number(props.x) || 0 : 0);
-                            const y: number = typeof props.y === 'number' 
-                              ? props.y 
-                              : (typeof props.y === 'string' ? Number(props.y) || 0 : 0);
-                            const width: number = typeof props.width === 'number' 
-                              ? props.width 
-                              : (typeof props.width === 'string' ? Number(props.width) || 0 : 0);
+                            const x: number = typeof p.x === 'number' 
+                              ? p.x 
+                              : (typeof p.x === 'string' ? Number(p.x) || 0 : 0);
+                            const y: number = typeof p.y === 'number' 
+                              ? p.y 
+                              : (typeof p.y === 'string' ? Number(p.y) || 0 : 0);
+                            const width: number = typeof p.width === 'number' 
+                              ? p.width 
+                              : (typeof p.width === 'string' ? Number(p.width) || 0 : 0);
 
                             return (
                               <text
