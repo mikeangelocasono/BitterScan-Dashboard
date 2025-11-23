@@ -664,24 +664,25 @@ export default function HistoryPage() {
 													}
 													
 													// Ensure scan_type is set
-													if (!scan || !scan.scan_type) {
+													if (!scan) {
 														// Try to infer from AI prediction
 														const aiPred = (record.ai_prediction || '').toLowerCase();
 														const isFruitRipeness = ['immature', 'mature', 'overmature', 'overripe'].some(stage => aiPred.includes(stage));
-														if (!scan) {
-															record.scan = {
-																id: 0,
-																farmer_id: '',
-																scan_type: isFruitRipeness ? 'fruit_maturity' : 'leaf_disease',
-																image_url: '',
-																status: 'Pending Validation',
-																created_at: '',
-																updated_at: '',
-																scan_uuid: ''
-															} as Scan;
-														} else {
-															scan.scan_type = isFruitRipeness ? 'fruit_maturity' : 'leaf_disease';
-														}
+														record.scan = {
+															id: 0,
+															farmer_id: '',
+															scan_type: isFruitRipeness ? 'fruit_maturity' : 'leaf_disease',
+															image_url: '',
+															status: 'Pending Validation',
+															created_at: '',
+															updated_at: '',
+															scan_uuid: ''
+														} as Scan;
+													} else if (!scan.scan_type) {
+														// Scan exists but scan_type is missing - infer from AI prediction
+														const aiPred = (record.ai_prediction || '').toLowerCase();
+														const isFruitRipeness = ['immature', 'mature', 'overmature', 'overripe'].some(stage => aiPred.includes(stage));
+														(scan as Scan).scan_type = isFruitRipeness ? 'fruit_maturity' : 'leaf_disease';
 													}
 												});
 											}
@@ -959,24 +960,25 @@ export default function HistoryPage() {
 													}
 													
 													// Ensure scan_type is set
-													if (!scan || !scan.scan_type) {
+													if (!scan) {
 														// Try to infer from AI prediction
 														const aiPred = (record.ai_prediction || '').toLowerCase();
 														const isFruitRipeness = ['immature', 'mature', 'overmature', 'overripe'].some(stage => aiPred.includes(stage));
-														if (!scan) {
-															record.scan = {
-																id: 0,
-																farmer_id: '',
-																scan_type: isFruitRipeness ? 'fruit_maturity' : 'leaf_disease',
-																image_url: '',
-																status: 'Pending Validation',
-																created_at: '',
-																updated_at: '',
-																scan_uuid: ''
-															} as Scan;
-														} else {
-															scan.scan_type = isFruitRipeness ? 'fruit_maturity' : 'leaf_disease';
-														}
+														record.scan = {
+															id: 0,
+															farmer_id: '',
+															scan_type: isFruitRipeness ? 'fruit_maturity' : 'leaf_disease',
+															image_url: '',
+															status: 'Pending Validation',
+															created_at: '',
+															updated_at: '',
+															scan_uuid: ''
+														} as Scan;
+													} else if (!scan.scan_type) {
+														// Scan exists but scan_type is missing - infer from AI prediction
+														const aiPred = (record.ai_prediction || '').toLowerCase();
+														const isFruitRipeness = ['immature', 'mature', 'overmature', 'overripe'].some(stage => aiPred.includes(stage));
+														(scan as Scan).scan_type = isFruitRipeness ? 'fruit_maturity' : 'leaf_disease';
 													}
 												});
 											}
