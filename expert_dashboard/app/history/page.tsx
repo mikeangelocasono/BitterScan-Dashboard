@@ -1438,7 +1438,7 @@ export default function HistoryPage() {
 														</div>
 														<div className="space-y-2">
 															<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">Status</label>
-															<Badge color={getStatusColor(record.status)} className="mt-1">{record.status}</Badge>
+															<Badge color={getStatusBadgeColor(record.status)} className="mt-1">{record.status}</Badge>
 														</div>
 														<div className="space-y-2">
 															<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">Date & Time Validated</label>
