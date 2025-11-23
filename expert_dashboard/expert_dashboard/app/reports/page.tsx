@@ -26,6 +26,7 @@ import ChartCard from "@/components/charts/ChartCard";
 import { useData } from "@/components/DataContext";
 
 import type { Scan, ValidationHistory } from "@/types";
+import { getAiPrediction } from "@/types";
 
 type Range = "daily" | "weekly" | "monthly" | "custom";
 
@@ -473,10 +474,10 @@ export default function ReportsPage() {
     
     if (filteredScans && filteredScans.length > 0) {
       filteredScans
-        .filter((scan) => scan.scan_type === "leaf_disease" && scan.ai_prediction)
+        .filter((scan) => scan.scan_type === "leaf_disease" && getAiPrediction(scan))
         .forEach((scan) => {
           try {
-            const prediction = String(scan.ai_prediction).toLowerCase();
+            const prediction = String(getAiPrediction(scan)).toLowerCase();
             if (prediction.includes("cercospora")) counts.Cercospora += 1;
             else if (prediction.includes("downy") || prediction.includes("mildew")) counts["Downy Mildew"] += 1;
             else if (prediction.includes("fusarium") || prediction.includes("wilt")) counts["Fusarium Wilt"] += 1;
@@ -508,10 +509,10 @@ export default function ReportsPage() {
     
     if (filteredScans && filteredScans.length > 0) {
       filteredScans
-        .filter((scan) => scan.scan_type === "fruit_maturity" && scan.ai_prediction)
+        .filter((scan) => scan.scan_type === "fruit_maturity" && getAiPrediction(scan))
         .forEach((scan) => {
           try {
-            const prediction = String(scan.ai_prediction).toLowerCase();
+            const prediction = String(getAiPrediction(scan)).toLowerCase();
             if (prediction.includes("immature")) counts.Immature += 1;
             else if (prediction.includes("mature") && !prediction.includes("over")) counts.Mature += 1;
             else if (prediction.includes("overmature")) counts.Overmature += 1;
