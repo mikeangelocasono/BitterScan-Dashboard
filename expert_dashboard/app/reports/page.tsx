@@ -3718,7 +3718,7 @@ export default function ReportsPage() {
                           radius={[6, 6, 0, 0]}
                           animationBegin={0}
                           animationDuration={800}
-                          label={(props: BarLabelProps): JSX.Element | null => {
+                          label={(props: any): JSX.Element | null => {
                             // Safely convert index to number with fallback
                             const index: number = typeof props.index === 'number' 
                               ? props.index 
@@ -3772,7 +3772,7 @@ export default function ReportsPage() {
                           radius={[6, 6, 0, 0]}
                           animationBegin={0}
                           animationDuration={800}
-                          label={(props: BarLabelProps): JSX.Element | null => {
+                          label={(props: any): JSX.Element | null => {
                             // Safely convert index to number with fallback
                             const index: number = typeof props.index === 'number' 
                               ? props.index 
