@@ -13,7 +13,7 @@ import { supabase } from "@/components/supabase";
 import { Loader2, AlertCircle, Trash2, X, Download } from "lucide-react";
 import { useUser } from "@/components/UserContext";
 import { useData } from "@/components/DataContext";
-import { getAiPrediction, getSolution, getRecommendedProducts } from "@/types";
+import { getAiPrediction, getSolution, getRecommendedProducts, isLeafDiseaseScan, isFruitRipenessScan } from "@/types";
 import type { Scan } from "@/types";
 import Image from "next/image";
 import { getScanImageUrlWithFallback } from "@/utils/imageUtils";
@@ -700,17 +700,18 @@ export default function HistoryPage() {
 											
 											// Filter out Unknown records
 											const validRecords = records.filter((record: ValidationHistoryRecord) => {
-												// Exclude if scan has Unknown status (cast to string for runtime check)
-												if (record.scan && String(record.scan.status) === 'Unknown') return false;
+												// Exclude if scan has Unknown status
+												if (record.scan && record.scan.status === 'Unknown') return false;
 												// Exclude if AI prediction is Unknown
 												if (record.ai_prediction === 'Unknown') return false;
 												// Exclude if expert validation is Unknown
 												if (record.expert_validation === 'Unknown') return false;
-												// Exclude if disease_detected or ripeness_stage is Unknown
-												const scan = record.scan;
-												if (scan) {
-													if (scan.disease_detected === 'Unknown' || scan.ripeness_stage === 'Unknown') return false;
-												}
+											// Exclude if disease_detected or ripeness_stage is Unknown
+											const scan = record.scan;
+											if (scan) {
+												if (isLeafDiseaseScan(scan) && scan.disease_detected === 'Unknown') return false;
+												if (isFruitRipenessScan(scan) && scan.ripeness_stage === 'Unknown') return false;
+											}
 												return true;
 											});
 											
@@ -996,17 +997,18 @@ export default function HistoryPage() {
 											
 											// Filter out Unknown records
 											const validRecords = records.filter((record: ValidationHistoryRecord) => {
-												// Exclude if scan has Unknown status (cast to string for runtime check)
-												if (record.scan && String(record.scan.status) === 'Unknown') return false;
+												// Exclude if scan has Unknown status
+												if (record.scan && record.scan.status === 'Unknown') return false;
 												// Exclude if AI prediction is Unknown
 												if (record.ai_prediction === 'Unknown') return false;
 												// Exclude if expert validation is Unknown
 												if (record.expert_validation === 'Unknown') return false;
-												// Exclude if disease_detected or ripeness_stage is Unknown
-												const scan = record.scan;
-												if (scan) {
-													if (scan.disease_detected === 'Unknown' || scan.ripeness_stage === 'Unknown') return false;
-												}
+											// Exclude if disease_detected or ripeness_stage is Unknown
+											const scan = record.scan;
+											if (scan) {
+												if (isLeafDiseaseScan(scan) && scan.disease_detected === 'Unknown') return false;
+												if (isFruitRipenessScan(scan) && scan.ripeness_stage === 'Unknown') return false;
+											}
 												return true;
 											});
 											

@@ -8,7 +8,7 @@ interface BaseScan {
   farmer_id: string;
   scan_type: 'leaf_disease' | 'fruit_maturity';
   image_url: string;
-  status: 'Pending Validation' | 'Validated' | 'Corrected';
+  status: 'Pending Validation' | 'Validated' | 'Corrected' | 'Unknown';
   created_at: string;
   updated_at: string;
   scan_uuid: string;
@@ -117,7 +117,7 @@ export interface UserContextType {
 }
 
 export type ScanType = 'leaf_disease' | 'fruit_maturity';
-export type ScanStatus = 'Pending Validation' | 'Validated' | 'Corrected';
+export type ScanStatus = 'Pending Validation' | 'Validated' | 'Corrected' | 'Unknown';
 
 export interface ValidationHistory {
   id: number;
