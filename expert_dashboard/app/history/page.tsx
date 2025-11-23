@@ -680,7 +680,8 @@ export default function HistoryPage() {
 																scan_uuid: ''
 															} as Scan;
 														} else {
-															scan.scan_type = isFruitRipeness ? 'fruit_maturity' : 'leaf_disease';
+															const item = scan as Scan;
+															item.scan_type = isFruitRipeness ? 'fruit_maturity' : 'leaf_disease';
 														}
 													}
 												});
@@ -975,7 +976,8 @@ export default function HistoryPage() {
 																scan_uuid: ''
 															} as Scan;
 														} else {
-															scan.scan_type = isFruitRipeness ? 'fruit_maturity' : 'leaf_disease';
+															const item = scan as Scan;
+															item.scan_type = isFruitRipeness ? 'fruit_maturity' : 'leaf_disease';
 														}
 													}
 												});
