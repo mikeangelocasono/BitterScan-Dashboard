@@ -1,16 +1,34 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useUser } from "@/components/UserContext";
 
 export default function Home() {
   const router = useRouter();
-  const { user, profile, loading } = useUser();
+  const { user, profile, loading, sessionReady } = useUser();
+  const [forceRedirect, setForceRedirect] = useState(false);
+
+  // Master timeout: if page is stuck loading for more than 5s, force redirect to role-select
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      if (!sessionReady) {
+        console.warn('[Home] Forcing redirect to role-select after timeout');
+        setForceRedirect(true);
+      }
+    }, 5000);
+    return () => clearTimeout(timeout);
+  }, [sessionReady]);
 
   useEffect(() => {
-    // Wait for auth state to load
-    if (loading) return;
+    // Force redirect if timeout occurred
+    if (forceRedirect) {
+      router.replace('/role-select');
+      return;
+    }
+
+    // Wait for session to be fully ready (not just loading to be false)
+    if (!sessionReady) return;
 
     // If user is authenticated, redirect to their dashboard
     if (user && profile) {
@@ -26,7 +44,7 @@ export default function Home() {
       // No active session - go to role select
       router.replace('/role-select');
     }
-  }, [user, profile, loading, router]);
+  }, [user, profile, sessionReady, forceRedirect, router]);
 
   // Show loading state while checking authentication
   return (

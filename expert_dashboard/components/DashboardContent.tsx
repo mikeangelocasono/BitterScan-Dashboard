@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, memo } from "react";
+import { useMemo, memo, useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { motion } from "framer-motion";
 import { UsersRound, Camera, CheckCircle2, AlertCircle } from "lucide-react";
@@ -73,13 +73,24 @@ StatCard.displayName = "StatCard";
 function DashboardContent() {
 	const { user, profile, loading: userLoading, sessionReady } = useUser();
 	const { scans, totalUsers, loading: dataLoading, error } = useData();
+	const [forceRender, setForceRender] = useState(false);
+
+	// Master timeout: force render after 6 seconds to prevent infinite loading
+	useEffect(() => {
+		const timeout = setTimeout(() => {
+			if (!forceRender) {
+				console.warn('[DashboardContent] Forcing render after timeout');
+				setForceRender(true);
+			}
+		}, 6000);
+		return () => clearTimeout(timeout);
+	}, [forceRender]);
 
 	// Show loading state only during initial session resolution
-	// Once sessionReady=true OR we have scans data, render dashboard
+	// Once sessionReady=true OR we have scans data OR forceRender, render dashboard
 	// This prevents infinite loading spinner on page refresh
-	// Also allow rendering if data is loaded (scans array exists) even if dataLoading flag is stuck
 	const hasData = scans && scans.length >= 0; // scans array exists (even if empty)
-	const isLoading = !sessionReady && (userLoading || (dataLoading && !hasData));
+	const isLoading = !forceRender && !sessionReady && (userLoading || (dataLoading && !hasData));
 
 	// Memoize computed values
 	const displayName = useMemo(() => {
