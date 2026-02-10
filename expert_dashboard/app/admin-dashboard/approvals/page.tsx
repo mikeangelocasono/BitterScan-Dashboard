@@ -41,23 +41,8 @@ function ApprovalsContent() {
   const adminEmailHint = useMemo(() => (user?.email || '').toLowerCase().includes('admin'), [user?.email]);
   const isAdmin = useMemo(() => effectiveRole === "admin" || adminEmailHint, [effectiveRole, adminEmailHint]);
 
-  const ensureAdmin = useCallback(() => {
-    if (isAdmin) return true;
-    if (!guardNotifiedRef.current) {
-      guardNotifiedRef.current = true;
-      toast.error("Admin access only.");
-    }
-    router.replace("/dashboard");
-    return false;
-  }, [isAdmin, router]);
-
-  useEffect(() => {
-    if (userLoading) return;
-    ensureAdmin();
-  }, [userLoading, ensureAdmin]);
-
   const fetchUsers = useCallback(async () => {
-    if (!ensureAdmin()) return;
+    if (!isAdmin) return;
     if (isFetchingRef.current) return; // Prevent duplicate calls
     
     isFetchingRef.current = true;
@@ -69,7 +54,7 @@ function ApprovalsContent() {
       
       if (!token) {
         toast.error('Authentication required. Please log in again.');
-        router.replace('/login');
+        if (typeof window !== 'undefined') window.location.href = '/login';
         return;
       }
       
@@ -90,7 +75,7 @@ function ApprovalsContent() {
         // Check for auth errors
         if (res.status === 401 || res.status === 403) {
           toast.error('Session expired. Please log in again.');
-          router.replace('/login');
+          if (typeof window !== 'undefined') window.location.href = '/login';
           return;
         }
         
@@ -124,14 +109,24 @@ function ApprovalsContent() {
       setLoading(false);
       isFetchingRef.current = false;
     }
-  }, [ensureAdmin, router]);
+  }, [isAdmin]);
 
+  // Fetch users only when admin status is confirmed and not still loading
   useEffect(() => {
+    if (userLoading) return; // Wait for user context to load
+    if (!isAdmin) {
+      if (!guardNotifiedRef.current) {
+        guardNotifiedRef.current = true;
+        toast.error("Admin access only.");
+      }
+      router.replace("/dashboard");
+      return;
+    }
     fetchUsers();
-  }, [fetchUsers]);
+  }, [userLoading, isAdmin, fetchUsers, router]);
 
   const approveUser = async (userId: string) => {
-    if (!ensureAdmin()) return;
+    if (!isAdmin) return;
     if (processingId) return; // Prevent multiple simultaneous operations
     
     setProcessingId(userId);
@@ -142,7 +137,7 @@ function ApprovalsContent() {
       
       if (!token) {
         toast.error('Authentication required. Please log in again.');
-        router.replace('/login');
+        if (typeof window !== 'undefined') window.location.href = '/login';
         return;
       }
       
@@ -161,7 +156,7 @@ function ApprovalsContent() {
         // Check for auth errors
         if (res.status === 401 || res.status === 403) {
           toast.error('Session expired. Please log in again.');
-          router.replace('/login');
+          if (typeof window !== 'undefined') window.location.href = '/login';
           return;
         }
         
@@ -180,7 +175,7 @@ function ApprovalsContent() {
   };
 
   const rejectUser = async (userId: string) => {
-    if (!ensureAdmin()) return;
+    if (!isAdmin) return;
     if (processingId) return; // Prevent multiple simultaneous operations
     
     setProcessingId(userId);
@@ -191,7 +186,7 @@ function ApprovalsContent() {
       
       if (!token) {
         toast.error('Authentication required. Please log in again.');
-        router.replace('/login');
+        if (typeof window !== 'undefined') window.location.href = '/login';
         return;
       }
       
@@ -210,7 +205,7 @@ function ApprovalsContent() {
         // Check for auth errors
         if (res.status === 401 || res.status === 403) {
           toast.error('Session expired. Please log in again.');
-          router.replace('/login');
+          if (typeof window !== 'undefined') window.location.href = '/login';
           return;
         }
         
@@ -233,14 +228,15 @@ function ApprovalsContent() {
     return pendingUsers.filter((user) => user.role === roleFilter);
   }, [pendingUsers, roleFilter]);
 
-  if (loading || userLoading) {
+  // Only show full-page loading during initial auth check
+  if (userLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-[var(--background)]">
         <div className="text-center space-y-3">
           <Loader2 className="h-12 w-12 animate-spin text-[#388E3C] mx-auto" />
           <div>
-            <p className="text-gray-900 font-medium">Loading Approvals</p>
-            <p className="text-sm text-gray-500 mt-1">Fetching user data...</p>
+            <p className="text-gray-900 font-medium">Loading...</p>
+            <p className="text-sm text-gray-500 mt-1">Checking permissions...</p>
           </div>
         </div>
       </div>
@@ -266,9 +262,12 @@ function ApprovalsContent() {
   return (
     <div className="space-y-8 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900 tracking-tight mb-1">Account Approval</h1>
-          <p className="text-gray-600 text-sm">Review and approve new experts or farmers.</p>
+        <div className="flex items-center gap-3">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900 tracking-tight mb-1">Account Approval</h1>
+            <p className="text-gray-600 text-sm">Review and approve new experts or farmers.</p>
+          </div>
+          {loading && <Loader2 className="h-5 w-5 animate-spin text-[#388E3C]" />}
         </div>
       </div>
 

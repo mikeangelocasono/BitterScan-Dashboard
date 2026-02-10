@@ -4,7 +4,6 @@ import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { User, LogOut, ChevronDown } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useUser } from "./UserContext";
-import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
@@ -16,7 +15,6 @@ export default function AccountDropdown() {
 	const [showLogoutDialog, setShowLogoutDialog] = useState(false);
 	const dropdownRef = useRef<HTMLDivElement>(null);
 	const { user, profile, logout } = useUser();
-	const router = useRouter();
 	useEffect(() => {
 		const handleClickOutside = (event: MouseEvent) => {
 			if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -60,13 +58,11 @@ export default function AccountDropdown() {
 	const handleLogout = useCallback(async () => {
 		setShowLogoutDialog(false);
 		try {
-			await logout(); // Handles animation delay internally; AuthGuard shows overlay
-			// Explicitly redirect to home page after logout completes
-			router.replace("/role-select");
+			await logout(); // Handles session cleanup and redirect internally
 		} catch {
 			toast.error("Error logging out. Please try again.");
 		}
-	}, [logout, router]);
+	}, [logout]);
 
 	const handleCloseMenu = useCallback(() => {
 		setIsOpen(false);

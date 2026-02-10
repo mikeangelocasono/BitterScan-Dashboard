@@ -292,12 +292,17 @@ export function UserProvider({ children }: { children: ReactNode }) {
     setProfile(null);
     setSessionReady(false);
 
-    // Brief delay for the "Logging out..." animation
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    // Minimal delay for visual feedback then immediate redirect
+    await new Promise(resolve => setTimeout(resolve, 300));
 
-    // Reset loggingOut — AuthGuard will now redirect to login
+    // Reset loggingOut state
     setLoggingOut(false);
     loggingOutRef.current = false;
+    
+    // Immediate redirect to role-select page
+    if (typeof window !== 'undefined') {
+      window.location.href = '/role-select';
+    }
   }, []);
 
   useEffect(() => {

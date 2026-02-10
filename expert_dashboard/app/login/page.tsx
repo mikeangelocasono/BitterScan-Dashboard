@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, Suspense } from "react";
 import { supabase } from "@/components/supabase";
 import toast from "react-hot-toast";
-import { Mail, Lock, Eye, EyeOff, ArrowLeft } from "lucide-react";
+import { Mail, Lock, Eye, EyeOff, ArrowLeft, CheckCircle } from "lucide-react";
 import { mapSupabaseAuthError, validateEmail } from "@/utils/authErrors";
 import { useUser } from "@/components/UserContext";
 
@@ -481,8 +481,8 @@ function LoginPageContent() {
               >
                 {isRedirecting ? (
                   <>
-                    <div className="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    <span>Redirecting to Dashboard...</span>
+                    <CheckCircle className="h-5 w-5 text-white" />
+                    <span>Login Successful!</span>
                   </>
                 ) : (loading || loginInProgress.current) ? (
                   <>
@@ -497,7 +497,7 @@ function LoginPageContent() {
               {/* Redirect notification */}
               {isRedirecting && (
                 <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg flex items-center gap-3">
-                  <div className="h-6 w-6 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
+                  <CheckCircle className="h-6 w-6 text-green-600" />
                   <div>
                     <p className="text-sm font-semibold text-green-800">Login Successful!</p>
                     <p className="text-xs text-green-600">Redirecting to {redirectTarget?.includes('admin') ? 'Admin' : 'Expert'} Dashboard...</p>
