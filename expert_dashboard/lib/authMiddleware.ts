@@ -113,6 +113,123 @@ export async function verifyAdminAuth(request: NextRequest): Promise<AuthResult>
   }
 }
 
+export interface ExpertAuthResult {
+  authenticated: boolean;
+  isExpertOrAdmin: boolean;
+  isAdmin: boolean;
+  userId?: string;
+  email?: string;
+  role?: string;
+  error?: string;
+}
+
+/**
+ * Verify authentication for expert or admin access.
+ * Allows both experts and admins to access the resource.
+ */
+export async function verifyExpertOrAdminAuth(request: NextRequest): Promise<ExpertAuthResult> {
+  try {
+    // Get authorization header
+    const authHeader = request.headers.get('authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return {
+        authenticated: false,
+        isExpertOrAdmin: false,
+        isAdmin: false,
+        error: 'Missing or invalid authorization header',
+      };
+    }
+
+    // Extract JWT token
+    const token = authHeader.substring(7);
+    if (!token) {
+      return {
+        authenticated: false,
+        isExpertOrAdmin: false,
+        isAdmin: false,
+        error: 'No token provided',
+      };
+    }
+
+    // Verify token with Supabase
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return {
+        authenticated: false,
+        isExpertOrAdmin: false,
+        isAdmin: false,
+        error: 'Server configuration error',
+      };
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+    // Verify the JWT token
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+
+    if (authError || !user) {
+      return {
+        authenticated: false,
+        isExpertOrAdmin: false,
+        isAdmin: false,
+        error: 'Invalid or expired token',
+      };
+    }
+
+    // Check if user is expert or admin from profile
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role, status')
+      .eq('id', user.id)
+      .single();
+
+    const profileRole = profile?.role;
+    const isApproved = profile?.status === 'approved';
+    const metadataRole = user.user_metadata?.role || user.app_metadata?.role;
+    const emailHint = user.email?.toLowerCase().includes('admin');
+    
+    // User is admin if profile role is admin OR metadata indicates admin
+    const isAdmin = (profileRole === 'admin' && isApproved) || metadataRole === 'admin' || emailHint === true;
+    
+    // User is expert if profile role is expert AND status is approved
+    const isExpert = profileRole === 'expert' && isApproved;
+    
+    // Allow access for experts or admins
+    const isExpertOrAdmin = isAdmin || isExpert;
+
+    if (!isExpertOrAdmin) {
+      return {
+        authenticated: true,
+        isExpertOrAdmin: false,
+        isAdmin: false,
+        userId: user.id,
+        email: user.email,
+        role: profileRole || 'unknown',
+        error: 'Expert or Admin access required',
+      };
+    }
+
+    return {
+      authenticated: true,
+      isExpertOrAdmin: true,
+      isAdmin,
+      userId: user.id,
+      email: user.email,
+      role: profileRole || metadataRole || 'unknown',
+    };
+  } catch (error) {
+    console.error('[authMiddleware] Unexpected error in verifyExpertOrAdminAuth:', error);
+    return {
+      authenticated: false,
+      isExpertOrAdmin: false,
+      isAdmin: false,
+      error: 'Authentication verification failed',
+    };
+  }
+}
+
 /**
  * Helper to create unauthorized response
  */

@@ -295,28 +295,14 @@ export function DataProvider({ children }: { children: ReactNode }) {
 				return;
 			}
 
-			// IMPORTANT: For non-admin users, we need profile to be loaded before fetching data
-			// This prevents RLS errors. However, we should not block the fetch indefinitely.
-			// If profile is still loading, we'll retry when profile becomes available.
-			if (user && !profile && !isAdmin) {
-				isFetchingRef.current = false;
-				console.log('[DataContext] Waiting for profile to load before fetching data...');
-				// CRITICAL FIX: Clear loading if we've been waiting too long
-				// The profile useEffect will trigger fetchData again when profile is ready
-				// But we shouldn't show infinite spinner while waiting
-				if (loading) {
-					console.log('[DataContext] Clearing loading state while waiting for profile...');
-					setLoading(false);
-				}
-				return;
-			}
-
-			// Short-circuit early for non-approved, non-admin users to avoid RLS errors and noisy retries
+			// For non-approved, non-admin users with profile loaded, short-circuit to avoid unnecessary API calls
+			// The API will also reject them, but this saves a network request
 			if (user && !isAdmin && profile && profile.status !== 'approved') {
 				setScans([]);
 				setValidationHistory([]);
 				setTotalUsers(0);
 				setLoading(false);
+				console.log('[DataContext] User not approved, skipping data fetch');
 				return;
 			}
 
@@ -341,138 +327,80 @@ export function DataProvider({ children }: { children: ReactNode }) {
 			try {
 				setError(null);
 
-				// Fetch all data in parallel with safe defaults fallback
-				const [leafScansData, fruitScansData, validationsData] = await Promise.all([
-					fetchLeafScans(),
-					fetchFruitScans(),
-					fetchValidationHistory(),
-				]);
-
-			// Collect all unique farmer IDs from both scan types
-			const farmerIds = new Set<string>();
-			(leafScansData || []).forEach((scan: DatabaseLeafDiseaseScan) => {
-				if (scan.farmer_id) farmerIds.add(scan.farmer_id);
-			});
-			(fruitScansData || []).forEach((scan: DatabaseFruitRipenessScan) => {
-				if (scan.farmer_id) farmerIds.add(scan.farmer_id);
-			});
-
-			// Fetch all farmer profiles in one query
-			let farmerProfilesMap = new Map<string, DatabaseProfile>();
-			if (farmerIds.size > 0) {
-				const { data: profiles } = await supabase
-					.from("profiles")
-					.select("id, username, full_name, email, profile_picture, role")
-					.in("id", Array.from(farmerIds));
+				// Get current session token for authentication
+				const { data: { session } } = await supabase.auth.getSession();
+				const token = session?.access_token;
 				
-				if (profiles) {
-					profiles.forEach((profile: DatabaseProfile) => {
-						farmerProfilesMap.set(profile.id, profile);
-					});
+				if (!token) {
+					console.warn('[DataContext] No auth token available for API call');
+					setScans([]);
+					setValidationHistory([]);
+					setTotalUsers(0);
+					setLoading(false);
+					isFetchingRef.current = false;
+					return;
 				}
-			}
 
-			// Transform and merge scans from both tables, joining with profiles
-			const leafScans = (leafScansData || []).map((scan: DatabaseLeafDiseaseScan) => ({
-				...scan,
-				scan_type: 'leaf_disease' as const,
-				ai_prediction: scan.disease_detected, // Map for backward compatibility
-				solution: scan.solution,
-				recommended_products: scan.recommendation, // Map for backward compatibility
-				farmer_profile: scan.farmer_id ? farmerProfilesMap.get(scan.farmer_id) : undefined,
-			}));
+				// Fetch scans and validation history from API (bypasses RLS, works for experts and admins)
+				const scansRes = await fetch('/api/scans', {
+					cache: 'no-store',
+					headers: {
+						'Authorization': `Bearer ${token}`,
+					}
+				});
 
-			const fruitScans = (fruitScansData || []).map((scan: DatabaseFruitRipenessScan) => ({
-				...scan,
-				scan_type: 'fruit_maturity' as const,
-				ai_prediction: scan.ripeness_stage, // Map for backward compatibility
-				solution: scan.harvest_recommendation, // Map for backward compatibility
-				recommended_products: undefined, // Fruit scans don't have recommended products
-				farmer_profile: scan.farmer_id ? farmerProfilesMap.get(scan.farmer_id) : undefined,
-			}));
-
-			// Merge and sort by created_at descending
-			const allScans = [...leafScans, ...fruitScans].sort((a, b) => {
-				const dateA = new Date(a.created_at).getTime();
-				const dateB = new Date(b.created_at).getTime();
-				return dateB - dateA;
-			});
-
-			// Process validations and fetch related scan data
-			let validations = validationsData || [];
-
-			// Collect all unique expert IDs from validations
-			const expertIds = new Set<string>();
-			(validations || []).forEach((validation: DatabaseValidationHistory) => {
-				if (validation.expert_id) expertIds.add(validation.expert_id);
-			});
-
-			// Fetch all expert profiles in one query
-			let expertProfilesMap = new Map<string, DatabaseProfile>();
-			if (expertIds.size > 0) {
-				const { data: expertProfiles } = await supabase
-					.from("profiles")
-					.select("id, username, full_name, email, role")
-					.in("id", Array.from(expertIds));
-				
-				if (expertProfiles) {
-					expertProfiles.forEach((profile: DatabaseProfile) => {
-						expertProfilesMap.set(profile.id, profile);
-					});
-				}
-			}
-
-			// Join validations with related scans and expert profiles
-			validations = validations.map((validation: DatabaseValidationHistory) => {
-				const scanUuid = String(validation.scan_id).trim();
-				const relatedScan = allScans.find((s: Scan) => s.scan_uuid === scanUuid);
-				const expertProfile = validation.expert_id ? expertProfilesMap.get(validation.expert_id) : undefined;
-				return {
-					...validation,
-					scan: relatedScan || undefined,
-					expert_profile: expertProfile,
-				};
-			});
-
-			// Update state with fetched data (defaults apply if any fetch failed)
-			setScans(allScans);
-			setValidationHistory(validations);
-
-			// For admin users, fetch totalUsers from API (server-side, bypasses RLS)
-			if (isAdmin) {
-				try {
-					// Get current session token for authentication
-					const { data: { session } } = await supabase.auth.getSession();
-					const token = session?.access_token;
+				if (!scansRes.ok) {
+					const errorBody = await scansRes.json().catch(() => ({}));
+					const errorMsg = errorBody.error || `Failed to fetch scans (${scansRes.status})`;
+					console.error('[DataContext] Scans API error:', errorMsg);
 					
-					if (token) {
-						const res = await fetch('/api/users', { 
+					// If authentication error, clear state
+					if (scansRes.status === 401 || scansRes.status === 403) {
+						setError('Session expired. Please log in again.');
+						setScans([]);
+						setValidationHistory([]);
+					} else {
+						setError(errorMsg);
+					}
+					setLoading(false);
+					isFetchingRef.current = false;
+					return;
+				}
+
+				const scansData = await scansRes.json();
+				const allScans = scansData.scans || [];
+				const validations = scansData.validationHistory || [];
+
+				// Update state with fetched data
+				setScans(allScans);
+				setValidationHistory(validations);
+
+				// For admin users, also fetch totalUsers from API
+				if (isAdmin) {
+					try {
+						const usersRes = await fetch('/api/users', { 
 							cache: 'no-store',
 							headers: {
 								'Authorization': `Bearer ${token}`,
 							}
 						});
-						if (res.ok) {
-							const body = await res.json();
+						if (usersRes.ok) {
+							const body = await usersRes.json();
 							setTotalUsers(body.count || body.profiles?.length || 0);
 						} else {
-							console.warn('[DataContext] Failed to fetch totalUsers from API:', res.status);
+							console.warn('[DataContext] Failed to fetch totalUsers from API:', usersRes.status);
 							setTotalUsers(0);
 						}
-					} else {
-						console.warn('[DataContext] No auth token available for API call');
+					} catch (apiErr) {
+						console.warn('[DataContext] Error fetching totalUsers:', apiErr);
 						setTotalUsers(0);
 					}
-				} catch (apiErr) {
-					console.warn('[DataContext] Error fetching totalUsers:', apiErr);
+				} else {
 					setTotalUsers(0);
 				}
-			} else {
-				setTotalUsers(0);
-			}
 
-			initialFetched.current = true;
-			console.log('[DataContext] Initial data fetch complete. Scans:', allScans.length, 'Validations:', validations.length);
+				initialFetched.current = true;
+				console.log('[DataContext] Initial data fetch complete. Scans:', allScans.length, 'Validations:', validations.length);
 		} catch (err: unknown) {
 			// Handle refresh token errors
 			if (isSupabaseApiError(err)) {
@@ -519,7 +447,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 			}
 		}
 	},
-	[isReady, user, profile, fetchLeafScans, fetchFruitScans, fetchValidationHistory]
+	[isReady, user, profile, loading]
 );
 
 	// Keep ref updated with latest fetchData function
