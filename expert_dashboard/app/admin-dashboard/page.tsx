@@ -35,7 +35,7 @@ function AdminDashboardContent() {
   const adminEmailHint = useMemo(() => (user?.email || '').toLowerCase().includes('admin'), [user?.email]);
   const isAdmin = useMemo(() => effectiveRole === "admin" || adminEmailHint, [effectiveRole, adminEmailHint]);
 
-  // Prevent infinite loading: if loading persists after 2s, force render
+  // Prevent infinite loading: if loading persists after 1s, force render
   // This handles edge cases where DataContext might not clear loading properly
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -43,7 +43,7 @@ function AdminDashboardContent() {
         console.warn('[AdminDashboard] Loading timeout - forcing render');
         setForceRender(true);
       }
-    }, 2000);
+    }, 1000);
     return () => clearTimeout(timeout);
   }, [userLoading, dataLoading, forceRender]);
 

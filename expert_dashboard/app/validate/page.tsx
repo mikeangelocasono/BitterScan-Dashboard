@@ -242,14 +242,14 @@ export default function ValidatePage() {
 	// Get scans from DataContext - these update automatically via Supabase Realtime subscriptions
 	const { scans, loading, error, removeScanFromState, refreshData } = useData();
 
-	// Master timeout: force render after 2 seconds to prevent infinite loading
+	// Master timeout: force render after 1 second to prevent infinite loading
 	useEffect(() => {
 		const timeout = setTimeout(() => {
 			if (!forceRender && loading) {
 				console.warn('[ValidatePage] Forcing render after timeout');
 				setForceRender(true);
 			}
-		}, 2000);
+		}, 1000);
 		return () => clearTimeout(timeout);
 	}, [forceRender, loading]);
 

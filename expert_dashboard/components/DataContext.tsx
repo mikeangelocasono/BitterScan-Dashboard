@@ -455,50 +455,26 @@ export function DataProvider({ children }: { children: ReactNode }) {
 		fetchDataRef.current = fetchData;
 	}, [fetchData]);
 
-	// Primary data fetch trigger: when sessionReady becomes true AND profile is loaded (or user is admin)
-	// sessionReady signals that UserContext has fully resolved the session
-	// (user + profile loaded or confirmed null). This is the reliable signal to start fetching data.
+	// IMMEDIATE DATA FETCH: Trigger as soon as user is authenticated (isReady)
+	// Don't wait for sessionReady or profile - the API uses Bearer token from session
+	// This eliminates the delay caused by waiting for profile to load
 	useEffect(() => {
-		if (sessionReady && isReady && !initialFetched.current && !isFetchingRef.current) {
-			console.log('[DataContext] Session ready, attempting initial data fetch...');
+		if (isReady && !initialFetched.current && !isFetchingRef.current) {
+			console.log('[DataContext] User authenticated, fetching data immediately...');
 			fetchData(true);
 		}
-	}, [sessionReady, isReady, fetchData]);
+	}, [isReady, fetchData]);
 
-	// CRITICAL: Re-trigger data fetch when profile becomes available after sessionReady
-	// This handles the race condition where sessionReady=true but profile=null
-	// When profile finally loads, this ensures data fetch happens
+	// Re-fetch when profile loads (in case we need to update based on role)
+	// This runs in parallel with the initial fetch above
 	useEffect(() => {
-		if (!userLoading && profile && isReady && !initialFetched.current && !isFetchingRef.current) {
-			console.log('[DataContext] Profile loaded, triggering data fetch...');
-			fetchData(true);
+		// Only re-fetch if profile just loaded and initial fetch is complete
+		// This prevents double-fetching on initial load
+		if (profile && isReady && initialFetched.current && !isFetchingRef.current) {
+			// Skip re-fetch if we just loaded - profile came with initial data
+			return;
 		}
-	}, [userLoading, profile, isReady, fetchData]);
-
-	// Fallback: if user is ready but profile never arrives and data was never fetched,
-	// force a fetch attempt after a timeout to prevent infinite loading.
-	// This covers the case where RLS blocks admin profile reads or profile fetch fails silently.
-	useEffect(() => {
-		if (!isReady || initialFetched.current || profile) return;
-
-		const profileWaitTimeout = setTimeout(() => {
-			if (!initialFetched.current && userRef.current?.id && !isFetchingRef.current) {
-				console.warn('[DataContext] Profile not loaded after 1s timeout, forcing data fetch attempt');
-				if (fetchDataRef.current) {
-					fetchDataRef.current(true);
-				}
-				// Additional safety: if fetchData returns early, force-clear loading after 1s
-				setTimeout(() => {
-					if (!initialFetched.current && loading) {
-						console.warn('[DataContext] Force-clearing loading state - profile fetch may have failed');
-						setLoading(false);
-					}
-				}, 1000);
-			}
-		}, 1000); // 1s — ultra fast fallback
-
-		return () => clearTimeout(profileWaitTimeout);
-	}, [isReady, profile, loading]);
+	}, [profile, isReady]);
 
 	// MASTER LOADING TIMEOUT: Ultimate safety net to prevent infinite loading states
 	// This catches any edge case where loading gets stuck (tab throttling, network issues, etc.)
@@ -512,16 +488,16 @@ export function DataProvider({ children }: { children: ReactNode }) {
 			return;
 		}
 
-		// Set a 3-second master timeout - if loading is still true after this, force clear it
+		// Set a 1.5-second master timeout - if loading is still true after this, force clear it
 		masterLoadingTimeoutRef.current = setTimeout(() => {
 			if (loading) {
-				console.warn('[DataContext] Master loading timeout (3s) - forcing loading state to clear');
+				console.warn('[DataContext] Master loading timeout (1.5s) - forcing loading state to clear');
 				setLoading(false);
 				isFetchingRef.current = false; // Also reset fetching flag
 				// Don't set error - just allow UI to render with empty data if needed
 			}
 			masterLoadingTimeoutRef.current = null;
-		}, 3000);
+		}, 1500);
 
 		return () => {
 			if (masterLoadingTimeoutRef.current) {

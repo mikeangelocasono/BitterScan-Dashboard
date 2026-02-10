@@ -294,15 +294,21 @@ export function UserProvider({ children }: { children: ReactNode }) {
     async (sessionUser: User | null) => {
       if (!isMountedRef.current) return;
       setUser(sessionUser);
-
-      if (sessionUser) {
-        await fetchProfile(sessionUser.id);
-      } else {
-        setProfile(null);
-      }
-      // Mark session as fully resolved (user + profile loaded or confirmed null)
+      
+      // Mark session as ready IMMEDIATELY after setting user
+      // Don't wait for profile - DataContext uses Bearer token for auth
+      // Profile will load in parallel
       if (isMountedRef.current) {
         setSessionReady(true);
+      }
+
+      // Fetch profile in parallel (non-blocking)
+      if (sessionUser) {
+        fetchProfile(sessionUser.id).catch((err) => {
+          console.warn('[UserContext] Profile fetch error (non-blocking):', err);
+        });
+      } else {
+        setProfile(null);
       }
     },
     [fetchProfile]
@@ -365,7 +371,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     const getInitialSession = async () => {
       try {
         // Set a timeout to prevent infinite loading in production
-        // 3 seconds: fast fallback for better UX
+        // 1.5 seconds: ultra-fast fallback for instant UX
         timeoutRef.current = setTimeout(() => {
           if (isMountedRef.current && !initialResolved.current) {
             console.warn('[UserContext] Session fetch timeout - clearing loading state');
@@ -379,7 +385,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
               setProfile(null);
             }
           }
-        }, 3000); // 3 second timeout for fast UX
+        }, 1500); // 1.5 second timeout for ultra-fast UX
 
         // Validate Supabase client before attempting session
         try {
@@ -427,14 +433,14 @@ export function UserProvider({ children }: { children: ReactNode }) {
           const controller = new AbortController();
           const timeoutId = setTimeout(() => {
             controller.abort();
-          }, 3000); // 3 second timeout for fast UX
+          }, 1500); // 1.5 second timeout for ultra-fast UX
           
           try {
             const sessionPromise = supabase.auth.getSession();
             const timeoutPromise = new Promise<never>((_, reject) => {
               sessionTimeoutRef.current = setTimeout(() => {
                 reject(new Error('Session fetch timeout'));
-              }, 3000); // 3 seconds for fast UX
+              }, 1500); // 1.5 seconds for ultra-fast UX
             });
             
             const result = await Promise.race([sessionPromise, timeoutPromise]);
