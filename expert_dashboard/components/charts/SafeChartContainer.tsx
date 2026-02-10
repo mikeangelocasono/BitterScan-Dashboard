@@ -5,7 +5,7 @@ import { ResponsiveContainer } from "recharts";
 
 type SafeChartContainerProps = {
   children: ReactNode;
-  width?: string | number;
+  width?: number | `${number}%`;
   height: number;
   minHeight?: number;
   fallback?: ReactNode;
@@ -142,7 +142,7 @@ export default function SafeChartContainer({
       style={{
         minHeight: effectiveHeight,
         height: effectiveHeight,
-        width: typeof width === "number" ? width : undefined,
+        width: width,
       }}
     >
       {isReady && isVisible ? (
@@ -150,7 +150,6 @@ export default function SafeChartContainer({
           key={key}
           width={width}
           height={effectiveHeight}
-          minHeight={minHeight}
         >
           {children}
         </ResponsiveContainer>
