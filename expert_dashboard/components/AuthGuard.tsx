@@ -33,6 +33,7 @@ export default function AuthGuard({ children }: { children: ReactNode }) {
 
   const redirectHandled = useRef(false);
   const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const visibilityTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const emailLower = user?.email?.toLowerCase() || "";
   const emailRoleHint = useMemo(() => {
@@ -58,7 +59,46 @@ export default function AuthGuard({ children }: { children: ReactNode }) {
   // sessionReady is set to true only after UserContext has fully resolved session + profile
   const isAuthReady = sessionReady && !loading;
 
-  // Prevent infinite loading: if loading persists with no user, return to role-select after 15s
+  // VISIBILITY CHANGE RECOVERY: Clear stuck loading state when tab becomes visible
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') return;
+      
+      // Clear any pending visibility timeout
+      if (visibilityTimeoutRef.current) {
+        clearTimeout(visibilityTimeoutRef.current);
+      }
+
+      // Debounce to avoid rapid-fire on fast tab switches
+      visibilityTimeoutRef.current = setTimeout(() => {
+        // If we're stuck in loading state for too long after visibility change,
+        // something went wrong - let the timeout handle it
+        if (!isAuthReady && !loggingOut && loadingTimeoutRef.current === null) {
+          console.warn('[AuthGuard] Visibility change with no active timeout - resetting');
+          // Re-trigger the loading timeout check
+          loadingTimeoutRef.current = setTimeout(() => {
+            if (!user && !PUBLIC_ROUTES.includes(pathname)) {
+              console.warn('[AuthGuard] Post-visibility auth timeout, redirecting to role-select');
+              router.replace("/role-select");
+            }
+          }, 5000); // Shorter timeout after visibility change
+        }
+      }, 300);
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      if (visibilityTimeoutRef.current) {
+        clearTimeout(visibilityTimeoutRef.current);
+      }
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isAuthReady, loggingOut, pathname, router, user]);
+
+  // Prevent infinite loading: if loading persists with no user, return to role-select after 8s
+  // Reduced from 15s to 8s for better UX
   useEffect(() => {
     if (loggingOut) return; // Don't interfere during logout
     if (!isAuthReady) {
@@ -67,7 +107,7 @@ export default function AuthGuard({ children }: { children: ReactNode }) {
           console.warn('[AuthGuard] Auth loading timeout, redirecting to role-select');
           router.replace("/role-select");
         }
-      }, 15000);
+      }, 8000); // Reduced to 8 seconds for better UX
     } else if (loadingTimeoutRef.current) {
       clearTimeout(loadingTimeoutRef.current);
       loadingTimeoutRef.current = null;

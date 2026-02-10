@@ -539,15 +539,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
 			return;
 		}
 
-		// Set a 20-second master timeout - if loading is still true after this, force clear it
+		// Set an 8-second master timeout - if loading is still true after this, force clear it
+		// Reduced from 20s to 8s for better UX - users shouldn't wait that long
 		masterLoadingTimeoutRef.current = setTimeout(() => {
 			if (loading) {
-				console.warn('[DataContext] Master loading timeout (20s) - forcing loading state to clear');
+				console.warn('[DataContext] Master loading timeout (8s) - forcing loading state to clear');
 				setLoading(false);
+				isFetchingRef.current = false; // Also reset fetching flag
 				// Don't set error - just allow UI to render with empty data if needed
 			}
 			masterLoadingTimeoutRef.current = null;
-		}, 20000);
+		}, 8000);
 
 		return () => {
 			if (masterLoadingTimeoutRef.current) {
@@ -1992,9 +1994,95 @@ export function DataProvider({ children }: { children: ReactNode }) {
 	// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [isReady, user?.id, userLoading]); // Depend on isReady, user.id, and userLoading - fetchData is accessed via ref to prevent loops
 
-	// Removed visibility change listener - real-time subscriptions handle updates automatically
-	// This was causing notifications to only appear when tab became visible
-	// Real-time WebSocket subscriptions work continuously regardless of tab visibility
+	// VISIBILITY CHANGE RECOVERY
+	// When tab becomes visible after being hidden, browser may have:
+	// - Throttled/paused JavaScript execution
+	// - Disconnected WebSocket subscriptions
+	// - Left pending fetch operations in limbo
+	// This handler ensures the app recovers gracefully
+	useEffect(() => {
+		if (typeof document === 'undefined') return;
+
+		let visibilityRecoveryTimeout: NodeJS.Timeout | null = null;
+		let isRecovering = false;
+
+		const handleVisibilityChange = async () => {
+			// Only act when tab becomes visible
+			if (document.visibilityState !== 'visible') return;
+
+			// Prevent multiple simultaneous recovery attempts
+			if (isRecovering) return;
+
+			// Clear any pending recovery timeout
+			if (visibilityRecoveryTimeout) {
+				clearTimeout(visibilityRecoveryTimeout);
+			}
+
+			// Debounce the recovery to prevent rapid-fire on fast tab switches
+			visibilityRecoveryTimeout = setTimeout(async () => {
+				if (isRecovering) return;
+				isRecovering = true;
+
+				try {
+					// CRITICAL FIX: Force-clear any stuck loading state
+					// This prevents infinite loading when returning to tab
+					if (loading && !isFetchingRef.current) {
+						console.log('[DataContext] Visibility change: clearing stuck loading state');
+						setLoading(false);
+					}
+
+					// Skip recovery if user is not ready
+					if (!userRef.current?.id) {
+						isRecovering = false;
+						return;
+					}
+
+					// Check if Supabase Realtime subscription is healthy
+					const subscriptionHealthy = 
+						channelRef.current && 
+						subscriptionActiveRef.current && 
+						subscriptionStatusRef.current === 'SUBSCRIBED' &&
+						channelRef.current.state === 'joined';
+
+					if (!subscriptionHealthy) {
+						console.log('[DataContext] Visibility change: subscription unhealthy, will recover on next render cycle');
+						// Reset subscription state to trigger re-subscription
+						if (channelRef.current) {
+							try {
+								supabase.removeChannel(channelRef.current);
+							} catch (e) {
+								// Ignore cleanup errors
+							}
+							channelRef.current = null;
+						}
+						subscriptionActiveRef.current = false;
+						subscriptionStatusRef.current = null;
+						reconnectAttemptsRef.current = 0;
+					}
+
+					// Silently refresh data if we have been fetched before
+					// This ensures data is fresh without showing loading spinner
+					if (initialFetched.current && fetchDataRef.current && !isFetchingRef.current) {
+						console.log('[DataContext] Visibility change: refreshing data silently');
+						await fetchDataRef.current(false); // false = no spinner
+					}
+				} catch (err) {
+					console.warn('[DataContext] Visibility recovery error:', err);
+				} finally {
+					isRecovering = false;
+				}
+			}, 300); // 300ms debounce
+		};
+
+		document.addEventListener('visibilitychange', handleVisibilityChange);
+
+		return () => {
+			if (visibilityRecoveryTimeout) {
+				clearTimeout(visibilityRecoveryTimeout);
+			}
+			document.removeEventListener('visibilitychange', handleVisibilityChange);
+		};
+	}, [loading]);
 
 	const removeScanFromState = useCallback((scanId: number) => {
 		setScans((prev) => prev.filter((scan) => scan.id !== scanId));

@@ -643,16 +643,23 @@ export function UserProvider({ children }: { children: ReactNode }) {
         clearTimeout(visibilityTimeout);
       }
       
+      // CRITICAL FIX: Force-clear any stuck loading state on visibility change
+      // This prevents infinite loading when returning to the tab
+      if (loading && initialResolved.current) {
+        console.log('[UserContext] Visibility change: clearing stuck loading state');
+        setLoading(false);
+      }
+      
       // Debounce the check to prevent rapid calls
       visibilityTimeout = setTimeout(async () => {
         if (isChecking || loggingOutRef.current) return;
         isChecking = true;
         
         try {
-          // Add timeout to prevent hanging - use generous timeout for slow networks
+          // Add timeout to prevent hanging - reduced to 8 seconds for better UX
           const sessionPromise = supabase.auth.getSession();
           const timeoutPromise = new Promise<never>((_, reject) => {
-            setTimeout(() => reject(new Error('Session check timeout')), 15000);
+            setTimeout(() => reject(new Error('Session check timeout')), 8000);
           });
           
           const result = await Promise.race([sessionPromise, timeoutPromise]);
@@ -663,6 +670,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
             console.warn('Invalid refresh token detected on visibility change, clearing auth...');
             setUser(null);
             setProfile(null);
+            setLoading(false); // Ensure loading is cleared
+            setSessionReady(true); // Ensure session is marked as ready
             await clearAuthAndSignOut();
             isChecking = false;
             return;
@@ -680,6 +689,9 @@ export function UserProvider({ children }: { children: ReactNode }) {
           // Skip if user hasn't changed - this prevents infinite loading loops
           if (sessionUserId === currentUserId) {
             // Session is the same, no need to update anything
+            // Just ensure loading is cleared and session is ready
+            if (loading) setLoading(false);
+            if (!sessionReady) setSessionReady(true);
             isChecking = false;
             return;
           }
@@ -692,20 +704,27 @@ export function UserProvider({ children }: { children: ReactNode }) {
         } catch (error: unknown) {
           // Handle timeout and refresh token errors
           if (error instanceof Error && error.message.includes('timeout')) {
-            // Timeout is expected in some cases - silently ignore
-            // The session will be checked again on next visibility change
+            // Timeout - ensure loading is cleared to prevent stuck state
+            console.warn('[UserContext] Session check timeout on visibility change');
+            if (loading) setLoading(false);
+            if (!sessionReady) setSessionReady(true);
           } else if (isRefreshTokenError(error)) {
             console.warn('Invalid refresh token detected on visibility change (catch), clearing auth...');
             setUser(null);
             setProfile(null);
+            setLoading(false);
+            setSessionReady(true);
             await clearAuthAndSignOut();
           } else {
             console.error('Error refreshing session on visibility change:', error);
+            // Even on error, ensure loading is cleared to prevent stuck state
+            if (loading) setLoading(false);
+            if (!sessionReady) setSessionReady(true);
           }
         } finally {
           isChecking = false;
         }
-      }, 500); // 500ms debounce
+      }, 300); // Reduced to 300ms debounce for faster recovery
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -715,7 +734,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       }
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, []); // Empty deps - use ref to access latest resolveSession
+  }, [loading, sessionReady]); // Include loading and sessionReady to access current values
 
   return (
     <UserContext.Provider value={{ user, profile, loading, sessionReady, loggingOut, refreshProfile, logout }}>
