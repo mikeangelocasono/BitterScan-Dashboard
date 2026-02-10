@@ -160,7 +160,7 @@ export async function GET(request: NextRequest) {
       { 
         status: 200,
         headers: {
-          'Cache-Control': 'private, max-age=30', // Cache for 30 seconds
+          'Cache-Control': 'no-store, no-cache, must-revalidate', // No caching for real-time data
           'Content-Type': 'application/json',
         }
       }

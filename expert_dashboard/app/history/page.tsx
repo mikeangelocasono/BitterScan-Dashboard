@@ -70,14 +70,14 @@ export default function HistoryPage() {
 	const { user } = useUser();
 	const { scans, validationHistory, loading, error, refreshData } = useData();
 
-	// Master timeout: force render after 4 seconds to prevent infinite loading
+	// Master timeout: force render after 2 seconds to prevent infinite loading
 	useEffect(() => {
 		const timeout = setTimeout(() => {
 			if (!forceRender && loading) {
 				console.warn('[HistoryPage] Forcing render after timeout');
 				setForceRender(true);
 			}
-		}, 4000);
+		}, 2000);
 		return () => clearTimeout(timeout);
 	}, [forceRender, loading]);
 

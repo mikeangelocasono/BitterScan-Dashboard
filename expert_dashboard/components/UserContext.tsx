@@ -365,7 +365,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     const getInitialSession = async () => {
       try {
         // Set a timeout to prevent infinite loading in production
-        // 12 seconds: allows for Vercel cold starts + Supabase latency
+        // 3 seconds: fast fallback for better UX
         timeoutRef.current = setTimeout(() => {
           if (isMountedRef.current && !initialResolved.current) {
             console.warn('[UserContext] Session fetch timeout - clearing loading state');
@@ -379,7 +379,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
               setProfile(null);
             }
           }
-        }, 12000); // 12 second timeout (10s for getSession + 2s buffer)
+        }, 3000); // 3 second timeout for fast UX
 
         // Validate Supabase client before attempting session
         try {
@@ -427,14 +427,14 @@ export function UserProvider({ children }: { children: ReactNode }) {
           const controller = new AbortController();
           const timeoutId = setTimeout(() => {
             controller.abort();
-          }, 10000); // 10 second timeout (allows for Vercel cold starts)
+          }, 3000); // 3 second timeout for fast UX
           
           try {
             const sessionPromise = supabase.auth.getSession();
             const timeoutPromise = new Promise<never>((_, reject) => {
               sessionTimeoutRef.current = setTimeout(() => {
                 reject(new Error('Session fetch timeout'));
-              }, 10000); // 10 seconds for Vercel cold start tolerance
+              }, 3000); // 3 seconds for fast UX
             });
             
             const result = await Promise.race([sessionPromise, timeoutPromise]);

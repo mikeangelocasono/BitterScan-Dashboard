@@ -483,19 +483,19 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
 		const profileWaitTimeout = setTimeout(() => {
 			if (!initialFetched.current && userRef.current?.id && !isFetchingRef.current) {
-				console.warn('[DataContext] Profile not loaded after 2s timeout, forcing data fetch attempt');
+				console.warn('[DataContext] Profile not loaded after 1s timeout, forcing data fetch attempt');
 				if (fetchDataRef.current) {
 					fetchDataRef.current(true);
 				}
-				// Additional safety: if fetchData returns early, force-clear loading after 2s
+				// Additional safety: if fetchData returns early, force-clear loading after 1s
 				setTimeout(() => {
 					if (!initialFetched.current && loading) {
 						console.warn('[DataContext] Force-clearing loading state - profile fetch may have failed');
 						setLoading(false);
 					}
-				}, 2000);
+				}, 1000);
 			}
-		}, 2000); // 2s — quick fallback for profile loading issues
+		}, 1000); // 1s — ultra fast fallback
 
 		return () => clearTimeout(profileWaitTimeout);
 	}, [isReady, profile, loading]);
@@ -512,16 +512,16 @@ export function DataProvider({ children }: { children: ReactNode }) {
 			return;
 		}
 
-		// Set a 5-second master timeout - if loading is still true after this, force clear it
+		// Set a 3-second master timeout - if loading is still true after this, force clear it
 		masterLoadingTimeoutRef.current = setTimeout(() => {
 			if (loading) {
-				console.warn('[DataContext] Master loading timeout (5s) - forcing loading state to clear');
+				console.warn('[DataContext] Master loading timeout (3s) - forcing loading state to clear');
 				setLoading(false);
 				isFetchingRef.current = false; // Also reset fetching flag
 				// Don't set error - just allow UI to render with empty data if needed
 			}
 			masterLoadingTimeoutRef.current = null;
-		}, 5000);
+		}, 3000);
 
 		return () => {
 			if (masterLoadingTimeoutRef.current) {

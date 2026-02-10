@@ -431,14 +431,14 @@ export default function DataVisualizationPage() {
   // Force render after timeout to prevent infinite loading
   const [forceRender, setForceRender] = useState(false);
   
-  // Master timeout: force render after 4 seconds to prevent infinite loading
+  // Master timeout: force render after 2 seconds to prevent infinite loading
   useEffect(() => {
     const timeout = setTimeout(() => {
       if (!forceRender && !dataContext) {
         console.warn('[DataVisualizationPage] Forcing render after timeout');
         setForceRender(true);
       }
-    }, 4000);
+    }, 2000);
     return () => clearTimeout(timeout);
   }, [forceRender, dataContext]);
   
