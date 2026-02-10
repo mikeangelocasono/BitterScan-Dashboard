@@ -649,10 +649,10 @@ export function UserProvider({ children }: { children: ReactNode }) {
         isChecking = true;
         
         try {
-          // Add timeout to prevent hanging
+          // Add timeout to prevent hanging - use generous timeout for slow networks
           const sessionPromise = supabase.auth.getSession();
           const timeoutPromise = new Promise<never>((_, reject) => {
-            setTimeout(() => reject(new Error('Session check timeout')), 8000);
+            setTimeout(() => reject(new Error('Session check timeout')), 15000);
           });
           
           const result = await Promise.race([sessionPromise, timeoutPromise]);
@@ -692,8 +692,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
         } catch (error: unknown) {
           // Handle timeout and refresh token errors
           if (error instanceof Error && error.message.includes('timeout')) {
-            // Timeout is expected in some cases, don't log as error
-            console.warn('[UserContext] Session check timeout on visibility change');
+            // Timeout is expected in some cases - silently ignore
+            // The session will be checked again on next visibility change
           } else if (isRefreshTokenError(error)) {
             console.warn('Invalid refresh token detected on visibility change (catch), clearing auth...');
             setUser(null);
