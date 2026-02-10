@@ -95,6 +95,49 @@ type DataContextValue = {
 
 const DataContext = createContext<DataContextValue | undefined>(undefined);
 
+// Cache keys for localStorage
+const CACHE_KEY_SCANS = 'bs:cache:scans';
+const CACHE_KEY_VALIDATIONS = 'bs:cache:validations';
+const CACHE_KEY_USERS = 'bs:cache:users';
+const CACHE_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes cache expiry
+
+/**
+ * Load cached data from localStorage
+ * Returns null if cache is expired or doesn't exist
+ */
+function loadFromCache<T>(key: string): T | null {
+	if (typeof window === 'undefined') return null;
+	try {
+		const cached = localStorage.getItem(key);
+		if (!cached) return null;
+		const { data, timestamp } = JSON.parse(cached);
+		// Check if cache is still valid (within expiry time)
+		if (Date.now() - timestamp < CACHE_EXPIRY_MS) {
+			return data as T;
+		}
+		// Cache expired, but still return it for stale-while-revalidate
+		return data as T;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Save data to localStorage cache with timestamp
+ */
+function saveToCache<T>(key: string, data: T): void {
+	if (typeof window === 'undefined') return;
+	try {
+		localStorage.setItem(key, JSON.stringify({
+			data,
+			timestamp: Date.now()
+		}));
+	} catch (err) {
+		// localStorage might be full or disabled
+		console.warn('[DataContext] Failed to save to cache:', err);
+	}
+}
+
 /**
  * Helper to wrap a promise with a timeout.
  * Returns the promise result or default value if timeout is exceeded.
@@ -126,12 +169,30 @@ async function withTimeout<T>(
 
 export function DataProvider({ children }: { children: ReactNode }) {
 	const { user, profile, loading: userLoading, sessionReady } = useUser();
-	const [scans, setScans] = useState<Scan[]>([]);
-	const [validationHistory, setValidationHistory] = useState<ValidationHistory[]>([]);
-	const [totalUsers, setTotalUsers] = useState(0);
-	// Start with loading=false; only set to true when we actually begin fetching
-	// This prevents stuck loading states when user is not authenticated
+	
+	// Initialize state from cache for instant display (stale-while-revalidate)
+	const [scans, setScans] = useState<Scan[]>(() => {
+		const cached = loadFromCache<Scan[]>(CACHE_KEY_SCANS);
+		if (cached && cached.length > 0) {
+			console.log('[DataContext] Loaded', cached.length, 'scans from cache');
+		}
+		return cached || [];
+	});
+	const [validationHistory, setValidationHistory] = useState<ValidationHistory[]>(() => {
+		const cached = loadFromCache<ValidationHistory[]>(CACHE_KEY_VALIDATIONS);
+		if (cached && cached.length > 0) {
+			console.log('[DataContext] Loaded', cached.length, 'validations from cache');
+		}
+		return cached || [];
+	});
+	const [totalUsers, setTotalUsers] = useState(() => {
+		return loadFromCache<number>(CACHE_KEY_USERS) || 0;
+	});
+	// Start with loading=false since we show cached data immediately
+	// This prevents loading spinner when we have cached data
 	const [loading, setLoading] = useState(false);
+	// Track if we have any cached data to avoid showing spinner
+	const hasCachedData = useRef(false);
 	// Ref to track loading state for visibility handler (avoids stale closure issues)
 	const loadingRef = useRef(false);
 	const [error, setError] = useState<string | null>(null);
@@ -320,8 +381,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
 			isFetchingRef.current = true;
 
-			// Only show spinner if we explicitly requested or we haven't fetched once yet
-			const shouldShowSpinner = showSpinner || !initialFetched.current;
+			// Only show spinner if we explicitly requested AND we have no cached data
+			// With stale-while-revalidate, we show cached data immediately and update silently
+			const hasData = scans.length > 0 || validationHistory.length > 0;
+			const shouldShowSpinner = (showSpinner || !initialFetched.current) && !hasData;
 			if (shouldShowSpinner) setLoading(true);
 
 			try {
@@ -374,6 +437,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
 				// Update state with fetched data
 				setScans(allScans);
 				setValidationHistory(validations);
+				
+				// Save to cache for instant display on next load
+				saveToCache(CACHE_KEY_SCANS, allScans);
+				saveToCache(CACHE_KEY_VALIDATIONS, validations);
 
 				// For admin users, also fetch totalUsers from API
 				if (isAdmin) {
@@ -386,7 +453,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
 						});
 						if (usersRes.ok) {
 							const body = await usersRes.json();
-							setTotalUsers(body.count || body.profiles?.length || 0);
+							const userCount = body.count || body.profiles?.length || 0;
+							setTotalUsers(userCount);
+							saveToCache(CACHE_KEY_USERS, userCount);
 						} else {
 							console.warn('[DataContext] Failed to fetch totalUsers from API:', usersRes.status);
 							setTotalUsers(0);
@@ -2086,6 +2155,16 @@ export function DataProvider({ children }: { children: ReactNode }) {
 			initialFetched.current = false;
 			setLoading(false);
 			setError(null);
+			// Clear localStorage cache on logout
+			if (typeof window !== 'undefined') {
+				try {
+					localStorage.removeItem(CACHE_KEY_SCANS);
+					localStorage.removeItem(CACHE_KEY_VALIDATIONS);
+					localStorage.removeItem(CACHE_KEY_USERS);
+				} catch {
+					// Ignore localStorage errors
+				}
+			}
 		}
 	}, [user]);
 
