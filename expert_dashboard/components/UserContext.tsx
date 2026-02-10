@@ -618,6 +618,12 @@ export function UserProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Empty deps - resolveSession is stable and accessed via ref
 
+  // Track current user ID via ref to compare in visibility handler
+  const currentUserIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    currentUserIdRef.current = user?.id ?? null;
+  }, [user?.id]);
+
   useEffect(() => {
     if (typeof document === 'undefined') return;
 
@@ -627,7 +633,10 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
     const handleVisibilityChange = async () => {
       // Only check if tab becomes visible and we're not already checking
-      if (document.visibilityState !== 'visible' || !resolveSessionRef.current || isChecking) return;
+      if (document.visibilityState !== 'visible' || isChecking) return;
+      
+      // If we're currently logging out, skip visibility check entirely
+      if (loggingOutRef.current) return;
       
       // Clear any pending timeout
       if (visibilityTimeout) {
@@ -636,7 +645,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       
       // Debounce the check to prevent rapid calls
       visibilityTimeout = setTimeout(async () => {
-        if (!resolveSessionRef.current || isChecking) return;
+        if (isChecking || loggingOutRef.current) return;
         isChecking = true;
         
         try {
@@ -663,7 +672,20 @@ export function UserProvider({ children }: { children: ReactNode }) {
             throw sessionError;
           }
           
-          // Only update if session actually changed to prevent unnecessary re-renders
+          // CRITICAL: Only call resolveSession if the user has ACTUALLY changed
+          // Comparing user IDs prevents unnecessary state updates and re-renders
+          const sessionUserId = session?.user?.id ?? null;
+          const currentUserId = currentUserIdRef.current;
+          
+          // Skip if user hasn't changed - this prevents infinite loading loops
+          if (sessionUserId === currentUserId) {
+            // Session is the same, no need to update anything
+            isChecking = false;
+            return;
+          }
+          
+          // User has actually changed (login/logout happened in another tab)
+          // Only then should we call resolveSession
           if (resolveSessionRef.current) {
             await resolveSessionRef.current(session?.user ?? null);
           }

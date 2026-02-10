@@ -116,11 +116,18 @@ export function DataProvider({ children }: { children: ReactNode }) {
 	const reconnectAttemptsRef = useRef(0);
 	const maxReconnectAttempts = 5;
 	const isSubscribingRef = useRef(false); // Track if we're currently in the process of subscribing
+	// Track previous user ID to detect actual logout vs transient state changes
+	const previousUserIdRef = useRef<string | null>(null);
 
 	const isReady = useMemo(() => Boolean(user?.id), [user?.id]);
 	
-	// Keep user ref updated for timeout checks
+	// Keep user ref updated for timeout checks and track previous user for logout detection
 	useEffect(() => {
+		// Only update previousUserIdRef when user actually changes (not on every render)
+		// This helps detect actual logout vs transient state changes
+		if (user?.id !== previousUserIdRef.current) {
+			previousUserIdRef.current = user?.id ?? null;
+		}
 		userRef.current = user;
 		userLoadingRef.current = userLoading;
 	}, [user, userLoading]);
@@ -746,9 +753,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
 				subscriptionActiveRef.current = false;
 				subscriptionStatusRef.current = null;
 			}
-			if (initialFetched.current) {
-				initialFetched.current = false;
-			}
+			// CRITICAL FIX: Only reset initialFetched on ACTUAL logout (user was logged in before, now logged out)
+			// Do NOT reset on transient state changes (e.g., tab visibility triggering state updates)
+			// This prevents infinite loading loops when switching tabs
+			// The user logout effect at the bottom handles the actual cleanup on logout
+			// Here we only clean up subscriptions, not the fetched data flag
 			
 			// Only show error if UserContext is still loading after timeout
 			// If UserContext has resolved with no user, that's fine - user just needs to log in
