@@ -49,34 +49,34 @@ export async function GET(request: NextRequest) {
     // Get admin client (with service role key)
     const supabaseAdmin = getSupabaseAdminClient();
 
-    // Fetch leaf disease scans
-    const { data: leafScans, error: leafError } = await supabaseAdmin
-      .from("leaf_disease_scans")
-      .select("*")
-      .order("created_at", { ascending: false });
+    // Fetch all data in parallel for faster response
+    const [leafResult, fruitResult, validationResult] = await Promise.all([
+      supabaseAdmin
+        .from("leaf_disease_scans")
+        .select("*")
+        .order("created_at", { ascending: false }),
+      supabaseAdmin
+        .from("fruit_ripeness_scans")
+        .select("*")
+        .order("created_at", { ascending: false }),
+      supabaseAdmin
+        .from("validation_history")
+        .select("*")
+        .order("validated_at", { ascending: false }),
+    ]);
 
-    if (leafError) {
-      console.error("[/api/scans] Error fetching leaf_disease_scans:", leafError);
+    const leafScans = leafResult.data || [];
+    const fruitScans = fruitResult.data || [];
+    const validationHistory = validationResult.data || [];
+
+    if (leafResult.error) {
+      console.error("[/api/scans] Error fetching leaf_disease_scans:", leafResult.error);
     }
-
-    // Fetch fruit ripeness scans
-    const { data: fruitScans, error: fruitError } = await supabaseAdmin
-      .from("fruit_ripeness_scans")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    if (fruitError) {
-      console.error("[/api/scans] Error fetching fruit_ripeness_scans:", fruitError);
+    if (fruitResult.error) {
+      console.error("[/api/scans] Error fetching fruit_ripeness_scans:", fruitResult.error);
     }
-
-    // Fetch validation history
-    const { data: validationHistory, error: validationError } = await supabaseAdmin
-      .from("validation_history")
-      .select("*")
-      .order("validated_at", { ascending: false });
-
-    if (validationError) {
-      console.error("[/api/scans] Error fetching validation_history:", validationError);
+    if (validationResult.error) {
+      console.error("[/api/scans] Error fetching validation_history:", validationResult.error);
     }
 
     // Get all farmer IDs for profile enrichment

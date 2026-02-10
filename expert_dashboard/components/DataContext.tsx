@@ -483,19 +483,19 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
 		const profileWaitTimeout = setTimeout(() => {
 			if (!initialFetched.current && userRef.current?.id && !isFetchingRef.current) {
-				console.warn('[DataContext] Profile not loaded after 5s timeout, forcing data fetch attempt');
+				console.warn('[DataContext] Profile not loaded after 2s timeout, forcing data fetch attempt');
 				if (fetchDataRef.current) {
 					fetchDataRef.current(true);
 				}
-				// Additional safety: if fetchData returns early, force-clear loading after 3s
+				// Additional safety: if fetchData returns early, force-clear loading after 2s
 				setTimeout(() => {
 					if (!initialFetched.current && loading) {
 						console.warn('[DataContext] Force-clearing loading state - profile fetch may have failed');
 						setLoading(false);
 					}
-				}, 3000);
+				}, 2000);
 			}
-		}, 5000); // 5s — enough time for profile to load normally in production
+		}, 2000); // 2s — quick fallback for profile loading issues
 
 		return () => clearTimeout(profileWaitTimeout);
 	}, [isReady, profile, loading]);
@@ -512,17 +512,16 @@ export function DataProvider({ children }: { children: ReactNode }) {
 			return;
 		}
 
-		// Set an 8-second master timeout - if loading is still true after this, force clear it
-		// Reduced from 20s to 8s for better UX - users shouldn't wait that long
+		// Set a 5-second master timeout - if loading is still true after this, force clear it
 		masterLoadingTimeoutRef.current = setTimeout(() => {
 			if (loading) {
-				console.warn('[DataContext] Master loading timeout (8s) - forcing loading state to clear');
+				console.warn('[DataContext] Master loading timeout (5s) - forcing loading state to clear');
 				setLoading(false);
 				isFetchingRef.current = false; // Also reset fetching flag
 				// Don't set error - just allow UI to render with empty data if needed
 			}
 			masterLoadingTimeoutRef.current = null;
-		}, 8000);
+		}, 5000);
 
 		return () => {
 			if (masterLoadingTimeoutRef.current) {
@@ -888,17 +887,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
 		// Start initial fetch if not done yet (but don't block subscription setup)
 		// This ensures data is fetched even if subscription setup is slow
-		// Schedule initial fetch in background - subscription setup continues regardless
-		let fetchTimeoutId: NodeJS.Timeout | null = null;
+		// Fetch immediately - no delay needed
 		if (!initialFetched.current && !isFetchingRef.current && fetchDataRef.current && userRef.current?.id) {
-			// Use fetchDataRef to avoid dependency issues
-			// Add a small delay to ensure UserContext has fully resolved
-			fetchTimeoutId = setTimeout(() => {
-				if (fetchDataRef.current && userRef.current?.id && !isFetchingRef.current && !initialFetched.current) {
-					fetchDataRef.current(true);
-				}
-			}, 150); // Small delay to ensure user context is stable
+			fetchDataRef.current(true);
 		}
+		let fetchTimeoutId: NodeJS.Timeout | null = null;
 
 		/**
 		 * REAL-TIME SUBSCRIPTIONS SETUP
@@ -2058,6 +2051,36 @@ export function DataProvider({ children }: { children: ReactNode }) {
 		};
 	// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []); // Empty deps - uses refs for all mutable state
+
+	// POLLING: Refresh data every 10 seconds as a fallback for real-time updates
+	// This ensures new scans/validations appear even if WebSocket connection fails
+	const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+	
+	useEffect(() => {
+		// Only poll when user is ready and initial fetch is complete
+		if (!isReady || !initialFetched.current) {
+			if (pollingIntervalRef.current) {
+				clearInterval(pollingIntervalRef.current);
+				pollingIntervalRef.current = null;
+			}
+			return;
+		}
+
+		// Start polling every 10 seconds
+		pollingIntervalRef.current = setInterval(() => {
+			// Only poll when page is visible and not already fetching
+			if (document.visibilityState === 'visible' && !isFetchingRef.current && fetchDataRef.current) {
+				fetchDataRef.current(false); // Silent refresh (no loading spinner)
+			}
+		}, 10000); // 10 seconds
+
+		return () => {
+			if (pollingIntervalRef.current) {
+				clearInterval(pollingIntervalRef.current);
+				pollingIntervalRef.current = null;
+			}
+		};
+	}, [isReady]);
 
 	const removeScanFromState = useCallback((scanId: number) => {
 		setScans((prev) => prev.filter((scan) => scan.id !== scanId));

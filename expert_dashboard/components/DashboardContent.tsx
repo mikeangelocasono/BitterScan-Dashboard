@@ -75,14 +75,14 @@ function DashboardContent() {
 	const { scans, totalUsers, loading: dataLoading, error } = useData();
 	const [forceRender, setForceRender] = useState(false);
 
-	// Master timeout: force render after 6 seconds to prevent infinite loading
+	// Master timeout: force render after 4 seconds to prevent infinite loading
 	useEffect(() => {
 		const timeout = setTimeout(() => {
 			if (!forceRender) {
 				console.warn('[DashboardContent] Forcing render after timeout');
 				setForceRender(true);
 			}
-		}, 6000);
+		}, 4000);
 		return () => clearTimeout(timeout);
 	}, [forceRender]);
 
