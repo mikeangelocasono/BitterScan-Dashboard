@@ -96,7 +96,10 @@ function AdminDashboardContent() {
       .slice(0, 5);
   }, [validScans]);
 
-  if ((userLoading && !sessionReady) || (dataLoading && !sessionReady)) {
+  // Show loading only during initial session resolution
+  // Once sessionReady is true OR we have data, render the dashboard
+  const hasData = scans && scans.length >= 0; // scans array exists
+  if (!sessionReady && (userLoading || (dataLoading && !hasData))) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-[var(--background)] py-24">
         <div className="text-center space-y-3">

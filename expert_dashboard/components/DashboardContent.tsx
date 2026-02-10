@@ -74,10 +74,12 @@ function DashboardContent() {
 	const { user, profile, loading: userLoading, sessionReady } = useUser();
 	const { scans, totalUsers, loading: dataLoading, error } = useData();
 
-	// Show loading state only if session is not ready yet
-	// Once sessionReady=true, render dashboard even if data is still loading
+	// Show loading state only during initial session resolution
+	// Once sessionReady=true OR we have scans data, render dashboard
 	// This prevents infinite loading spinner on page refresh
-	const isLoading = (userLoading && !sessionReady) || (dataLoading && !sessionReady);
+	// Also allow rendering if data is loaded (scans array exists) even if dataLoading flag is stuck
+	const hasData = scans && scans.length >= 0; // scans array exists (even if empty)
+	const isLoading = !sessionReady && (userLoading || (dataLoading && !hasData));
 
 	// Memoize computed values
 	const displayName = useMemo(() => {
@@ -141,17 +143,14 @@ function DashboardContent() {
 	}, [validScans]);
 
 
+	// Show loading only briefly during initial session resolution
+	// If sessionReady is true, always show content (even with empty data)
 	if (isLoading) {
 		return <LoadingSkeleton />;
 	}
 
 	if (error) {
 		return <ErrorDisplay error={error} />;
-	}
-
-	// Ensure scans is defined before rendering
-	if (!scans) {
-		return <LoadingSkeleton />;
 	}
 
 	return (

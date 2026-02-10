@@ -100,7 +100,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
 	const [scans, setScans] = useState<Scan[]>([]);
 	const [validationHistory, setValidationHistory] = useState<ValidationHistory[]>([]);
 	const [totalUsers, setTotalUsers] = useState(0);
-	const [loading, setLoading] = useState(true);
+	// Start with loading=false; only set to true when we actually begin fetching
+	// This prevents stuck loading states when user is not authenticated
+	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const initialFetched = useRef(false);
 	const isFetchingRef = useRef(false);
@@ -118,6 +120,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
 	const isSubscribingRef = useRef(false); // Track if we're currently in the process of subscribing
 	// Track previous user ID to detect actual logout vs transient state changes
 	const previousUserIdRef = useRef<string | null>(null);
+	// Master loading timeout to prevent infinite loading - cleared when loading completes
+	const masterLoadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
 	const isReady = useMemo(() => Boolean(user?.id), [user?.id]);
 	
@@ -463,6 +467,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
 		} finally {
 			isFetchingRef.current = false;
 			setLoading(false);
+			// Clear master loading timeout when fetch completes
+			if (masterLoadingTimeoutRef.current) {
+				clearTimeout(masterLoadingTimeoutRef.current);
+				masterLoadingTimeoutRef.current = null;
+			}
 		}
 	},
 	[isReady, user, profile, fetchLeafScans, fetchFruitScans, fetchValidationHistory]
@@ -517,6 +526,36 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
 		return () => clearTimeout(profileWaitTimeout);
 	}, [isReady, profile, loading]);
+
+	// MASTER LOADING TIMEOUT: Ultimate safety net to prevent infinite loading states
+	// This catches any edge case where loading gets stuck (tab throttling, network issues, etc.)
+	useEffect(() => {
+		// Only start timeout when loading is true
+		if (!loading) {
+			if (masterLoadingTimeoutRef.current) {
+				clearTimeout(masterLoadingTimeoutRef.current);
+				masterLoadingTimeoutRef.current = null;
+			}
+			return;
+		}
+
+		// Set a 20-second master timeout - if loading is still true after this, force clear it
+		masterLoadingTimeoutRef.current = setTimeout(() => {
+			if (loading) {
+				console.warn('[DataContext] Master loading timeout (20s) - forcing loading state to clear');
+				setLoading(false);
+				// Don't set error - just allow UI to render with empty data if needed
+			}
+			masterLoadingTimeoutRef.current = null;
+		}, 20000);
+
+		return () => {
+			if (masterLoadingTimeoutRef.current) {
+				clearTimeout(masterLoadingTimeoutRef.current);
+				masterLoadingTimeoutRef.current = null;
+			}
+		};
+	}, [loading]);
 
 	// Helper function to fetch a single scan with its profile
 	// Tries both tables based on scan_type or scan_uuid
