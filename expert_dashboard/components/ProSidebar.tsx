@@ -40,11 +40,13 @@ export function MobileSidebar({ onClose }: { onClose: () => void }) {
 }
 
 export default function ProSidebar() {
-	const { isCollapsed, toggleCollapse } = useSidebar();
+	const { isCollapsed, toggleCollapse, isHydrated } = useSidebar();
 
 	return (
 		<aside className={clsx(
-			"h-screen bg-[var(--surface)] text-[var(--foreground)] border-r border-[var(--color-border)] shadow-sm transition-all duration-300",
+			"h-screen bg-[var(--surface)] text-[var(--foreground)] border-r border-[var(--color-border)] shadow-sm",
+			// Only enable transitions after hydration to prevent flash
+			isHydrated ? "transition-all duration-300" : "",
 			isCollapsed ? "w-20" : "w-72"
 		)}>
 			<motion.div initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ duration: 0.4 }}>

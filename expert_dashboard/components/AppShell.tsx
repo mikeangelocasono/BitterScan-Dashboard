@@ -7,13 +7,13 @@ import { Button } from "./ui/button";
 import { Menu } from "lucide-react";
 import AccountDropdown from "./AccountDropdown";
 import NotificationBell from "./NotificationBell";
-import { SidebarProvider, useSidebar } from "./SidebarContext";
+import { useSidebar } from "./SidebarContext";
 import { clsx } from "clsx";
 
 const AppShellContent = memo(function AppShellContent({ children }: PropsWithChildren) {
 	// Named function component for Fast Refresh support
 	const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-	const { isCollapsed } = useSidebar();
+	const { isCollapsed, isHydrated } = useSidebar();
 
 	const handleMobileMenuClose = useCallback(() => {
 		setMobileMenuOpen(false);
@@ -26,10 +26,12 @@ const AppShellContent = memo(function AppShellContent({ children }: PropsWithChi
 	const contentAreaClassName = useMemo(
 		() =>
 			clsx(
-				"flex-1 w-full transition-all duration-300 ease-in-out",
+				"flex-1 w-full",
+				// Only enable transitions after hydration to prevent flash
+				isHydrated ? "transition-all duration-300 ease-in-out" : "",
 				isCollapsed ? "lg:pl-20" : "lg:pl-72"
 			),
-		[isCollapsed]
+		[isCollapsed, isHydrated]
 	);
 
 	return (
@@ -81,11 +83,8 @@ const AppShellContent = memo(function AppShellContent({ children }: PropsWithChi
 AppShellContent.displayName = "AppShellContent";
 
 export default function AppShell({ children }: PropsWithChildren) {
-	return (
-		<SidebarProvider>
-			<AppShellContent>{children}</AppShellContent>
-		</SidebarProvider>
-	);
+	// SidebarProvider is now in root layout, no need to wrap here
+	return <AppShellContent>{children}</AppShellContent>;
 }
 
 
