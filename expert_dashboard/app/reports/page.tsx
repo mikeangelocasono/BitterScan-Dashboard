@@ -477,6 +477,20 @@ export default function ReportsPage() {
   const [isPageVisible, setIsPageVisible] = useState(true);
   const [chartKey, setChartKey] = useState(0);
   
+  // Force render state - prevents infinite loading if DataContext loading gets stuck
+  const [forceRender, setForceRender] = useState(false);
+  
+  // Master timeout: force render after 6 seconds to prevent infinite loading
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      if (!forceRender && loading) {
+        console.warn('[ReportsPage] Forcing render after timeout');
+        setForceRender(true);
+      }
+    }, 6000);
+    return () => clearTimeout(timeout);
+  }, [forceRender, loading]);
+  
   // Handle visibility changes to prevent chart rendering errors
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -1238,7 +1252,9 @@ export default function ReportsPage() {
     printWindow.document.close();
   }, [range, dateRangeLabel, rangeStart, rangeEnd, filteredScans, validatedScansCount, successRate, diseaseDistribution, ripenessDistribution, scansTrend]);
 
-  if (loading) {
+  // Show loading state only if not force-rendered and loading is true
+  // forceRender bypasses the loading check to prevent infinite loading
+  if (loading && !forceRender) {
     return (
       <AuthGuard>
         <AppShell>

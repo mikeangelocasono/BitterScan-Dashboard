@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import AuthGuard from "@/components/AuthGuard";
@@ -29,33 +29,23 @@ function AdminDashboardContent() {
   const { user, profile, loading: userLoading, sessionReady } = useUser();
   const { scans, loading: dataLoading, error } = useData();
   const guardNotifiedRef = useRef(false);
-  const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [forceRender, setForceRender] = useState(false);
 
   const effectiveRole = useMemo(() => profile?.role || user?.user_metadata?.role || null, [profile?.role, user?.user_metadata?.role]);
   const adminEmailHint = useMemo(() => (user?.email || '').toLowerCase().includes('admin'), [user?.email]);
   const isAdmin = useMemo(() => effectiveRole === "admin" || adminEmailHint, [effectiveRole, adminEmailHint]);
 
-  // Prevent infinite loading: if loading persists after 10s and sessionReady, force render
+  // Prevent infinite loading: if loading persists after 6s, force render
   // This handles edge cases where DataContext might not clear loading properly
   useEffect(() => {
-    if ((userLoading || dataLoading) && sessionReady) {
-      loadingTimeoutRef.current = setTimeout(() => {
-        if ((userLoading || dataLoading) && sessionReady) {
-          console.warn('[AdminDashboard] Loading timeout - forcing render');
-          // Force a re-render by updating a ref (the hook will notice sessionReady is true)
-        }
-      }, 10000); // 10 seconds
-    } else if (loadingTimeoutRef.current) {
-      clearTimeout(loadingTimeoutRef.current);
-      loadingTimeoutRef.current = null;
-    }
-
-    return () => {
-      if (loadingTimeoutRef.current) {
-        clearTimeout(loadingTimeoutRef.current);
+    const timeout = setTimeout(() => {
+      if ((userLoading || dataLoading) && !forceRender) {
+        console.warn('[AdminDashboard] Loading timeout - forcing render');
+        setForceRender(true);
       }
-    };
-  }, [userLoading, dataLoading, sessionReady]);
+    }, 6000);
+    return () => clearTimeout(timeout);
+  }, [userLoading, dataLoading, forceRender]);
 
   useEffect(() => {
     if (userLoading) return;
@@ -97,9 +87,9 @@ function AdminDashboardContent() {
   }, [validScans]);
 
   // Show loading only during initial session resolution
-  // Once sessionReady is true OR we have data, render the dashboard
+  // Once sessionReady is true OR we have data OR forceRender, render the dashboard
   const hasData = scans && scans.length >= 0; // scans array exists
-  if (!sessionReady && (userLoading || (dataLoading && !hasData))) {
+  if (!forceRender && !sessionReady && (userLoading || (dataLoading && !hasData))) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-[var(--background)] py-24">
         <div className="text-center space-y-3">
