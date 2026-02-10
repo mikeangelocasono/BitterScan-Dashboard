@@ -15,6 +15,30 @@ import Badge from "@/components/ui/badge";
 import type { UserProfile } from "@/types";
 import { supabase } from "@/components/supabase";
 
+// Cache keys
+const CACHE_KEY_PENDING = 'bs:cache:pending-users';
+const CACHE_KEY_APPROVED = 'bs:cache:approved-users';
+const CACHE_KEY_REJECTED = 'bs:cache:rejected-users';
+const CACHE_EXPIRY_MS = 2 * 60 * 1000; // 2 min cache
+
+function loadCache<T>(key: string): T | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const item = localStorage.getItem(key);
+    if (!item) return null;
+    const { data, ts } = JSON.parse(item);
+    if (Date.now() - ts < CACHE_EXPIRY_MS) return data as T;
+    return data as T; // Still return stale for instant display
+  } catch { return null; }
+}
+
+function saveCache<T>(key: string, data: T): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(key, JSON.stringify({ data, ts: Date.now() }));
+  } catch {}
+}
+
 export default function AdminApprovalsPage() {
   return (
     <AuthGuard>
@@ -28,14 +52,22 @@ export default function AdminApprovalsPage() {
 function ApprovalsContent() {
   const router = useRouter();
   const { user, profile, loading: userLoading, sessionReady } = useUser();
-  const [pendingUsers, setPendingUsers] = useState<UserProfile[]>([]);
-  const [approvedUsers, setApprovedUsers] = useState<UserProfile[]>([]);
-  const [rejectedUsers, setRejectedUsers] = useState<UserProfile[]>([]);
-  const [loading, setLoading] = useState(true);
+  
+  // Initialize from cache for instant display
+  const [pendingUsers, setPendingUsers] = useState<UserProfile[]>(() => loadCache<UserProfile[]>(CACHE_KEY_PENDING) || []);
+  const [approvedUsers, setApprovedUsers] = useState<UserProfile[]>(() => loadCache<UserProfile[]>(CACHE_KEY_APPROVED) || []);
+  const [rejectedUsers, setRejectedUsers] = useState<UserProfile[]>(() => loadCache<UserProfile[]>(CACHE_KEY_REJECTED) || []);
+  
+  // Only show loading if no cached data
+  const hasCachedData = (loadCache<UserProfile[]>(CACHE_KEY_PENDING)?.length || 0) > 0 ||
+                        (loadCache<UserProfile[]>(CACHE_KEY_APPROVED)?.length || 0) > 0 ||
+                        (loadCache<UserProfile[]>(CACHE_KEY_REJECTED)?.length || 0) > 0;
+  const [loading, setLoading] = useState(!hasCachedData);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [roleFilter, setRoleFilter] = useState<"all" | "expert" | "farmer">("all");
   const guardNotifiedRef = useRef(false);
   const isFetchingRef = useRef(false);
+  const hasCachedDataRef = useRef(hasCachedData);
 
   const effectiveRole = useMemo(() => profile?.role || user?.user_metadata?.role || null, [profile?.role, user?.user_metadata?.role]);
   const adminEmailHint = useMemo(() => (user?.email || '').toLowerCase().includes('admin'), [user?.email]);
@@ -46,7 +78,8 @@ function ApprovalsContent() {
     if (isFetchingRef.current) return; // Prevent duplicate calls
     
     isFetchingRef.current = true;
-    setLoading(true);
+    // Only show loading spinner if no cached data exists (use ref to avoid deps issue)
+    if (!hasCachedDataRef.current) setLoading(true);
     try {
       // Get current session token
       const { data: { session } } = await supabase.auth.getSession();
@@ -94,9 +127,19 @@ function ApprovalsContent() {
       }
 
       const { profiles = [] } = body as { profiles: UserProfile[] };
-      setPendingUsers(profiles.filter((u) => u.status === "pending"));
-      setApprovedUsers(profiles.filter((u) => u.status === "approved"));
-      setRejectedUsers(profiles.filter((u) => u.status === "rejected"));
+      const pending = profiles.filter((u) => u.status === "pending");
+      const approved = profiles.filter((u) => u.status === "approved");
+      const rejected = profiles.filter((u) => u.status === "rejected");
+      
+      setPendingUsers(pending);
+      setApprovedUsers(approved);
+      setRejectedUsers(rejected);
+      
+      // Save to cache for instant display on next visit
+      saveCache(CACHE_KEY_PENDING, pending);
+      saveCache(CACHE_KEY_APPROVED, approved);
+      saveCache(CACHE_KEY_REJECTED, rejected);
+      hasCachedDataRef.current = true; // Mark that we have data
     } catch (err) {
       const rawMessage = err instanceof Error ? err.message : "Failed to fetch user list";
       const msgLower = rawMessage.toLowerCase();
@@ -111,19 +154,23 @@ function ApprovalsContent() {
     }
   }, [isAdmin]);
 
-  // Fetch users only when session is ready and admin status is confirmed
+  // Fetch users immediately when admin status is confirmed (don't wait for full session resolution)
   useEffect(() => {
-    if (!sessionReady) return; // Wait for session to be fully resolved
+    // If admin is confirmed, start fetching immediately
+    if (isAdmin && user?.id) {
+      fetchUsers();
+      return;
+    }
+    // Wait for session to be ready before redirecting non-admins
+    if (!sessionReady) return;
     if (!isAdmin) {
       if (!guardNotifiedRef.current) {
         guardNotifiedRef.current = true;
         toast.error("Admin access only.");
       }
       router.replace("/dashboard");
-      return;
     }
-    fetchUsers();
-  }, [sessionReady, isAdmin, fetchUsers, router]);
+  }, [sessionReady, isAdmin, user?.id, fetchUsers, router]);
 
   // Master timeout to prevent infinite loading
   useEffect(() => {
@@ -133,7 +180,7 @@ function ApprovalsContent() {
         console.warn('[ApprovalsPage] Master timeout - clearing loading state');
         setLoading(false);
       }
-    }, 10000);
+    }, 2000); // 2 second timeout for fast UX
     return () => clearTimeout(timeout);
   }, [loading]);
 
