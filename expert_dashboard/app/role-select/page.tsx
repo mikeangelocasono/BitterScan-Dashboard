@@ -9,30 +9,61 @@ export default function RoleSelectPage() {
   const router = useRouter();
   const [selectedRole, setSelectedRole] = useState<"expert" | "admin" | "">("");
   const [mounted, setMounted] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
 
   useEffect(() => {
     setMounted(true);
     
-    // Only clear session if explicitly coming from a logout or fresh start
-    // Don't clear session on every mount to allow proper session persistence
+    // Check for existing session and redirect logged-in users to their dashboard
     const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      // Only clear if there's a session but user explicitly navigated here
-      // (not from app initialization)
-      if (session && typeof window !== 'undefined') {
-        const fromLogout = sessionStorage.getItem('bs:from-logout');
-        if (fromLogout === 'true') {
-          // Clear the flag
-          sessionStorage.removeItem('bs:from-logout');
-          // Sign out to ensure clean state
-          await supabase.auth.signOut();
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        // If user explicitly came from logout, clear session and stay on this page
+        if (session && typeof window !== 'undefined') {
+          const fromLogout = sessionStorage.getItem('bs:from-logout');
+          if (fromLogout === 'true') {
+            sessionStorage.removeItem('bs:from-logout');
+            await supabase.auth.signOut();
+            setCheckingSession(false);
+            return;
+          }
+          
+          // User has a valid session - redirect them to their dashboard
+          // Fetch their profile to determine role
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('role, status')
+            .eq('id', session.user.id)
+            .single();
+          
+          if (profile) {
+            // Check if approved (admins are always approved)
+            if (profile.role === 'admin' || profile.status === 'approved') {
+              const targetRoute = profile.role === 'admin' ? '/admin-dashboard' : '/expert-dashboard';
+              router.replace(targetRoute);
+              return;
+            }
+          } else {
+            // No profile but has session - check user metadata for role
+            const userRole = session.user.user_metadata?.role;
+            if (userRole === 'admin') {
+              router.replace('/admin-dashboard');
+              return;
+            } else if (userRole === 'expert') {
+              router.replace('/expert-dashboard');
+              return;
+            }
+          }
         }
+      } catch (error) {
+        console.warn('[RoleSelect] Error checking session:', error);
       }
+      setCheckingSession(false);
     };
     
     checkSession();
-  }, []);
+  }, [router]);
 
   const handleContinue = () => {
     if (!selectedRole) {
@@ -42,8 +73,8 @@ export default function RoleSelectPage() {
     router.push(`/login?role=${selectedRole}`);
   };
 
-  // Prevent hydration mismatch
-  if (!mounted) {
+  // Prevent hydration mismatch and show loading while checking session
+  if (!mounted || checkingSession) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="text-center">

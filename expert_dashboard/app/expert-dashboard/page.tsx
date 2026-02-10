@@ -9,16 +9,17 @@ import { useUser } from "@/components/UserContext";
 
 export default function ExpertDashboardPage() {
   const router = useRouter();
-  const { profile, loading } = useUser();
+  const { profile, loading, sessionReady } = useUser();
 
   useEffect(() => {
-    if (loading) return;
+    // Wait for session to be fully ready before making routing decisions
+    if (loading || !sessionReady) return;
     if (!profile) return;
     if (profile.role !== "expert") {
       // Non-experts should be rerouted away from expert dashboard
       router.replace(profile.role === "admin" ? "/admin-dashboard" : "/role-select");
     }
-  }, [loading, profile, router]);
+  }, [loading, sessionReady, profile, router]);
 
   return (
     <AuthGuard>
