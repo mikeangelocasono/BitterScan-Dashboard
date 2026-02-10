@@ -30,11 +30,17 @@ export default function Home() {
     // Wait for session to be fully ready (not just loading to be false)
     if (!sessionReady) return;
 
+    // Resolve role from multiple sources (profile > user_metadata > email hint)
+    const resolvedRole = 
+      profile?.role?.toLowerCase() || 
+      (user?.user_metadata?.role ? String(user.user_metadata.role).toLowerCase() : null) ||
+      ((user?.email || '').toLowerCase().includes('admin') ? 'admin' : null);
+
     // If user is authenticated, redirect to their dashboard
-    if (user && profile) {
-      if (profile.role === 'admin') {
+    if (user) {
+      if (resolvedRole === 'admin') {
         router.replace('/admin-dashboard');
-      } else if (profile.role === 'expert') {
+      } else if (resolvedRole === 'expert') {
         router.replace('/expert-dashboard');
       } else {
         // Unknown role or farmer - go to role select

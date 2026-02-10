@@ -88,7 +88,7 @@ function SidebarLinks({ onClick, isCollapsed }: { onClick?: () => void; isCollap
 	// Named function component for Fast Refresh support
 	const pathname = usePathname();
 	const [showLogoutDialog, setShowLogoutDialog] = useState(false);
-	const { logout, profile } = useUser();
+	const { logout, profile, user } = useUser();
 
 	const handleLogout = useCallback(async () => {
 		setShowLogoutDialog(false);
@@ -104,11 +104,30 @@ function SidebarLinks({ onClick, isCollapsed }: { onClick?: () => void; isCollap
 		setShowLogoutDialog(true);
 	}, []);
 
-	// RBAC: Filter navigation items based on user role
+	// RBAC: Resolve role from multiple sources (profile > user_metadata > email hint)
+	// This ensures navigation works even if profile hasn't loaded yet
+	const resolvedRole = useMemo(() => {
+		// Priority 1: Profile role from database
+		if (profile?.role) {
+			return profile.role.toLowerCase();
+		}
+		// Priority 2: User metadata role (set during registration/login)
+		if (user?.user_metadata?.role) {
+			return String(user.user_metadata.role).toLowerCase();
+		}
+		// Priority 3: Email-based hint for admin
+		const emailLower = (user?.email || '').toLowerCase();
+		if (emailLower.includes('admin')) {
+			return 'admin';
+		}
+		return null;
+	}, [profile?.role, user?.user_metadata?.role, user?.email]);
+
+	// RBAC: Filter navigation items based on resolved role
 	const filteredNavItems = useMemo(() => {
-		if (!profile) return [];
-		return navItems.filter(item => item.roles.includes(profile.role));
-	}, [profile]);
+		if (!resolvedRole) return [];
+		return navItems.filter(item => item.roles.includes(resolvedRole));
+	}, [resolvedRole]);
 
 	const navItemElements = useMemo(() => {
 		return filteredNavItems.map(({ href, label, icon: Icon }) => {

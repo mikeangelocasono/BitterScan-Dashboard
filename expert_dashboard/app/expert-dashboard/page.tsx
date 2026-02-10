@@ -10,8 +10,14 @@ import { Loader2 } from "lucide-react";
 
 export default function ExpertDashboardPage() {
   const router = useRouter();
-  const { profile, loading, sessionReady } = useUser();
+  const { user, profile, loading, sessionReady } = useUser();
   const [showContent, setShowContent] = useState(false);
+
+  // Resolve role from multiple sources
+  const resolvedRole = 
+    profile?.role?.toLowerCase() || 
+    (user?.user_metadata?.role ? String(user.user_metadata.role).toLowerCase() : null) ||
+    ((user?.email || '').toLowerCase().includes('admin') ? 'admin' : null);
 
   // Master timeout: Show content after 5s even if session isn't ready
   useEffect(() => {
@@ -34,12 +40,12 @@ export default function ExpertDashboardPage() {
   useEffect(() => {
     // Wait for session to be fully ready before making routing decisions
     if (loading || !sessionReady) return;
-    if (!profile) return;
-    if (profile.role !== "expert") {
+    if (!user) return;
+    if (resolvedRole !== "expert") {
       // Non-experts should be rerouted away from expert dashboard
-      router.replace(profile.role === "admin" ? "/admin-dashboard" : "/role-select");
+      router.replace(resolvedRole === "admin" ? "/admin-dashboard" : "/role-select");
     }
-  }, [loading, sessionReady, profile, router]);
+  }, [loading, sessionReady, user, resolvedRole, router]);
 
   // Show loading state until session is ready or timeout
   if (!showContent) {
