@@ -48,7 +48,7 @@ export default function ManageDiseaseInfoPage() {
 
 function ManageDiseaseInfoContent() {
   const router = useRouter();
-  const { user, profile, loading: userLoading } = useUser();
+  const { user, profile, loading: userLoading, sessionReady } = useUser();
   const [diseases, setDiseases] = useState<EditingDisease[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -57,26 +57,37 @@ function ManageDiseaseInfoContent() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [viewingDisease, setViewingDisease] = useState<DiseaseInfo | null>(null);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
+  const [fetchAttempted, setFetchAttempted] = useState(false);
 
   const effectiveRole = useMemo(() => profile?.role || user?.user_metadata?.role || null, [profile?.role, user?.user_metadata?.role]);
   const isAuthorized = useMemo(() => effectiveRole === "expert" || effectiveRole === "admin", [effectiveRole]);
 
-  // Redirect unauthorized users
+  // Redirect unauthorized users - only after session is ready
   useEffect(() => {
-    if (!userLoading && user && !isAuthorized) {
+    if (sessionReady && !userLoading && user && !isAuthorized) {
       toast.error("Access denied. Experts and Admins only.");
       router.replace("/dashboard");
     }
-  }, [userLoading, user, isAuthorized, router]);
+  }, [sessionReady, userLoading, user, isAuthorized, router]);
 
-  // Fetch disease information
+  // Fetch disease information with timeout protection
   const fetchDiseases = useCallback(async () => {
     setLoading(true);
+    setFetchAttempted(true);
+    
+    // Add timeout to prevent infinite loading
+    const timeoutId = setTimeout(() => {
+      console.warn('[ManageDiseaseInfo] Fetch timeout - forcing loading state to clear');
+      setLoading(false);
+    }, 15000); // 15 second timeout
+    
     try {
       const { data, error } = await supabase
         .from("disease_info")
         .select("*")
         .order("disease_name", { ascending: true });
+
+      clearTimeout(timeoutId);
 
       if (error) {
         console.error("Error fetching diseases:", error);
@@ -87,23 +98,43 @@ function ManageDiseaseInfoContent() {
 
       setDiseases((data || []).map(d => ({ ...d, isEditing: false })));
     } catch (err) {
+      clearTimeout(timeoutId);
       console.error("Unexpected error fetching diseases:", err);
       toast.error("Failed to load disease information");
       setDiseases([]);
     } finally {
+      clearTimeout(timeoutId);
       setLoading(false);
     }
   }, []);
 
+  // Wait for sessionReady before fetching data - this ensures auth is resolved
   useEffect(() => {
-    if (!userLoading) {
-      if (isAuthorized) {
-        fetchDiseases();
-      } else {
+    // Only proceed when session is ready (user + profile resolved or confirmed null)
+    if (!sessionReady) return;
+    
+    // If user is authorized, fetch data
+    if (isAuthorized) {
+      fetchDiseases();
+    } else {
+      // Not authorized or no user - stop loading
+      setLoading(false);
+    }
+  }, [sessionReady, isAuthorized, fetchDiseases]);
+
+  // Master timeout: prevent infinite loading in any edge case
+  useEffect(() => {
+    if (!loading) return;
+    
+    const masterTimeout = setTimeout(() => {
+      if (loading) {
+        console.warn('[ManageDiseaseInfo] Master timeout - clearing loading state');
         setLoading(false);
       }
-    }
-  }, [isAuthorized, userLoading, fetchDiseases]);
+    }, 10000); // 10 second master timeout
+    
+    return () => clearTimeout(masterTimeout);
+  }, [loading]);
 
   // Filter diseases based on search query
   const filteredDiseases = useMemo(() => {
@@ -202,7 +233,11 @@ function ManageDiseaseInfoContent() {
     fetchDiseases(); // Reset to original data
   }, [toggleEdit, fetchDiseases]);
 
-  if (userLoading || loading) {
+  // Show loading only when session isn't ready OR when actively loading data
+  // Use sessionReady to prevent infinite loading if auth has issues
+  const isLoading = !sessionReady || loading;
+
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center py-8">
         <div className="text-center">

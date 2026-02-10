@@ -27,7 +27,7 @@ export default function AdminApprovalsPage() {
 
 function ApprovalsContent() {
   const router = useRouter();
-  const { user, profile, loading: userLoading } = useUser();
+  const { user, profile, loading: userLoading, sessionReady } = useUser();
   const [pendingUsers, setPendingUsers] = useState<UserProfile[]>([]);
   const [approvedUsers, setApprovedUsers] = useState<UserProfile[]>([]);
   const [rejectedUsers, setRejectedUsers] = useState<UserProfile[]>([]);
@@ -111,9 +111,9 @@ function ApprovalsContent() {
     }
   }, [isAdmin]);
 
-  // Fetch users only when admin status is confirmed and not still loading
+  // Fetch users only when session is ready and admin status is confirmed
   useEffect(() => {
-    if (userLoading) return; // Wait for user context to load
+    if (!sessionReady) return; // Wait for session to be fully resolved
     if (!isAdmin) {
       if (!guardNotifiedRef.current) {
         guardNotifiedRef.current = true;
@@ -123,7 +123,19 @@ function ApprovalsContent() {
       return;
     }
     fetchUsers();
-  }, [userLoading, isAdmin, fetchUsers, router]);
+  }, [sessionReady, isAdmin, fetchUsers, router]);
+
+  // Master timeout to prevent infinite loading
+  useEffect(() => {
+    if (!loading) return;
+    const timeout = setTimeout(() => {
+      if (loading) {
+        console.warn('[ApprovalsPage] Master timeout - clearing loading state');
+        setLoading(false);
+      }
+    }, 10000);
+    return () => clearTimeout(timeout);
+  }, [loading]);
 
   const approveUser = async (userId: string) => {
     if (!isAdmin) return;
@@ -228,8 +240,8 @@ function ApprovalsContent() {
     return pendingUsers.filter((user) => user.role === roleFilter);
   }, [pendingUsers, roleFilter]);
 
-  // Only show full-page loading during initial auth check
-  if (userLoading) {
+  // Only show full-page loading during initial session resolution
+  if (!sessionReady) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-[var(--background)]">
         <div className="text-center space-y-3">
