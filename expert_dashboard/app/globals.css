@@ -1,0 +1,314 @@
+@import "tailwindcss";
+
+/* Leaflet CSS for map components */
+@import "leaflet/dist/leaflet.css";
+
+:root {
+  /* Core palette */
+  --background: #F6F7F8;
+  --surface: #ffffff;
+  --foreground: #1F2937; /* gray-800 */
+  --muted-foreground: #6B7280; /* gray-500 */
+  --primary: #388E3C; /* BitterScan green */
+  --primary-600: #2F7A33;
+  --primary-100: #E6F3E7;
+  --border: #E5E7EB; /* gray-200 */
+  --ring: #A7D3AA; /* subtle green ring */
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-surface: var(--surface);
+  --color-border: var(--border);
+  --font-sans: var(--font-inter);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0b0f0c;
+    --surface: #111513;
+    --foreground: #E7ECE9;
+    --muted-foreground: #A6ADA9;
+    --border: #1F2A22;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-inter), ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  overflow-x: hidden;
+}
+
+/* Typography scale - consistent across the app */
+h1 { 
+  font-size: 1.875rem; /* 30px */
+  line-height: 2.25rem; /* 36px */
+  font-weight: 700;
+  color: var(--foreground);
+  letter-spacing: -0.025em;
+}
+h2 { 
+  font-size: 1.5rem; /* 24px */
+  line-height: 2rem; /* 32px */
+  font-weight: 600;
+  color: var(--foreground);
+  letter-spacing: -0.0125em;
+}
+h3 { 
+  font-size: 1.125rem; /* 18px */
+  line-height: 1.75rem; /* 28px */
+  font-weight: 600;
+  color: var(--foreground);
+}
+p { 
+  font-size: 0.9375rem; /* 15px */
+  line-height: 1.5rem; /* 24px */
+  color: var(--foreground);
+}
+small { 
+  font-size: 0.8125rem; /* 13px */
+  color: var(--muted-foreground);
+}
+
+/* Smooth transitions for interactive elements */
+* {
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+}
+
+/* Utility alignments for consistent spacing */
+.container-padding { padding-left: 1.5rem; padding-right: 1.5rem; }
+.section { margin-top: 1.5rem; margin-bottom: 1.5rem; }
+
+/* Focus ring */
+:where(button, a, input, select, textarea):focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--ring);
+}
+
+/* Print styles for PDF export */
+@media print {
+  * {
+    transition: none !important;
+  }
+
+  body.printing {
+    background: white !important;
+    color: black !important;
+  }
+
+  /* Hide navigation, buttons, and non-essential UI elements */
+  body.printing nav,
+  body.printing button:not(.print-keep),
+  body.printing [class*="sidebar"],
+  body.printing [class*="Sidebar"],
+  body.printing [class*="AppShell"] > div > aside,
+  body.printing header,
+  body.printing .no-print {
+    display: none !important;
+  }
+
+  body.printing .print-only {
+    display: block !important;
+  }
+
+  /* Show only the main content */
+  body.printing [class*="AppShell"] > div > div[class*="flex-1"],
+  body.printing [class*="AppShell"] main,
+  body.printing [class*="space-y-6"] {
+    margin: 0 !important;
+    padding: 20px !important;
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+
+  /* Ensure cards are visible and properly formatted */
+  body.printing [class*="Card"],
+  body.printing [class*="card"],
+  body.printing [class*="CardHeader"],
+  body.printing [class*="CardContent"],
+  body.printing [class*="CardTitle"] {
+    box-shadow: none !important;
+    border: 1px solid #e5e7eb !important;
+    page-break-inside: avoid;
+    background: white !important;
+    display: block !important;
+    visibility: visible !important;
+  }
+
+  body.printing [class*="CardContent"] {
+    padding: 16px !important;
+    display: block !important;
+  }
+
+  /* Format cards and tables for print */
+  body.printing .shadow-sm,
+  body.printing .shadow-md {
+    box-shadow: none !important;
+    border: 1px solid #e5e7eb !important;
+    page-break-inside: avoid;
+    background: white !important;
+  }
+
+  /* Ensure table container is visible */
+  body.printing .print-table-container,
+  body.printing .print-table-wrapper,
+  body.printing [class*="overflow-x-auto"],
+  body.printing [class*="overflow"] {
+    overflow: visible !important;
+    display: block !important;
+    width: 100% !important;
+    visibility: visible !important;
+  }
+
+  /* Table formatting */
+  body.printing table,
+  body.printing .print-table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    font-size: 9pt !important;
+    display: table !important;
+    visibility: visible !important;
+    background: white !important;
+    margin: 0 !important;
+    table-layout: auto !important;
+  }
+
+  body.printing thead {
+    display: table-header-group !important;
+    background: #f9fafb !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  body.printing tbody {
+    display: table-row-group !important;
+    visibility: visible !important;
+  }
+
+  body.printing tr {
+    display: table-row !important;
+    page-break-inside: avoid;
+    visibility: visible !important;
+    background: white !important;
+  }
+
+  body.printing th,
+  body.printing td {
+    display: table-cell !important;
+    padding: 6px 8px !important;
+    border: 1px solid #e5e7eb !important;
+    text-align: left !important;
+    visibility: visible !important;
+    background: white !important;
+    color: black !important;
+  }
+
+  body.printing th {
+    font-weight: 600 !important;
+    background: #f9fafb !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color: black !important;
+  }
+
+  body.printing td {
+    background: white !important;
+    color: black !important;
+  }
+
+  /* Ensure text content is visible */
+  body.printing p,
+  body.printing span,
+  body.printing div {
+    color: black !important;
+  }
+
+  /* Headers and titles */
+  body.printing h1,
+  body.printing h2,
+  body.printing h3 {
+    page-break-after: avoid;
+    color: black !important;
+  }
+
+  /* Hide images in table cells for cleaner print */
+  body.printing table img {
+    display: none !important;
+  }
+
+  /* Ensure badge/status is visible */
+  body.printing [class*="Badge"],
+  body.printing [class*="badge"] {
+    background: #f3f4f6 !important;
+    color: black !important;
+    border: 1px solid #d1d5db !important;
+    padding: 2px 6px !important;
+    border-radius: 4px !important;
+    display: inline-block !important;
+  }
+
+  /* Hide overflow and ensure content fits */
+  body.printing {
+    overflow: visible !important;
+  }
+
+  /* Page breaks */
+  body.printing .page-break-before {
+    page-break-before: always;
+  }
+
+  body.printing .page-break-after {
+    page-break-after: always;
+  }
+
+  body.printing .page-break-inside-avoid {
+    page-break-inside: avoid;
+  }
+}
+
+/* Responsive table improvements */
+@media (max-width: 768px) {
+  /* Make tables horizontally scrollable on mobile */
+  .table-responsive {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  /* Ensure minimum widths for table cells on mobile */
+  table td,
+  table th {
+    white-space: nowrap;
+  }
+  
+  /* Stack cards vertically with proper spacing */
+  .grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Logout modal entrance animation */
+@keyframes fadeScaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Fade in animation for role selection */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
