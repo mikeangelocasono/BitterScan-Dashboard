@@ -58,6 +58,34 @@ function isRefreshTokenError(error: unknown): boolean {
 function isPermissionDeniedError(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
 
+/**
+ * Wraps a promise with a timeout. Returns defaultValue if timeout is exceeded.
+ * Prevents hanging promises from causing infinite loading states.
+ */
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  defaultValue: T,
+  label = 'operation'
+): Promise<T> {
+  let timeoutHandle: NodeJS.Timeout;
+  const timeoutPromise = new Promise<T>((resolve) => {
+    timeoutHandle = setTimeout(() => {
+      console.warn(`[UserContext] ${label} timed out after ${timeoutMs}ms, using default value`);
+      resolve(defaultValue);
+    }, timeoutMs);
+  });
+
+  try {
+    const result = await Promise.race([promise, timeoutPromise]);
+    clearTimeout(timeoutHandle!);
+    return result;
+  } catch (error) {
+    clearTimeout(timeoutHandle!);
+    throw error;
+  }
+}
+
   const code = (error as { code?: string | number }).code?.toString().toUpperCase();
   const status = (error as { status?: number }).status;
   const message = ((error as { message?: string }).message || '').toLowerCase();
@@ -144,14 +172,25 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const sessionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   // Track if a login-triggered profile fetch is already in progress to prevent duplicates
   const profileFetchInProgressRef = useRef(false);
+  // Track state via refs for visibility handler (avoids stale closures)
+  const loadingRef = useRef(true);
+  const sessionReadyRef = useRef(false);
 
   const fetchProfile = useCallback(async (userId: string) => {
     try {
-      const { data: profileData, error: profileError } = await supabase
+      // Add 10s timeout to prevent hanging after tab switch
+      const fetchPromise = supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
         .single();
+
+      const { data: profileData, error: profileError } = await withTimeout(
+        fetchPromise,
+        10000,
+        { data: null, error: null },
+        'fetchProfile'
+      );
 
       // RBAC: Successfully fetched profile data
       if (profileData) {
@@ -273,6 +312,16 @@ export function UserProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     resolveSessionRef.current = resolveSession;
   }, [resolveSession]);
+
+  // Sync loadingRef with loading state for visibility handler
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
+
+  // Sync sessionReadyRef with sessionReady state for visibility handler
+  useEffect(() => {
+    sessionReadyRef.current = sessionReady;
+  }, [sessionReady]);
 
   const logout = useCallback(async () => {
     // Signal logout in progress — prevents AuthGuard redirect and shows overlay
@@ -645,7 +694,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
       
       // CRITICAL FIX: Force-clear any stuck loading state on visibility change
       // This prevents infinite loading when returning to the tab
-      if (loading && initialResolved.current) {
+      // Use loadingRef.current to avoid stale closure issues
+      if (loadingRef.current && initialResolved.current) {
         console.log('[UserContext] Visibility change: clearing stuck loading state');
         setLoading(false);
       }
@@ -690,8 +740,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
           if (sessionUserId === currentUserId) {
             // Session is the same, no need to update anything
             // Just ensure loading is cleared and session is ready
-            if (loading) setLoading(false);
-            if (!sessionReady) setSessionReady(true);
+            if (loadingRef.current) setLoading(false);
+            if (!sessionReadyRef.current) setSessionReady(true);
             isChecking = false;
             return;
           }
@@ -706,8 +756,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
           if (error instanceof Error && error.message.includes('timeout')) {
             // Timeout - ensure loading is cleared to prevent stuck state
             console.warn('[UserContext] Session check timeout on visibility change');
-            if (loading) setLoading(false);
-            if (!sessionReady) setSessionReady(true);
+            if (loadingRef.current) setLoading(false);
+            if (!sessionReadyRef.current) setSessionReady(true);
           } else if (isRefreshTokenError(error)) {
             console.warn('Invalid refresh token detected on visibility change (catch), clearing auth...');
             setUser(null);
@@ -718,8 +768,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
           } else {
             console.error('Error refreshing session on visibility change:', error);
             // Even on error, ensure loading is cleared to prevent stuck state
-            if (loading) setLoading(false);
-            if (!sessionReady) setSessionReady(true);
+            if (loadingRef.current) setLoading(false);
+            if (!sessionReadyRef.current) setSessionReady(true);
           }
         } finally {
           isChecking = false;
@@ -734,7 +784,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
       }
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [loading, sessionReady]); // Include loading and sessionReady to access current values
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Empty deps - uses refs for all mutable state to avoid stale closures
 
   return (
     <UserContext.Provider value={{ user, profile, loading, sessionReady, loggingOut, refreshProfile, logout }}>

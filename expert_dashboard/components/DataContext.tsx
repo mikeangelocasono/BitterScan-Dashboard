@@ -95,6 +95,35 @@ type DataContextValue = {
 
 const DataContext = createContext<DataContextValue | undefined>(undefined);
 
+/**
+ * Helper to wrap a promise with a timeout.
+ * Returns the promise result or default value if timeout is exceeded.
+ * This prevents infinite loading when browser throttles/freezes requests.
+ */
+async function withTimeout<T>(
+	promise: Promise<T>,
+	timeoutMs: number,
+	defaultValue: T,
+	label?: string
+): Promise<T> {
+	let timeoutId: NodeJS.Timeout;
+	const timeoutPromise = new Promise<T>((resolve) => {
+		timeoutId = setTimeout(() => {
+			if (label) console.warn(`[DataContext] ${label} timeout after ${timeoutMs}ms - using default value`);
+			resolve(defaultValue);
+		}, timeoutMs);
+	});
+	
+	try {
+		const result = await Promise.race([promise, timeoutPromise]);
+		clearTimeout(timeoutId!);
+		return result;
+	} catch (err) {
+		clearTimeout(timeoutId!);
+		throw err;
+	}
+}
+
 export function DataProvider({ children }: { children: ReactNode }) {
 	const { user, profile, loading: userLoading, sessionReady } = useUser();
 	const [scans, setScans] = useState<Scan[]>([]);
@@ -103,6 +132,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
 	// Start with loading=false; only set to true when we actually begin fetching
 	// This prevents stuck loading states when user is not authenticated
 	const [loading, setLoading] = useState(false);
+	// Ref to track loading state for visibility handler (avoids stale closure issues)
+	const loadingRef = useRef(false);
 	const [error, setError] = useState<string | null>(null);
 	const initialFetched = useRef(false);
 	const isFetchingRef = useRef(false);
@@ -138,17 +169,25 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
 	const seenRecursionErrors = useRef<{ [key: string]: boolean }>({});
 
+	// Keep loadingRef in sync with loading state
+	useEffect(() => {
+		loadingRef.current = loading;
+	}, [loading]);
+
 	/**
 	 * Helper function to fetch leaf disease scans from Supabase.
 	 * Returns empty array [] if fetch fails or no data is available.
-	 * Suppresses noisy recursion errors while keeping console clean.
+	 * Includes 10s timeout to prevent hanging after tab switch.
 	 */
 	const fetchLeafScans = useCallback(async (): Promise<DatabaseLeafDiseaseScan[]> => {
 		try {
-			const { data, error } = await supabase
+			const fetchPromise = supabase
 				.from("leaf_disease_scans")
 				.select("*")
 				.order("created_at", { ascending: false });
+
+			// Add 10s timeout to prevent hanging
+			const { data, error } = await withTimeout(fetchPromise, 10000, { data: [], error: null }, 'fetchLeafScans');
 
 			if (error && Object.keys(error).length > 0) {
 				const errorMsg = (error as ErrorLogObject).message || (error as ErrorLogObject).details || "Unknown error";
@@ -170,14 +209,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
 	/**
 	 * Helper function to fetch fruit ripeness scans from Supabase.
 	 * Returns empty array [] if fetch fails or no data is available.
-	 * Suppresses noisy recursion errors while keeping console clean.
+	 * Includes 10s timeout to prevent hanging after tab switch.
 	 */
 	const fetchFruitScans = useCallback(async (): Promise<DatabaseFruitRipenessScan[]> => {
 		try {
-			const { data, error } = await supabase
+			const fetchPromise = supabase
 				.from("fruit_ripeness_scans")
 				.select("*")
 				.order("created_at", { ascending: false });
+
+			// Add 10s timeout to prevent hanging
+			const { data, error } = await withTimeout(fetchPromise, 10000, { data: [], error: null }, 'fetchFruitScans');
 
 			if (error && Object.keys(error).length > 0) {
 				const errorMsg = (error as ErrorLogObject).message || (error as ErrorLogObject).details || "Unknown error";
@@ -199,14 +241,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
 	/**
 	 * Helper function to fetch validation history from Supabase.
 	 * Returns empty array [] if fetch fails or no data is available.
-	 * Suppresses noisy recursion errors while keeping console clean.
+	 * Includes 10s timeout to prevent hanging after tab switch.
 	 */
 	const fetchValidationHistory = useCallback(async (): Promise<DatabaseValidationHistory[]> => {
 		try {
-			const { data, error } = await supabase
+			const fetchPromise = supabase
 				.from("validation_history")
 				.select("*")
 				.order("validated_at", { ascending: false });
+
+			// Add 10s timeout to prevent hanging
+			const { data, error } = await withTimeout(fetchPromise, 10000, { data: [], error: null }, 'fetchValidationHistory');
 
 			if (error && Object.keys(error).length > 0) {
 				const errorMsg = (error as ErrorLogObject).message || (error as ErrorLogObject).details || "Unknown error";
@@ -2026,7 +2071,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
 				try {
 					// CRITICAL FIX: Force-clear any stuck loading state
 					// This prevents infinite loading when returning to tab
-					if (loading && !isFetchingRef.current) {
+					// Use loadingRef.current to always get fresh value (avoid stale closure)
+					if (loadingRef.current && !isFetchingRef.current) {
 						console.log('[DataContext] Visibility change: clearing stuck loading state');
 						setLoading(false);
 					}
@@ -2082,7 +2128,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
 			}
 			document.removeEventListener('visibilitychange', handleVisibilityChange);
 		};
-	}, [loading]);
+	// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []); // Empty deps - uses refs for all mutable state
 
 	const removeScanFromState = useCallback((scanId: number) => {
 		setScans((prev) => prev.filter((scan) => scan.id !== scanId));
