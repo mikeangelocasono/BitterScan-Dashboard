@@ -236,9 +236,22 @@ export default function ValidatePage() {
 	const [processingScanId, setProcessingScanId] = useState<number | null>(null);
 	// Track image URL attempts per scan to try multiple extensions
 	const [imageUrlAttempts, setImageUrlAttempts] = useState<Record<string, number>>({});
+	// Force render after timeout to prevent infinite loading
+	const [forceRender, setForceRender] = useState(false);
 	const { user, profile } = useUser();
 	// Get scans from DataContext - these update automatically via Supabase Realtime subscriptions
 	const { scans, loading, error, removeScanFromState, refreshData } = useData();
+
+	// Master timeout: force render after 6 seconds to prevent infinite loading
+	useEffect(() => {
+		const timeout = setTimeout(() => {
+			if (!forceRender && loading) {
+				console.warn('[ValidatePage] Forcing render after timeout');
+				setForceRender(true);
+			}
+		}, 6000);
+		return () => clearTimeout(timeout);
+	}, [forceRender, loading]);
 
 	// Debug: Log when selected scan changes (development only)
 	useEffect(() => {
@@ -921,7 +934,7 @@ export default function ValidatePage() {
 								</Button>
 							</div>
 						</div>
-					) : loading ? (
+					) : (loading && !forceRender) ? (
 						<div className="flex items-center justify-center py-8">
 							<div className="text-center">
 								<Loader2 className="h-8 w-8 animate-spin text-gray-500 mx-auto mb-4" />

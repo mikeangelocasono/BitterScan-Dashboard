@@ -7,6 +7,7 @@ import { NotificationProvider } from "@/components/NotificationContext";
 import { SidebarProvider } from "@/components/SidebarContext";
 import { Toaster } from "@/components/Toaster";
 import ChunkErrorHandler from "@/components/ChunkErrorHandler";
+import ErrorBoundaryWrapper from "@/components/ErrorBoundaryWrapper";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -31,16 +32,18 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={`${inter.variable} antialiased bg-[var(--background)]`} style={{ fontFamily: 'var(--font-inter), ui-sans-serif, system-ui, sans-serif' }}>
         <ChunkErrorHandler />
-        <UserProvider>
-          <SidebarProvider>
-            <DataProvider>
-              <NotificationProvider>
-                {children}
-                <Toaster />
-              </NotificationProvider>
-            </DataProvider>
-          </SidebarProvider>
-        </UserProvider>
+        <ErrorBoundaryWrapper>
+          <UserProvider>
+            <SidebarProvider>
+              <DataProvider>
+                <NotificationProvider>
+                  {children}
+                  <Toaster />
+                </NotificationProvider>
+              </DataProvider>
+            </SidebarProvider>
+          </UserProvider>
+        </ErrorBoundaryWrapper>
       </body>
     </html>
   );

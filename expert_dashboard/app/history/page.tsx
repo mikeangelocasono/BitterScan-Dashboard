@@ -65,8 +65,21 @@ export default function HistoryPage() {
 	const [detailIdx, setDetailIdx] = useState<number | null>(null);
 	const [deleteIdx, setDeleteIdx] = useState<number | null>(null);
 	const [deleteLoading, setDeleteLoading] = useState(false);
+	// Force render after timeout to prevent infinite loading
+	const [forceRender, setForceRender] = useState(false);
 	const { user } = useUser();
 	const { scans, validationHistory, loading, error, refreshData } = useData();
+
+	// Master timeout: force render after 6 seconds to prevent infinite loading
+	useEffect(() => {
+		const timeout = setTimeout(() => {
+			if (!forceRender && loading) {
+				console.warn('[HistoryPage] Forcing render after timeout');
+				setForceRender(true);
+			}
+		}, 6000);
+		return () => clearTimeout(timeout);
+	}, [forceRender, loading]);
 
 	// Helper function to get date range based on type
 	const getDateRangeForFilter = useCallback((type: typeof dateRangeType) => {
@@ -1255,7 +1268,7 @@ export default function HistoryPage() {
 										</Button>
 									</div>
 								</div>
-							) : loading ? (
+							) : (loading && !forceRender) ? (
 								<div className="flex items-center justify-center py-8">
 									<div className="text-center">
 										<Loader2 className="h-8 w-8 animate-spin text-gray-500 mx-auto mb-4" />

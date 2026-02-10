@@ -428,6 +428,20 @@ export default function DataVisualizationPage() {
   const router = useRouter();
   const dataContext = useData();
   
+  // Force render after timeout to prevent infinite loading
+  const [forceRender, setForceRender] = useState(false);
+  
+  // Master timeout: force render after 6 seconds to prevent infinite loading
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      if (!forceRender && !dataContext) {
+        console.warn('[DataVisualizationPage] Forcing render after timeout');
+        setForceRender(true);
+      }
+    }, 6000);
+    return () => clearTimeout(timeout);
+  }, [forceRender, dataContext]);
+  
   // Date filter state
   const [range, setRange] = useState<string>("today");
   const [showCustomPicker, setShowCustomPicker] = useState(false);
@@ -573,8 +587,8 @@ export default function DataVisualizationPage() {
     fetchFarms();
   }, []);
   
-  // Check if data context is available
-  if (!dataContext) {
+  // Check if data context is available (with forceRender fallback)
+  if (!dataContext && !forceRender) {
     return (
       <AuthGuard>
         <AppShell>

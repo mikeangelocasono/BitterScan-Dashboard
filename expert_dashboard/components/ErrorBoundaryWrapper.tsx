@@ -1,9 +1,10 @@
 "use client";
 
 import { ReactNode } from 'react';
+import ErrorBoundary from './ErrorBoundary';
 
-// Lightweight pass-through wrapper to avoid boundary loading issues
+// Production error boundary wrapper to catch and handle React errors gracefully
 export default function ErrorBoundaryWrapper({ children }: { children: ReactNode }) {
-  return <>{children}</>;
+  return <ErrorBoundary>{children}</ErrorBoundary>;
 }
 
