@@ -71,7 +71,7 @@ function LoginPageContent() {
     if (showNotification) {
       toast.success(
         `Login successful! Redirecting to ${targetRoute.includes('admin') ? 'Admin' : 'Expert'} Dashboard...`,
-        { duration: 3000, icon: '🎉' }
+        { duration: 3000, icon: '✅' }
       );
     }
     
@@ -347,7 +347,7 @@ function LoginPageContent() {
       // Show toast
       toast.success(`Login successful! Redirecting to ${userRole === 'admin' ? 'Admin' : 'Expert'} Dashboard...`, {
         duration: 3000,
-        icon: '🎉'
+        icon: '✅'
       });
 
       // FORCE REDIRECT - This WILL work
