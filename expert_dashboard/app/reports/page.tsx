@@ -472,6 +472,32 @@ export default function ReportsPage() {
   const [customStartDate, setCustomStartDate] = useState<string>("");
   const [customEndDate, setCustomEndDate] = useState<string>("");
   const [showCustomPicker, setShowCustomPicker] = useState(false);
+  
+  // Visibility state - prevent chart rendering issues when tab is hidden
+  const [isPageVisible, setIsPageVisible] = useState(true);
+  const [chartKey, setChartKey] = useState(0);
+  
+  // Handle visibility changes to prevent chart rendering errors
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    
+    const handleVisibilityChange = () => {
+      const visible = document.visibilityState === 'visible';
+      setIsPageVisible(visible);
+      
+      // Force chart re-render when becoming visible
+      if (visible) {
+        setTimeout(() => {
+          setChartKey(prev => prev + 1);
+        }, 100);
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
 
   // Validate custom date range
   useEffect(() => {
@@ -1426,9 +1452,10 @@ export default function ReportsPage() {
               <p className="text-sm text-gray-100 mt-1" style={{ color: 'white' }}>Scan activity patterns over time</p>
             </CardHeader>
             <CardContent className="pt-6 pb-4">
-            {scansTrend.length > 0 ? (
-              <ResponsiveContainer width="100%" height={320}>
-                <LineChart data={scansTrend} margin={{ top: 10, right: 30, left: 0, bottom: 5 }}>
+            {scansTrend.length > 0 && isPageVisible ? (
+              <div style={{ minHeight: 320 }}>
+                <ResponsiveContainer key={`scans-trend-${chartKey}`} width="100%" height={320}>
+                  <LineChart data={scansTrend} margin={{ top: 10, right: 30, left: 0, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                   <XAxis 
                     dataKey="period" 
@@ -1478,6 +1505,7 @@ export default function ReportsPage() {
                   />
                 </LineChart>
               </ResponsiveContainer>
+              </div>
             ) : (
               <div className="flex h-[320px] flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 px-6 text-center">
                 <div className="text-gray-400 mb-3">
@@ -1502,9 +1530,9 @@ export default function ReportsPage() {
               </CardHeader>
               <CardContent className="pt-6 pb-4">
                 <div className="space-y-6">
-                  <div className="flex justify-center">
-                    {diseaseDistribution.some((item) => item.value > 0) ? (
-                      <ResponsiveContainer width="100%" height={280}>
+                  <div className="flex justify-center" style={{ minHeight: 280 }}>
+                    {diseaseDistribution.some((item) => item.value > 0) && isPageVisible ? (
+                      <ResponsiveContainer key={`disease-dist-${chartKey}`} width="100%" height={280}>
                         <RechartsPieChart>
                           <Pie
                             data={diseaseDistribution.filter((item) => item.value > 0)}
@@ -1609,9 +1637,9 @@ export default function ReportsPage() {
               </CardHeader>
               <CardContent className="pt-6 pb-4">
                 <div className="space-y-6">
-                  <div className="flex justify-center">
-                    {ripenessDistribution.some((item) => item.value > 0) ? (
-                      <ResponsiveContainer width="100%" height={280}>
+                  <div className="flex justify-center" style={{ minHeight: 280 }}>
+                    {ripenessDistribution.some((item) => item.value > 0) && isPageVisible ? (
+                      <ResponsiveContainer key={`ripeness-dist-${chartKey}`} width="100%" height={280}>
                         <RechartsPieChart>
                           <Pie
                             data={ripenessDistribution.filter((item) => item.value > 0)}
@@ -1721,8 +1749,9 @@ export default function ReportsPage() {
               </p>
             </CardHeader>
             <CardContent className="pt-6">
-              {successRateTrend.length > 0 ? (
-                <ResponsiveContainer width="100%" height={350}>
+              <div style={{ minHeight: 350 }}>
+              {successRateTrend.length > 0 && isPageVisible ? (
+                <ResponsiveContainer key={`success-rate-${chartKey}`} width="100%" height={350}>
                   <LineChart data={successRateTrend} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                     <XAxis 
@@ -1788,6 +1817,7 @@ export default function ReportsPage() {
                   </div>
                 </div>
               )}
+              </div>
             </CardContent>
           </Card>
 

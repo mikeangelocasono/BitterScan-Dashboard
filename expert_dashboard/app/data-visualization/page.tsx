@@ -455,6 +455,32 @@ export default function DataVisualizationPage() {
   const [farmerProfiles, setFarmerProfiles] = useState<Map<string, any>>(new Map());
   const [isDeleting, setIsDeleting] = useState(false);
   
+  // Visibility state - prevent chart rendering issues when tab is hidden
+  const [isPageVisible, setIsPageVisible] = useState(true);
+  const [chartKey, setChartKey] = useState(0);
+  
+  // Handle visibility changes to prevent chart rendering errors
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    
+    const handleVisibilityChange = () => {
+      const visible = document.visibilityState === 'visible';
+      setIsPageVisible(visible);
+      
+      // Force chart re-render when becoming visible
+      if (visible) {
+        setTimeout(() => {
+          setChartKey(prev => prev + 1);
+        }, 100);
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+  
   // Delete handler function - Opens confirmation modal
   const handleDeleteScan = async (scan: Scan) => {
     setScanToDelete(scan);
@@ -1121,7 +1147,7 @@ export default function DataVisualizationPage() {
                     <p className="text-sm text-white/90 mt-1" style={{ color: 'white' }}>AI Prediction vs Expert Validation Comparison</p>
                   </CardHeader>
                   <CardContent className="pt-4 px-5 pb-4 flex-1 flex flex-col items-center justify-center min-h-0">
-                    {expertValidationPerformance.length > 0 ? (() => {
+                    {expertValidationPerformance.length > 0 && isPageVisible ? (() => {
                       const monthOrder = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
                       const sortedData = [...expertValidationPerformance].sort((a, b) => {
                         const aIndex = monthOrder.indexOf(a.month);
@@ -1130,8 +1156,8 @@ export default function DataVisualizationPage() {
                       });
 
                       return (
-                        <div className="flex-1 w-full flex items-center justify-center">
-                          <ResponsiveContainer width="100%" height="100%" minHeight={280}>
+                        <div className="flex-1 w-full flex items-center justify-center" style={{ minHeight: 280 }}>
+                          <ResponsiveContainer key={`validation-perf-${chartKey}`} width="100%" height={280}>
                             <BarChart 
                               data={sortedData} 
                               margin={{ top: 15, right: 20, left: 10, bottom: 5 }}
@@ -1207,7 +1233,7 @@ export default function DataVisualizationPage() {
                     <p className="text-sm text-white/90 mt-1" style={{ color: 'white' }}>Analysis for all time</p>
                   </CardHeader>
                   <CardContent className="pt-4 px-6 pb-4 flex-1 flex flex-col min-h-0">
-                    {(() => {
+                    {isPageVisible && (() => {
                       let level = "Needs Improvement";
                       let color = "#EF4444";
                       if (aiAccuracyRate >= 90) {
@@ -1229,8 +1255,8 @@ export default function DataVisualizationPage() {
                       return (
                         <div className="flex flex-col gap-3 flex-1 justify-between">
                           <div className="w-full flex-shrink-0">
-                            <div className="relative mx-auto" style={{ maxWidth: 260 }}>
-                              <ResponsiveContainer width="100%" height={200}>
+                            <div className="relative mx-auto" style={{ maxWidth: 260, minHeight: 200 }}>
+                              <ResponsiveContainer key={`ai-accuracy-${chartKey}`} width="100%" height={200}>
                                 <RechartsPieChart>
                                   <Pie
                                     data={pieData}
@@ -1326,7 +1352,7 @@ export default function DataVisualizationPage() {
                 </div>
               </CardHeader>
               <CardContent className="pt-4 px-6 pb-6">
-                {monthlyMostScanned.length > 0 ? (() => {
+                {monthlyMostScanned.length > 0 && isPageVisible ? (() => {
                   const monthOrder = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
                   const sortedData = [...monthlyMostScanned].sort((a, b) => {
                     const aIndex = monthOrder.indexOf(a.month);
@@ -1360,8 +1386,8 @@ export default function DataVisualizationPage() {
                     : Math.floor(maxDomain / tickInterval) + 1;
 
                   return (
-                    <div>
-                      <ResponsiveContainer width="100%" height={380}>
+                    <div style={{ minHeight: 380 }}>
+                      <ResponsiveContainer key={`monthly-scanned-${chartKey}`} width="100%" height={380}>
                         <BarChart 
                           data={sortedData} 
                           margin={{ top: 20, right: 20, left: 0, bottom: 20 }}
