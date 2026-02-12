@@ -129,7 +129,13 @@ function DashboardContent() {
 		const total = validScans.length; // Total Scans
 		
 		// Count by explicit status buckets
-		const pending = validScans.filter(scan => scan.status === 'Pending' || scan.status === 'Pending Validation').length;
+		// Exclude Non-Ampalaya scans from pending count — they don't require expert validation
+		const pending = validScans.filter(scan => {
+			if (scan.status !== 'Pending' && scan.status !== 'Pending Validation') return false;
+			const result = getAiPrediction(scan);
+			if (result.toLowerCase().includes('non-ampalaya') || result.toLowerCase().includes('non ampalaya')) return false;
+			return true;
+		}).length;
 		const validated = validScans.filter(scan => scan.status === 'Validated').length;
 		const corrected = validScans.filter(scan => scan.status === 'Corrected').length;
 		
