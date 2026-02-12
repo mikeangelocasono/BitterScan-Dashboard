@@ -607,8 +607,15 @@ export default function DataVisualizationPage() {
         return [];
       }
       const scans = Array.isArray(dataContext.scans) ? dataContext.scans : [];
-      console.log('[DataViz] Total scans loaded:', scans.length);
-      return scans;
+      // Exclude Non-Ampalaya scans — they are not valid Ampalaya detections
+      const filtered = scans.filter(scan => {
+        const prediction = getAiPrediction(scan);
+        if (!prediction) return true;
+        const lower = prediction.toLowerCase();
+        return !lower.includes('non-ampalaya') && !lower.includes('non ampalaya');
+      });
+      console.log('[DataViz] Total scans loaded:', filtered.length, '(excluded', scans.length - filtered.length, 'Non-Ampalaya)');
+      return filtered;
     } catch (error) {
       console.error("Error processing scans:", error);
       return [];

@@ -291,6 +291,14 @@ export default function InteractiveFarmMap({
 
     // Filter scans based on filters
     let filteredScans = scans;
+
+    // Exclude Non-Ampalaya scans — they are not valid Ampalaya detections
+    filteredScans = filteredScans.filter((scan) => {
+      const prediction = getAiPrediction(scan);
+      if (!prediction) return true;
+      const lower = prediction.toLowerCase();
+      return !lower.includes('non-ampalaya') && !lower.includes('non ampalaya');
+    });
     
     if (filters.scanType && filters.scanType !== "all") {
       filteredScans = filteredScans.filter(
