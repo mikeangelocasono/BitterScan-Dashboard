@@ -14,7 +14,7 @@ export default function AccountDropdown() {
 	const [isOpen, setIsOpen] = useState(false);
 	const [showLogoutDialog, setShowLogoutDialog] = useState(false);
 	const dropdownRef = useRef<HTMLDivElement>(null);
-	const { user, profile, logout } = useUser();
+	const { user, profile, loading, logout } = useUser();
 	useEffect(() => {
 		const handleClickOutside = (event: MouseEvent) => {
 			if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -117,7 +117,9 @@ export default function AccountDropdown() {
 						)}
 					</div>
 					<span className="hidden md:block text-sm font-medium text-[var(--foreground)]">
-						{displayName}
+					{loading ? (
+						<span className="inline-block h-4 w-20 bg-gray-200 rounded animate-pulse" />
+					) : displayName}
 					</span>
 					<ChevronDown
 						className={`h-4 w-4 text-gray-500 transition-transform ${isOpen ? "rotate-180" : ""}`}
@@ -135,7 +137,11 @@ export default function AccountDropdown() {
 						>
 							<div className="p-2 border-b border-[var(--color-border)]">
 								<div className="px-3 py-2">
-									<p className="text-sm font-semibold text-[var(--foreground)]">{displayName}</p>
+						<p className="text-sm font-semibold text-[var(--foreground)]">
+							{loading ? (
+								<span className="inline-block h-4 w-24 bg-gray-200 rounded animate-pulse" />
+							) : displayName}
+						</p>
 									<p className="text-xs text-gray-500 truncate">{profile?.email || user?.email || ""}</p>
 								</div>
 							</div>
