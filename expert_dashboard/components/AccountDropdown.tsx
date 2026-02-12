@@ -32,8 +32,15 @@ export default function AccountDropdown() {
 	}, [isOpen]);
 
 	const displayName = useMemo(() => {
-		return profile?.full_name || user?.user_metadata?.full_name || "Expert";
-	}, [profile?.full_name, user?.user_metadata?.full_name]);
+		if (profile?.full_name) return profile.full_name;
+		if (user?.user_metadata?.full_name) return user.user_metadata.full_name;
+		// Role-aware fallback instead of hardcoded "Expert"
+		const role = profile?.role || user?.user_metadata?.role;
+		if (role === 'admin') return 'Admin';
+		if (role === 'expert') return 'Expert';
+		if (role === 'farmer') return 'Farmer';
+		return 'User';
+	}, [profile?.full_name, profile?.role, user?.user_metadata?.full_name, user?.user_metadata?.role]);
 
 	const userInitials = useMemo(() => {
 		if (profile?.full_name) {
@@ -52,8 +59,13 @@ export default function AccountDropdown() {
 				.toUpperCase()
 				.slice(0, 2);
 		}
-		return "EX";
-	}, [profile?.full_name, user?.user_metadata?.full_name]);
+		// Role-aware fallback initials
+		const role = profile?.role || user?.user_metadata?.role;
+		if (role === 'admin') return 'AD';
+		if (role === 'expert') return 'EX';
+		if (role === 'farmer') return 'FA';
+		return 'US';
+	}, [profile?.full_name, profile?.role, user?.user_metadata?.full_name, user?.user_metadata?.role]);
 
 	const handleLogout = useCallback(async () => {
 		setShowLogoutDialog(false);

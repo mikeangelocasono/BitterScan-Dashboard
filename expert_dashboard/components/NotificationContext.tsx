@@ -442,13 +442,13 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
 	const value: NotificationContextValue = useMemo(
 		() => ({
-			pendingScans,
-			// Only expose pending users to admins - empty array for non-admins
+			// Role-based notification filtering:
+			// Admin: sees ONLY new user registrations (no scan notifications)
+			// Expert: sees ONLY new scans needing validation (no user notifications)
+			pendingScans: isAdmin ? [] : pendingScans,
 			pendingUsers: isAdmin ? pendingUsers : [],
-			// For non-admins, only count scan notifications
-			unreadCount: isAdmin ? unreadCount : unreadScansCount,
-			unreadScansCount,
-			// For non-admins, always return 0 for user notifications
+			unreadCount: isAdmin ? unreadUsersCount : unreadScansCount,
+			unreadScansCount: isAdmin ? 0 : unreadScansCount,
 			unreadUsersCount: isAdmin ? unreadUsersCount : 0,
 			loading: loading || usersLoading || userLoading,
 			error,
