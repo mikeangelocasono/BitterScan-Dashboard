@@ -74,6 +74,18 @@ export function getAiPrediction(scan: Scan): string {
   return (scan as any).ai_prediction || '';
 }
 
+/**
+ * Centralized helper to detect Non-Ampalaya scans.
+ * Non-Ampalaya scans should be completely excluded from expert/admin dashboards,
+ * validation queues, statistics, notifications, and all role-based views.
+ */
+export function isNonAmpalayaScan(scan: Scan): boolean {
+  const prediction = getAiPrediction(scan);
+  if (!prediction) return false;
+  const lower = prediction.toLowerCase();
+  return lower.includes('non-ampalaya') || lower.includes('non ampalaya');
+}
+
 // Helper to get solution/recommendation from either scan type
 export function getSolution(scan: Scan): string | undefined {
   if (isLeafDiseaseScan(scan)) {

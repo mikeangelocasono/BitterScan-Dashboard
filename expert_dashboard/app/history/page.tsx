@@ -13,7 +13,7 @@ import { supabase } from "@/components/supabase";
 import { Loader2, AlertCircle, Trash2, X, Download, Calendar, Camera, CheckCircle2, Activity } from "lucide-react";
 import { useUser } from "@/components/UserContext";
 import { useData } from "@/components/DataContext";
-import { getAiPrediction } from "@/types";
+import { getAiPrediction, isNonAmpalayaScan } from "@/types";
 import type { Scan } from "@/types";
 import Image from "next/image";
 import { getScanImageUrlWithFallback } from "@/utils/imageUtils";
@@ -92,13 +92,15 @@ export default function HistoryPage() {
 	const allValidScans = useMemo(() => {
 		if (!scans || scans.length === 0) return [];
 		
-		// Filter out Unknown scans only (no date filtering)
+		// Filter out Unknown and Non-Ampalaya scans (no date filtering)
 		return scans.filter(scan => {
 			// Exclude scans with status = 'Unknown' (type assertion for runtime check)
 			if ((scan.status as string) === 'Unknown') return false;
 			// Exclude scans with result = 'Unknown' (disease_detected or ripeness_stage)
 			const result = getAiPrediction(scan);
 			if (result === 'Unknown') return false;
+			// Exclude Non-Ampalaya scans from history metrics and lists
+			if (isNonAmpalayaScan(scan)) return false;
 			return true;
 		});
 	}, [scans]);

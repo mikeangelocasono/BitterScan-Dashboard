@@ -33,7 +33,7 @@ import {
 import { useData } from "@/components/DataContext";
 import { supabase } from "@/components/supabase";
 import type { Scan, ValidationHistory } from "@/types";
-import { getAiPrediction, isLeafDiseaseScan, isFruitRipenessScan } from "@/types";
+import { getAiPrediction, isLeafDiseaseScan, isFruitRipenessScan, isNonAmpalayaScan } from "@/types";
 import { Loader2, TrendingUp, Camera, CheckCircle2, AlertCircle, Calendar, Clock3, BarChart3, MapPin, Filter, X } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -608,12 +608,7 @@ export default function DataVisualizationPage() {
       }
       const scans = Array.isArray(dataContext.scans) ? dataContext.scans : [];
       // Exclude Non-Ampalaya scans — they are not valid Ampalaya detections
-      const filtered = scans.filter(scan => {
-        const prediction = getAiPrediction(scan);
-        if (!prediction) return true;
-        const lower = prediction.toLowerCase();
-        return !lower.includes('non-ampalaya') && !lower.includes('non ampalaya');
-      });
+      const filtered = scans.filter(scan => !isNonAmpalayaScan(scan));
       console.log('[DataViz] Total scans loaded:', filtered.length, '(excluded', scans.length - filtered.length, 'Non-Ampalaya)');
       return filtered;
     } catch (error) {

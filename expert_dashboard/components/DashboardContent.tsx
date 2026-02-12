@@ -7,7 +7,7 @@ import { UsersRound, Camera, CheckCircle2, AlertCircle } from "lucide-react";
 import { Table, Thead, Tbody, Tr, Th, Td } from "./ui/table";
 import { useUser } from "./UserContext";
 import { useData } from "./DataContext";
-import { getAiPrediction, type Scan } from "../types";
+import { getAiPrediction, isNonAmpalayaScan, type Scan } from "../types";
 import Image from "next/image";
 import { formatDate, formatScanType, getStatusColor } from "../utils/dateUtils";
 
@@ -109,6 +109,8 @@ function DashboardContent() {
 			if (scan.status === 'Unknown') return false;
 			const result = getAiPrediction(scan);
 			if (result === 'Unknown') return false;
+			// Exclude Non-Ampalaya scans from all dashboard metrics
+			if (isNonAmpalayaScan(scan)) return false;
 			return true;
 		});
 	}, [scans]);
@@ -129,12 +131,9 @@ function DashboardContent() {
 		const total = validScans.length; // Total Scans
 		
 		// Count by explicit status buckets
-		// Exclude Non-Ampalaya scans from pending count — they don't require expert validation
+		// Non-Ampalaya scans are already excluded from validScans above
 		const pending = validScans.filter(scan => {
-			if (scan.status !== 'Pending' && scan.status !== 'Pending Validation') return false;
-			const result = getAiPrediction(scan);
-			if (result.toLowerCase().includes('non-ampalaya') || result.toLowerCase().includes('non ampalaya')) return false;
-			return true;
+			return scan.status === 'Pending' || scan.status === 'Pending Validation';
 		}).length;
 		const validated = validScans.filter(scan => scan.status === 'Validated').length;
 		const corrected = validScans.filter(scan => scan.status === 'Corrected').length;

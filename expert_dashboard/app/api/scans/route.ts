@@ -132,11 +132,17 @@ export async function GET(request: NextRequest) {
     }));
 
     // Merge and sort by created_at descending
-    const allScans = [...transformedLeafScans, ...transformedFruitScans].sort((a, b) => {
-      const dateA = new Date(a.created_at).getTime();
-      const dateB = new Date(b.created_at).getTime();
-      return dateB - dateA;
-    });
+    // Filter out Non-Ampalaya scans — they are invalid for expert/admin workflows
+    const allScans = [...transformedLeafScans, ...transformedFruitScans]
+      .filter((scan) => {
+        const prediction = (scan.ai_prediction || '').toLowerCase();
+        return !prediction.includes('non-ampalaya') && !prediction.includes('non ampalaya');
+      })
+      .sort((a, b) => {
+        const dateA = new Date(a.created_at).getTime();
+        const dateB = new Date(b.created_at).getTime();
+        return dateB - dateA;
+      });
 
     // Transform validation history with scan and expert profile data
     const transformedValidations = (validationHistory || []).map((validation) => {

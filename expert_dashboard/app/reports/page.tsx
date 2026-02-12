@@ -27,7 +27,7 @@ import { useData } from "@/components/DataContext";
 import toast from "react-hot-toast";
 
 import type { Scan, ValidationHistory } from "@/types";
-import { getAiPrediction } from "@/types";
+import { getAiPrediction, isNonAmpalayaScan } from "@/types";
 import { parseTimestampToLocal, getLocalHour, normalizeToStartOfDay, normalizeToEndOfDay, getLocalDateComponents } from "@/utils/timezone";
 
 type Range = "daily" | "weekly" | "monthly" | "custom";
@@ -586,6 +586,8 @@ export default function ReportsPage() {
     
     return scans.filter((scan) => {
       if (!scan.created_at) return false;
+      // Exclude Non-Ampalaya scans from all report metrics
+      if (isNonAmpalayaScan(scan)) return false;
       try {
         const createdAt = parseTimestampToLocal(scan.created_at);
         // Ensure valid date

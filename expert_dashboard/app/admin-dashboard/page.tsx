@@ -12,7 +12,7 @@ import Image from "next/image";
 import { useUser } from "@/components/UserContext";
 import { useData } from "@/components/DataContext";
 import { formatDate, formatScanType, getStatusColor } from "@/utils/dateUtils";
-import { getAiPrediction, type Scan } from "@/types";
+import { getAiPrediction, isNonAmpalayaScan, type Scan } from "@/types";
 
 export default function AdminDashboardPage() {
   return (
@@ -61,7 +61,10 @@ function AdminDashboardContent() {
       const status = (scan.status as string) || "";
       if (status === "Unknown") return false;
       const aiResult = getAiPrediction(scan);
-      return aiResult !== "Unknown";
+      if (aiResult === "Unknown") return false;
+      // Exclude Non-Ampalaya scans from all admin dashboard metrics
+      if (isNonAmpalayaScan(scan)) return false;
+      return true;
     });
   }, [scans]);
 

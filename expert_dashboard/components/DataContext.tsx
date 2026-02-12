@@ -2,7 +2,7 @@
 
 import { ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { supabase, validateSupabaseClient } from "./supabase";
-import { Scan, ValidationHistory, isSupabaseApiError, UserProfile } from "../types";
+import { Scan, ValidationHistory, isSupabaseApiError, UserProfile, isNonAmpalayaScan } from "../types";
 import { useUser } from "./UserContext";
 
 // Type definitions for Supabase Realtime payloads
@@ -432,7 +432,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 				}
 
 				const scansData = await scansRes.json();
-				const allScans = scansData.scans || [];
+				const allScans = (scansData.scans || []).filter((s: Scan) => !isNonAmpalayaScan(s));
 				const validations = scansData.validationHistory || [];
 
 				// Update state with fetched data
@@ -1087,6 +1087,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
 						}
 						const fullScan = await fetchScanWithProfile(scanId, 'leaf_disease');
 						if (fullScan) {
+							// Exclude Non-Ampalaya scans from state
+							if (isNonAmpalayaScan(fullScan)) {
+								if (process.env.NODE_ENV === 'development') {
+									console.log('[Realtime] ⏭️ Non-Ampalaya scan excluded from state:', fullScan.id);
+								}
+								return;
+							}
 							if (process.env.NODE_ENV === 'development') {
 								console.log('[Realtime] ✅ Scan fetched successfully, adding to state:', {
 									id: fullScan.id,
@@ -1157,6 +1164,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
 						}
 						const fullScan = await fetchScanWithProfile(scanId, 'fruit_maturity');
 						if (fullScan) {
+							// Exclude Non-Ampalaya scans from state
+							if (isNonAmpalayaScan(fullScan)) {
+								if (process.env.NODE_ENV === 'development') {
+									console.log('[Realtime] ⏭️ Non-Ampalaya scan excluded from state:', fullScan.id);
+								}
+								return;
+							}
 							if (process.env.NODE_ENV === 'development') {
 								console.log('[Realtime] ✅ Scan fetched successfully, adding to state:', {
 									id: fullScan.id,
@@ -1224,6 +1238,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
 					try {
 						const fullScan = await fetchScanWithProfile(scanId, 'leaf_disease');
 						if (fullScan) {
+							// Exclude Non-Ampalaya scans from state
+							if (isNonAmpalayaScan(fullScan)) {
+								if (process.env.NODE_ENV === 'development') {
+									console.log('[Realtime] ⏭️ Non-Ampalaya scan excluded from UPDATE:', fullScan.id);
+								}
+								return;
+							}
 							if (process.env.NODE_ENV === 'development') {
 								console.log('[Realtime] ✅ Updated scan fetched, updating state:', {
 									id: fullScan.id,
@@ -1292,6 +1313,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
 					try {
 						const fullScan = await fetchScanWithProfile(scanId, 'fruit_maturity');
 						if (fullScan) {
+							// Exclude Non-Ampalaya scans from state
+							if (isNonAmpalayaScan(fullScan)) {
+								if (process.env.NODE_ENV === 'development') {
+									console.log('[Realtime] ⏭️ Non-Ampalaya scan excluded from UPDATE:', fullScan.id);
+								}
+								return;
+							}
 							if (process.env.NODE_ENV === 'development') {
 								console.log('[Realtime] ✅ Updated scan fetched, updating state:', {
 									id: fullScan.id,
