@@ -700,6 +700,9 @@ export default function ValidatePage() {
 			const result = getAiPrediction(scan);
 			if (result === 'Unknown') return false;
 			
+			// Exclude Non-Ampalaya scans — these do not need expert validation
+			if (result.toLowerCase().includes('non-ampalaya') || result.toLowerCase().includes('non ampalaya')) return false;
+			
 			return true;
 		});
 		

@@ -164,6 +164,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 		if (!scans || scans.length === 0) return [];
 		// Filter for scans with status = 'Pending Validation' (exact match required)
 		// Also exclude scans with status = 'Unknown' or result = 'Unknown' to suppress notifications
+		// Also exclude 'Non-Ampalaya' scans — they do not require expert validation
 		const pending = scans.filter((scan) => {
 			// Exclude 'Unknown' status scans
 			if (scan.status === 'Unknown') return false;
@@ -172,6 +173,8 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 			// Exclude scans with result = 'Unknown' (disease_detected or ripeness_stage)
 			const result = getAiPrediction(scan);
 			if (result === 'Unknown') return false;
+			// Exclude Non-Ampalaya scans — these do not need expert validation
+			if (result.toLowerCase().includes('non-ampalaya') || result.toLowerCase().includes('non ampalaya')) return false;
 			return true;
 		});
 		// Sort by created_at descending (newest first) for consistent ordering
