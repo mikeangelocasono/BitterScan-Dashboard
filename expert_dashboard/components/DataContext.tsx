@@ -91,6 +91,7 @@ type DataContextValue = {
 	error: string | null;
 	refreshData: (showSpinner?: boolean) => Promise<void>;
 	removeScanFromState: (scanId: number) => void;
+	updateScanStatusInState: (scanId: number, status: Scan['status']) => void;
 };
 
 const DataContext = createContext<DataContextValue | undefined>(undefined);
@@ -2131,6 +2132,21 @@ export function DataProvider({ children }: { children: ReactNode }) {
 		setScans((prev) => prev.filter((scan) => scan.id !== scanId));
 	}, []);
 
+	/**
+	 * Update a scan's status in local state without removing it.
+	 * Used after validation so the dashboard cards reflect the change instantly
+	 * while the validate page filter (status === 'Pending Validation') hides it.
+	 */
+	const updateScanStatusInState = useCallback((scanId: number, status: Scan['status']) => {
+		setScans((prev) => {
+			const index = prev.findIndex((s) => s.id === scanId);
+			if (index === -1) return prev;
+			const updated = [...prev];
+			updated[index] = { ...updated[index], status };
+			return updated;
+		});
+	}, []);
+
 	// Memoize context value to prevent unnecessary re-renders
 	// Use deep comparison for arrays to prevent re-renders when data hasn't actually changed
 	const value: DataContextValue = useMemo(
@@ -2142,8 +2158,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
 			error,
 			refreshData: fetchData,
 			removeScanFromState,
+			updateScanStatusInState,
 		}),
-		[scans, validationHistory, totalUsers, loading, error, fetchData, removeScanFromState]
+		[scans, validationHistory, totalUsers, loading, error, fetchData, removeScanFromState, updateScanStatusInState]
 	);
 
 	// Clear cached data immediately when the user logs out to avoid stale flashes

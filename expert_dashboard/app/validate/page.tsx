@@ -240,7 +240,7 @@ export default function ValidatePage() {
 	const [forceRender, setForceRender] = useState(false);
 	const { user, profile } = useUser();
 	// Get scans from DataContext - these update automatically via Supabase Realtime subscriptions
-	const { scans, loading, error, removeScanFromState, refreshData } = useData();
+	const { scans, loading, error, removeScanFromState, updateScanStatusInState, refreshData } = useData();
 
 	// Master timeout: force render after 1 second to prevent infinite loading
 	useEffect(() => {
@@ -622,8 +622,9 @@ export default function ValidatePage() {
 				console.log(`✅ Validation recorded successfully for scan: ${scanUuid}`);
 				toast.success(action === "confirm" ? "Scan confirmed." : "Scan corrected.");
 
-				// Remove from local state
-				removeScanFromState(scanId);
+				// Update scan status in local state so dashboard cards reflect the change instantly.
+				// The validate page filter (status === 'Pending Validation') will hide it automatically.
+				updateScanStatusInState(scanId, "Validated");
 
 				setDecision((prev: Record<string, string>) => {
 					const { [scanKey]: _, ...rest } = prev;
@@ -655,7 +656,7 @@ export default function ValidatePage() {
 				setProcessingScanId((prev: number | null) => (prev === scanId ? null : prev));
 			}
 		},
-		[processingScanId, scans, user, profile, notes, decision, detailId, removeScanFromState]
+		[processingScanId, scans, user, profile, notes, decision, detailId, updateScanStatusInState]
 	);
 
 	const onConfirm = useCallback((scanId: number) => handleValidation(scanId, "confirm"), [handleValidation]);
