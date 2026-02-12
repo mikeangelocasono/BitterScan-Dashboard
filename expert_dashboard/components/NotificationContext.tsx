@@ -134,15 +134,14 @@ function saveReadUserIds(ids: Set<string>): void {
 export function NotificationProvider({ children }: { children: ReactNode }) {
 	// Get scans from DataContext - these update automatically via Supabase Realtime subscriptions
 	const { scans, loading, error, refreshData } = useData();
-	// Get current user's role to filter admin-only notifications
+	// Get current user's role to filter notifications.
+	// Use profile.role (database) as primary, with user_metadata.role (JWT/session)
+	// as immediate fallback during page refresh when profile hasn't loaded yet.
+	// This prevents both infinite loading AND cross-role data leakage.
 	const { user, profile, loading: userLoading } = useUser();
-	const isAdmin = profile?.role === 'admin';
-	const isExpert = profile?.role === 'expert';
-	// Guard: role must be fully resolved before exposing any notifications.
-	// During page refresh, profile loads in the background AFTER loading=false.
-	// Without this guard, isAdmin=false while profile is null → scan notifications
-	// would briefly leak to admin accounts.
-	const roleResolved = !user || profile !== null;
+	const userRole = profile?.role || user?.user_metadata?.role;
+	const isAdmin = userRole === 'admin';
+	const isExpert = userRole === 'expert';
 	
 	const [readScanIds, setReadScanIds] = useState<Set<number>>(() => loadReadScanIds());
 	const [readUserIds, setReadUserIds] = useState<Set<string>>(() => loadReadUserIds());
@@ -449,16 +448,15 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 	const value: NotificationContextValue = useMemo(
 		() => ({
 			// STRICT role-based notification filtering:
-			// - While role is not yet resolved: show NOTHING (prevents cross-role data leakage)
 			// - Admin: sees ONLY new user registrations pending approval (status='pending')
 			// - Expert: sees ONLY new scans needing validation (status='Pending Validation')
-			// - Any other role: sees nothing
-			pendingScans: (roleResolved && isExpert) ? pendingScans : [],
-			pendingUsers: (roleResolved && isAdmin) ? pendingUsers : [],
-			unreadCount: !roleResolved ? 0 : (isAdmin ? unreadUsersCount : isExpert ? unreadScansCount : 0),
-			unreadScansCount: (roleResolved && isExpert) ? unreadScansCount : 0,
-			unreadUsersCount: (roleResolved && isAdmin) ? unreadUsersCount : 0,
-			loading: loading || usersLoading || userLoading || !roleResolved,
+			// - Any other role (farmer, unknown, not logged in): sees nothing
+			pendingScans: isExpert ? pendingScans : [],
+			pendingUsers: isAdmin ? pendingUsers : [],
+			unreadCount: isAdmin ? unreadUsersCount : isExpert ? unreadScansCount : 0,
+			unreadScansCount: isExpert ? unreadScansCount : 0,
+			unreadUsersCount: isAdmin ? unreadUsersCount : 0,
+			loading: loading || usersLoading || userLoading,
 			error,
 			refreshNotifications,
 			markScansAsRead,
@@ -466,7 +464,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 			isScanRead,
 			isUserRead,
 		}),
-		[pendingScans, pendingUsers, unreadCount, unreadScansCount, unreadUsersCount, loading, usersLoading, userLoading, isAdmin, isExpert, roleResolved, error, refreshNotifications, markScansAsRead, markUsersAsRead, isScanRead, isUserRead]
+		[pendingScans, pendingUsers, unreadCount, unreadScansCount, unreadUsersCount, loading, usersLoading, userLoading, isAdmin, isExpert, error, refreshNotifications, markScansAsRead, markUsersAsRead, isScanRead, isUserRead]
 	);
 
 	return <NotificationContext.Provider value={value}>{children}</NotificationContext.Provider>;
