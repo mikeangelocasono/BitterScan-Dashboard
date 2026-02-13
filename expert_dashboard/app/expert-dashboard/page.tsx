@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import AuthGuard from "@/components/AuthGuard";
@@ -11,31 +11,12 @@ import { Loader2 } from "lucide-react";
 export default function ExpertDashboardPage() {
   const router = useRouter();
   const { user, profile, loading, sessionReady } = useUser();
-  const [showContent, setShowContent] = useState(false);
 
   // Resolve role from multiple sources
   const resolvedRole = 
     profile?.role?.toLowerCase() || 
     (user?.user_metadata?.role ? String(user.user_metadata.role).toLowerCase() : null) ||
     ((user?.email || '').toLowerCase().includes('admin') ? 'admin' : null);
-
-  // Master timeout: Show content after 5s even if session isn't ready
-  useEffect(() => {
-    const timeout = setTimeout(() => {
-      if (!sessionReady) {
-        console.warn('[ExpertDashboard] Session ready timeout - proceeding anyway');
-        setShowContent(true);
-      }
-    }, 5000);
-    return () => clearTimeout(timeout);
-  }, [sessionReady]);
-
-  // Set showContent when sessionReady becomes true
-  useEffect(() => {
-    if (sessionReady) {
-      setShowContent(true);
-    }
-  }, [sessionReady]);
 
   useEffect(() => {
     // Wait for session to be fully ready before making routing decisions
@@ -47,8 +28,10 @@ export default function ExpertDashboardPage() {
     }
   }, [loading, sessionReady, user, resolvedRole, router]);
 
-  // Show loading state until session is ready or timeout
-  if (!showContent) {
+  // Show brief loading only during initial session resolution
+  // Once sessionReady is true (set immediately by UserContext), render DashboardContent
+  // which manages its own loading skeleton for data fetching
+  if (!sessionReady) {
     return (
       <AuthGuard>
         <AppShell>

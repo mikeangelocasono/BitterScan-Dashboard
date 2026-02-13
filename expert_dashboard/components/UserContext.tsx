@@ -596,15 +596,15 @@ export function UserProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        // Handle SIGNED_IN event - update user state and await profile
-        // Profile MUST be loaded before loading clears so AuthGuard has role info
+        // Handle SIGNED_IN event - update user state and fetch profile in parallel
+        // Set sessionReady IMMEDIATELY so DataContext can start fetching data right away
+        // Profile loads in the background (non-blocking) for faster dashboard rendering
         if (event === 'SIGNED_IN' && session?.user) {
           // Skip if another profile fetch is already in progress (e.g., from login page)
           if (profileFetchInProgressRef.current) {
             // Just update user, profile will be set by the other fetch
             setUser(session.user);
             // CRITICAL: Still set sessionReady so downstream components don't hang
-            // The profile will be set by the in-progress fetch
             if (isMountedRef.current) {
               setSessionReady(true);
               initialResolved.current = true;
@@ -613,29 +613,25 @@ export function UserProvider({ children }: { children: ReactNode }) {
           }
           
           profileFetchInProgressRef.current = true;
-          
-          // Signal loading so AuthGuard shows spinner and DataContext waits
-          // for the complete auth state (user + profile) before rendering or fetching
-          setLoading(true);
 
-          // Set user immediately so downstream guards can start evaluating
+          // Set user and mark session ready IMMEDIATELY — don't block on profile fetch
+          // This lets DataContext start fetching data right away while profile loads in parallel
           setUser(session.user);
-
-          // Await profile fetch — this ensures AuthGuard and DataContext have
-          // role info before rendering dashboard content. Without this, the
-          // dashboard stays stuck on "Loading profile..." after login.
-          try {
-            await fetchProfile(session.user.id);
-          } catch (err) {
-            console.warn('[UserContext] SIGNED_IN profile fetch failed:', err);
-          }
 
           if (isMountedRef.current) {
             initialResolved.current = true;
             setSessionReady(true);
             setLoading(false);
           }
-          profileFetchInProgressRef.current = false;
+
+          // Fetch profile in parallel (non-blocking)
+          fetchProfile(session.user.id)
+            .catch((err) => {
+              console.warn('[UserContext] SIGNED_IN profile fetch failed:', err);
+            })
+            .finally(() => {
+              profileFetchInProgressRef.current = false;
+            });
           return;
         }
 

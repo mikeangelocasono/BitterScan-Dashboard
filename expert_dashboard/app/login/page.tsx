@@ -75,14 +75,9 @@ function LoginPageContent() {
       );
     }
     
-    // IMMEDIATE REDIRECT using window.location.href
-    // This is the most reliable method as it performs a full page navigation
-    // Small delay to allow toast to be visible
-    setTimeout(() => {
-      if (typeof window !== 'undefined') {
-        window.location.href = targetRoute;
-      }
-    }, 100);
+    // Use Next.js router for SPA navigation — preserves React state and avoids
+    // full page reload, so UserContext/DataContext don't need to reinitialize
+    router.push(targetRoute);
   };
 
   // Handle redirect for existing session on page load
@@ -350,11 +345,10 @@ function LoginPageContent() {
         icon: '✅'
       });
 
-      // FORCE REDIRECT - This WILL work
+      // Use Next.js SPA navigation — preserves React state, no full page reload
       console.log('[Login] === REDIRECTING NOW TO:', dashboardRoute, '===');
-      
-      // Use window.location.href immediately
-      window.location.href = dashboardRoute;
+      redirectInitiated.current = true;
+      router.push(dashboardRoute);
       
     } catch (err: unknown) {
       console.error('[Login] Unexpected error:', err);
