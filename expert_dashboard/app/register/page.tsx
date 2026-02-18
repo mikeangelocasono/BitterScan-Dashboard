@@ -6,6 +6,7 @@ import { useState, useEffect } from "react";
 import toast from "react-hot-toast";
 import { User, Mail, Lock, UserCheck, Eye, EyeOff, ArrowLeft } from "lucide-react";
 import { validateEmail, validateUsername, validatePasswordStrength } from "@/utils/authErrors";
+import { PasswordChecklist } from "@/components/PasswordChecklist";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -29,6 +30,7 @@ export default function RegisterPage() {
   const hasLetter = /[A-Za-z]/.test(password);
   const hasNumber = /\d/.test(password);
   const hasSymbol = /[^A-Za-z0-9]/.test(password);
+  const hasUpperAndLower = /[a-z]/.test(password) && /[A-Z]/.test(password);
   const passwordValid = passwordValidation.isValid;
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -258,13 +260,13 @@ export default function RegisterPage() {
                     {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                   </button>
                 </div>
-                {/* Password live feedback */}
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className={`rounded-md px-2 py-1 border ${hasMinLength ? 'text-[#388E3C]' : 'border-gray-200 bg-gray-50 text-gray-500'}`} style={hasMinLength ? { backgroundColor: '#E6F3E7', borderColor: '#A7D3AA' } : undefined}>8+ characters</div>
-                  <div className={`rounded-md px-2 py-1 border ${hasLetter ? 'text-[#388E3C]' : 'border-gray-200 bg-gray-50 text-gray-500'}`} style={hasLetter ? { backgroundColor: '#E6F3E7', borderColor: '#A7D3AA' } : undefined}>letters</div>
-                  <div className={`rounded-md px-2 py-1 border ${hasNumber ? 'text-[#388E3C]' : 'border-gray-200 bg-gray-50 text-gray-500'}`} style={hasNumber ? { backgroundColor: '#E6F3E7', borderColor: '#A7D3AA' } : undefined}>numbers</div>
-                  <div className={`rounded-md px-2 py-1 border ${hasSymbol ? 'text-[#388E3C]' : 'border-gray-200 bg-gray-50 text-gray-500'}`} style={hasSymbol ? { backgroundColor: '#E6F3E7', borderColor: '#A7D3AA' } : undefined}>symbols</div>
-                </div>
+                {/* Password live validation checklist — each rule animates green when satisfied */}
+                <PasswordChecklist
+                  hasMinLength={hasMinLength}
+                  hasNumber={hasNumber}
+                  hasSymbol={hasSymbol}
+                  hasUpperAndLower={hasUpperAndLower}
+                />
               </div>
 
               {/* Submit Button */}
