@@ -9,6 +9,9 @@ import { useUser } from "./UserContext";
 const READ_SCANS_STORAGE_KEY = "bs:read-scans";
 const READ_USERS_STORAGE_KEY = "bs:read-pending-users";
 
+/** Filter type for notification lists — "all" | "unread" | "read" */
+export type NotificationFilter = "all" | "unread" | "read";
+
 type NotificationContextValue = {
 	pendingScans: Scan[];
 	pendingUsers: UserProfile[];
@@ -20,6 +23,8 @@ type NotificationContextValue = {
 	refreshNotifications: () => Promise<void>;
 	markScansAsRead: (scanIds: number[]) => void;
 	markUsersAsRead: (userIds: string[]) => void;
+	/** Mark every pending scan + user as read in one action */
+	markAllAsRead: () => void;
 	isScanRead: (scanId: number) => boolean;
 	isUserRead: (userId: string) => boolean;
 };
@@ -403,6 +408,37 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 	}, []);
 
 	/**
+	 * Mark ALL pending scans + pending users as read in a single batch.
+	 * Optimised: builds both Sets in one pass and persists once.
+	 */
+	const markAllAsRead = useCallback(() => {
+		// Batch-mark all scans
+		if (pendingScans.length > 0) {
+			setReadScanIds((prev) => {
+				const next = new Set(prev);
+				let changed = false;
+				for (const scan of pendingScans) {
+					if (!next.has(scan.id)) { next.add(scan.id); changed = true; }
+				}
+				if (changed) { saveReadScanIds(next); return next; }
+				return prev;
+			});
+		}
+		// Batch-mark all users
+		if (pendingUsers.length > 0) {
+			setReadUserIds((prev) => {
+				const next = new Set(prev);
+				let changed = false;
+				for (const user of pendingUsers) {
+					if (!next.has(user.id)) { next.add(user.id); changed = true; }
+				}
+				if (changed) { saveReadUserIds(next); return next; }
+				return prev;
+			});
+		}
+	}, [pendingScans, pendingUsers]);
+
+	/**
 	 * REAL-TIME UNREAD COUNT: Calculate unread notifications for scans and users
 	 * 
 	 * This memoized calculation ensures:
@@ -464,10 +500,11 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 			refreshNotifications,
 			markScansAsRead,
 			markUsersAsRead,
+			markAllAsRead,
 			isScanRead,
 			isUserRead,
 		}),
-		[pendingScans, pendingUsers, unreadCount, unreadScansCount, unreadUsersCount, loading, usersLoading, userLoading, isAdmin, isExpert, error, refreshNotifications, markScansAsRead, markUsersAsRead, isScanRead, isUserRead]
+		[pendingScans, pendingUsers, unreadCount, unreadScansCount, unreadUsersCount, loading, usersLoading, userLoading, isAdmin, isExpert, error, refreshNotifications, markScansAsRead, markUsersAsRead, markAllAsRead, isScanRead, isUserRead]
 	);
 
 	return <NotificationContext.Provider value={value}>{children}</NotificationContext.Provider>;
