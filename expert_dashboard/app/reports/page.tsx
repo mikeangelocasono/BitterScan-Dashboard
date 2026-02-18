@@ -1471,9 +1471,9 @@ export default function ReportsPage() {
             </CardHeader>
             <CardContent className="pt-6 pb-4">
             {scansTrend.length > 0 && isPageVisible ? (
-              <div style={{ minHeight: 320 }}>
-                <ResponsiveContainer key={`scans-trend-${chartKey}`} width="100%" height={320}>
-                  <LineChart data={scansTrend} margin={{ top: 10, right: 30, left: 0, bottom: 5 }}>
+              <div style={{ minHeight: 360 }}>
+                <ResponsiveContainer key={`scans-trend-${chartKey}`} width="100%" height={360}>
+                  <LineChart data={scansTrend} margin={{ top: 10, right: 30, left: 20, bottom: 30 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                   <XAxis 
                     dataKey="period" 
@@ -1483,6 +1483,13 @@ export default function ReportsPage() {
                     tickLine={false}
                     interval={range === "monthly" ? Math.floor(scansTrend.length / 15) : "preserveStartEnd"}
                     angle={range === "monthly" ? 0 : 0}
+                    /* Dynamic X-axis label — updates automatically when filter changes */
+                    label={{
+                      value: range === "daily" ? "Hours" : range === "weekly" ? "Days" : range === "monthly" ? new Date().toLocaleString("en-US", { month: "long" }) : "Date",
+                      position: "insideBottom",
+                      offset: -15,
+                      style: { fontSize: 13, fontWeight: 600, fill: "#374151" },
+                    }}
                   />
                   <YAxis 
                     stroke="#6b7280" 
@@ -1490,6 +1497,8 @@ export default function ReportsPage() {
                     tick={{ fill: "#6b7280" }} 
                     allowDecimals={false}
                     tickLine={false}
+                    /* Static Y-axis label — always "Number of Scans" */
+                    label={{ value: "Number of Scans", angle: -90, position: "insideLeft", offset: -5, style: { fontSize: 13, fontWeight: 600, fill: "#374151" } }}
                   />
                   <Tooltip
                     contentStyle={{
@@ -1525,7 +1534,7 @@ export default function ReportsPage() {
               </ResponsiveContainer>
               </div>
             ) : (
-              <div className="flex h-[320px] flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 px-6 text-center">
+              <div className="flex h-[360px] flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 px-6 text-center">
                 <div className="text-gray-400 mb-3">
                   <TrendingUp className="w-12 h-12 mx-auto" />
                 </div>
@@ -1767,10 +1776,10 @@ export default function ReportsPage() {
               </p>
             </CardHeader>
             <CardContent className="pt-6">
-              <div style={{ minHeight: 350 }}>
+              <div style={{ minHeight: 380 }}>
               {successRateTrend.length > 0 && isPageVisible ? (
-                <ResponsiveContainer key={`success-rate-${chartKey}`} width="100%" height={350}>
-                  <LineChart data={successRateTrend} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                <ResponsiveContainer key={`success-rate-${chartKey}`} width="100%" height={380}>
+                  <LineChart data={successRateTrend} margin={{ top: 5, right: 30, left: 20, bottom: 30 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                     <XAxis 
                       dataKey="period" 
@@ -1779,6 +1788,13 @@ export default function ReportsPage() {
                       tick={{ fill: "#6b7280" }}
                       tickLine={false}
                       interval={range === "monthly" ? Math.floor(successRateTrend.length / 15) : "preserveStartEnd"}
+                      /* Dynamic X-axis label — mirrors Scans Trend logic for consistency */
+                      label={{
+                        value: range === "daily" ? "Hours" : range === "weekly" ? "Days" : range === "monthly" ? new Date().toLocaleString("en-US", { month: "long" }) : "Date",
+                        position: "insideBottom",
+                        offset: -15,
+                        style: { fontSize: 13, fontWeight: 600, fill: "#374151" },
+                      }}
                     />
                     <YAxis 
                       stroke="#6b7280" 
@@ -1787,7 +1803,7 @@ export default function ReportsPage() {
                       allowDecimals={false}
                       tickLine={false}
                       domain={[0, 100]}
-                      label={{ value: 'Success Rate (%)', angle: -90, position: 'insideLeft', style: { fontSize: 12, fill: '#6b7280' } }}
+                      label={{ value: 'Success Rate (%)', angle: -90, position: 'insideLeft', style: { fontSize: 13, fontWeight: 600, fill: '#374151' } }}
                     />
                     <Tooltip
                       contentStyle={{
@@ -1825,7 +1841,7 @@ export default function ReportsPage() {
                   </LineChart>
                 </ResponsiveContainer>
               ) : (
-                <div className="flex h-[350px] items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 px-6 text-center">
+                <div className="flex h-[380px] items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 px-6 text-center">
                   <div className="text-gray-400 mb-3">
                     <TrendingUp className="w-12 h-12 mx-auto mb-3" />
                   </div>
