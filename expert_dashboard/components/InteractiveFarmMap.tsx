@@ -521,13 +521,83 @@ export default function InteractiveFarmMap({
 
   return (
     <Card className="shadow-lg border border-[#388E3C]/20 hover:shadow-xl transition-all duration-300 bg-white rounded-xl overflow-hidden">
+      {/* ── Title bar with inline disease filter controls ──────────────── */}
       <CardHeader className="pb-3 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] text-white px-6 pt-5">
-        <div className="flex items-center justify-between">
-          <div>
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+          {/* Title + subtitle */}
+          <div className="flex-shrink-0">
             <CardTitle className="text-xl font-bold text-white" style={{ color: 'white' }}>
               Farm Disease Map
             </CardTitle>
             <p className="text-sm text-white/90 mt-1" style={{ color: 'white' }}>Interactive disease distribution by farm location</p>
+          </div>
+
+          {/* Disease filter chips — inline on desktop, wrap on mobile */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Toggle button (shows active count) */}
+            <button
+              onClick={() => setShowFilterPanel(!showFilterPanel)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors bg-white/15 hover:bg-white/25 text-white border border-white/20"
+            >
+              <Filter className="h-3.5 w-3.5" />
+              <span>Filters</span>
+              {activeDiseaseFilters.length > 0 && (
+                <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-white text-[#388E3C] text-[10px] font-bold rounded-full">
+                  {activeDiseaseFilters.length}
+                </span>
+              )}
+            </button>
+
+            {/* Inline disease chips (desktop) / collapsible (mobile) */}
+            <div className={`${showFilterPanel ? 'flex' : 'hidden'} lg:flex flex-wrap items-center gap-1.5`}>
+              {allDiseases.length > 0 ? (
+                <>
+                  {allDiseases.map((disease) => {
+                    const isChecked = activeDiseaseFilters.includes(disease);
+                    const COLORS: Record<string, string> = {
+                      Healthy: "#22C55E", Cercospora: "#EF4444", "Yellow Mosaic Virus": "#F59E0B",
+                      "Downy Mildew": "#3B82F6", "Fusarium Wilt": "#8B5CF6",
+                      Immature: "#3B82F6", Mature: "#22C55E", Overmature: "#F59E0B", Overripe: "#EF4444",
+                    };
+                    return (
+                      <button
+                        key={disease}
+                        onClick={() => {
+                          setActiveDiseaseFilters(
+                            isChecked
+                              ? activeDiseaseFilters.filter((d) => d !== disease)
+                              : [...activeDiseaseFilters, disease]
+                          );
+                        }}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all duration-150 border ${
+                          isChecked
+                            ? 'bg-white text-gray-800 border-white shadow-sm'
+                            : 'bg-white/10 text-white/90 border-white/20 hover:bg-white/20'
+                        }`}
+                      >
+                        <span
+                          className="w-2 h-2 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: COLORS[disease] || '#9CA3AF' }}
+                        />
+                        {disease}
+                      </button>
+                    );
+                  })}
+                  {/* Clear all — only when filters are active */}
+                  {activeDiseaseFilters.length > 0 && (
+                    <button
+                      onClick={() => setActiveDiseaseFilters([])}
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium text-white/80 hover:text-white hover:bg-white/15 transition-colors"
+                    >
+                      <X className="h-3 w-3" />
+                      Clear
+                    </button>
+                  )}
+                </>
+              ) : (
+                <span className="text-xs text-white/60 italic">No diseases detected</span>
+              )}
+            </div>
           </div>
         </div>
       </CardHeader>
@@ -554,81 +624,12 @@ export default function InteractiveFarmMap({
           </div>
         </div>
 
-        {/* Map + Filter Panel Layout */}
+        {/* Map + Farm Detail Layout */}
         <div className="flex flex-col lg:flex-row gap-4">
-          {/* Disease Filter Panel (left side on desktop, top on mobile) */}
+          {/* Selected Farm Detail Panel (left side on desktop when a farm is selected) */}
+          {selectedFarmData && (
           <div className="w-full lg:w-56 flex-shrink-0 order-2 lg:order-1">
-            <div className="border border-gray-200 rounded-lg overflow-hidden">
-              <button
-                onClick={() => setShowFilterPanel(!showFilterPanel)}
-                className="w-full flex items-center justify-between px-3 py-2.5 bg-gray-50 border-b border-gray-200 hover:bg-gray-100 transition-colors lg:cursor-default"
-              >
-                <span className="flex items-center gap-2 text-xs font-semibold text-gray-700 uppercase tracking-wide">
-                  <Filter className="h-3.5 w-3.5 text-[#388E3C]" />
-                  Disease Filter
-                </span>
-                {activeDiseaseFilters.length > 0 && (
-                  <span className="text-[10px] bg-[#388E3C] text-white px-1.5 py-0.5 rounded-full font-bold">
-                    {activeDiseaseFilters.length}
-                  </span>
-                )}
-              </button>
-              {/* Always show on desktop, toggle on mobile */}
-              <div className={`${showFilterPanel ? 'block' : 'hidden'} lg:block max-h-[320px] overflow-y-auto`}>
-                {allDiseases.length > 0 ? (
-                  <div className="p-2 space-y-0.5">
-                    {activeDiseaseFilters.length > 0 && (
-                      <button
-                        onClick={() => setActiveDiseaseFilters([])}
-                        className="w-full text-left text-[11px] text-[#388E3C] hover:text-[#2F7A33] font-medium px-2 py-1 hover:bg-gray-50 rounded transition-colors mb-1"
-                      >
-                        Clear all filters
-                      </button>
-                    )}
-                    {allDiseases.map((disease) => {
-                      const isChecked = activeDiseaseFilters.includes(disease);
-                      const COLORS: Record<string, string> = {
-                        Healthy: "#22C55E", Cercospora: "#EF4444", "Yellow Mosaic Virus": "#F59E0B",
-                        "Downy Mildew": "#3B82F6", "Fusarium Wilt": "#8B5CF6",
-                        Immature: "#3B82F6", Mature: "#22C55E", Overmature: "#F59E0B", Overripe: "#EF4444",
-                      };
-                      return (
-                        <label
-                          key={disease}
-                          className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors text-xs ${
-                            isChecked ? 'bg-[#388E3C]/5 font-semibold' : 'hover:bg-gray-50'
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={() => {
-                              setActiveDiseaseFilters(
-                                isChecked
-                                  ? activeDiseaseFilters.filter((d) => d !== disease)
-                                  : [...activeDiseaseFilters, disease]
-                              );
-                            }}
-                            className="rounded border-gray-300 text-[#388E3C] focus:ring-[#388E3C] h-3.5 w-3.5"
-                          />
-                          <span
-                            className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                            style={{ backgroundColor: COLORS[disease] || '#6B7280' }}
-                          />
-                          <span className="text-gray-700 truncate">{disease}</span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <p className="p-3 text-xs text-gray-400 italic">No diseases detected yet</p>
-                )}
-              </div>
-            </div>
-
-            {/* Selected Farm Detail Panel */}
-            {selectedFarmData && (
-              <div className="mt-3 border border-[#388E3C]/30 rounded-lg overflow-hidden bg-white shadow-sm">
+              <div className="border border-[#388E3C]/30 rounded-lg overflow-hidden bg-white shadow-sm">
                 <div className="bg-[#388E3C]/10 px-3 py-2 flex items-center justify-between">
                   <span className="text-xs font-bold text-[#388E3C] uppercase tracking-wide">Farm Detail</span>
                   <button onClick={() => handleFarmSelect(null)} className="text-gray-400 hover:text-gray-600 transition-colors">
@@ -682,8 +683,8 @@ export default function InteractiveFarmMap({
                   )}
                 </div>
               </div>
-            )}
           </div>
+          )}
 
           {/* Map Container */}
           <div className="flex-1 order-1 lg:order-2">
