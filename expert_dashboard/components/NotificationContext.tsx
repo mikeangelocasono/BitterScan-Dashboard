@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode, createContext, useContext, useMemo, useState, useCallback, useEffect } from "react";
+import { ReactNode, createContext, useContext, useMemo, useState, useCallback, useEffect, useRef } from "react";
 import { Scan, getAiPrediction, UserProfile } from "../types";
 import { useData } from "./DataContext";
 import { supabase } from "./supabase";
@@ -31,81 +31,144 @@ type NotificationContextValue = {
 
 const NotificationContext = createContext<NotificationContextValue | undefined>(undefined);
 
-/**
- * Load read scan IDs from localStorage
- */
-function loadReadScanIds(): Set<number> {
+// ─── User-scoped localStorage helpers ────────────────────────────────────
+// Keys are scoped to the authenticated user's ID so different users on the
+// same browser never share read-state and logging out / in doesn't leak data.
+
+function scopedKey(base: string, userId?: string): string {
+	return userId ? `${base}:${userId}` : base;
+}
+
+function loadReadScanIds(userId?: string): Set<number> {
 	if (typeof window === "undefined") return new Set();
-	
+
 	try {
-		const stored = localStorage.getItem(READ_SCANS_STORAGE_KEY);
+		const stored = localStorage.getItem(scopedKey(READ_SCANS_STORAGE_KEY, userId));
 		if (!stored) return new Set();
-		
+
 		const parsed = JSON.parse(stored);
 		if (Array.isArray(parsed)) {
 			return new Set(parsed.filter((id): id is number => typeof id === "number"));
 		}
 	} catch (error) {
-		if (process.env.NODE_ENV === 'development') {
+		if (process.env.NODE_ENV === "development") {
 			console.warn("Error loading read scan IDs from localStorage:", error);
 		}
 	}
-	
+
 	return new Set();
 }
 
-/**
- * Save read scan IDs to localStorage
- */
-function saveReadScanIds(ids: Set<number>): void {
+function saveReadScanIds(ids: Set<number>, userId?: string): void {
 	if (typeof window === "undefined") return;
-	
+
 	try {
-		const array = Array.from(ids);
-		localStorage.setItem(READ_SCANS_STORAGE_KEY, JSON.stringify(array));
+		localStorage.setItem(scopedKey(READ_SCANS_STORAGE_KEY, userId), JSON.stringify(Array.from(ids)));
 	} catch (error) {
-		if (process.env.NODE_ENV === 'development') {
+		if (process.env.NODE_ENV === "development") {
 			console.warn("Error saving read scan IDs to localStorage:", error);
 		}
 	}
 }
 
-/**
- * Load read pending user IDs from localStorage
- */
-function loadReadUserIds(): Set<string> {
+function loadReadUserIds(userId?: string): Set<string> {
 	if (typeof window === "undefined") return new Set();
-	
+
 	try {
-		const stored = localStorage.getItem(READ_USERS_STORAGE_KEY);
+		const stored = localStorage.getItem(scopedKey(READ_USERS_STORAGE_KEY, userId));
 		if (!stored) return new Set();
-		
+
 		const parsed = JSON.parse(stored);
 		if (Array.isArray(parsed)) {
 			return new Set(parsed.filter((id): id is string => typeof id === "string"));
 		}
 	} catch (error) {
-		if (process.env.NODE_ENV === 'development') {
+		if (process.env.NODE_ENV === "development") {
 			console.warn("Error loading read user IDs from localStorage:", error);
 		}
 	}
-	
+
 	return new Set();
 }
 
-/**
- * Save read pending user IDs to localStorage
- */
-function saveReadUserIds(ids: Set<string>): void {
+function saveReadUserIds(ids: Set<string>, userId?: string): void {
 	if (typeof window === "undefined") return;
-	
+
 	try {
-		const array = Array.from(ids);
-		localStorage.setItem(READ_USERS_STORAGE_KEY, JSON.stringify(array));
+		localStorage.setItem(scopedKey(READ_USERS_STORAGE_KEY, userId), JSON.stringify(Array.from(ids)));
 	} catch (error) {
-		if (process.env.NODE_ENV === 'development') {
+		if (process.env.NODE_ENV === "development") {
 			console.warn("Error saving read user IDs to localStorage:", error);
 		}
+	}
+}
+
+// ─── Database persistence helpers ────────────────────────────────────────
+// Reads / writes to the `notification_reads` table in Supabase so read-state
+// survives across browsers, devices, and cache clears.
+// Falls back silently to localStorage if the table doesn't exist yet.
+//
+// To create the table run this SQL in your Supabase SQL editor:
+//
+//   CREATE TABLE IF NOT EXISTS notification_reads (
+//     user_id  UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+//     read_scan_ids JSONB NOT NULL DEFAULT '[]',
+//     read_user_ids JSONB NOT NULL DEFAULT '[]',
+//     updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+//   );
+//   ALTER TABLE notification_reads ENABLE ROW LEVEL SECURITY;
+//   CREATE POLICY "Users manage own reads"
+//     ON notification_reads FOR ALL
+//     USING (auth.uid() = user_id)
+//     WITH CHECK (auth.uid() = user_id);
+
+async function loadReadsFromDb(
+	userId: string
+): Promise<{ scanIds: Set<number>; userIds: Set<string> } | null> {
+	try {
+		const { data, error } = await supabase
+			.from("notification_reads")
+			.select("read_scan_ids, read_user_ids")
+			.eq("user_id", userId)
+			.maybeSingle();
+
+		if (error || !data) return null;
+
+		const scanIds = new Set<number>(
+			Array.isArray(data.read_scan_ids)
+				? (data.read_scan_ids as number[]).filter((id): id is number => typeof id === "number")
+				: []
+		);
+		const userIds = new Set<string>(
+			Array.isArray(data.read_user_ids)
+				? (data.read_user_ids as string[]).filter((id): id is string => typeof id === "string")
+				: []
+		);
+
+		return { scanIds, userIds };
+	} catch {
+		// Table probably doesn't exist — fall back to localStorage silently
+		return null;
+	}
+}
+
+async function saveReadsToDb(
+	userId: string,
+	scanIds: Set<number>,
+	userIds: Set<string>
+): Promise<void> {
+	try {
+		await supabase.from("notification_reads").upsert(
+			{
+				user_id: userId,
+				read_scan_ids: Array.from(scanIds),
+				read_user_ids: Array.from(userIds),
+				updated_at: new Date().toISOString(),
+			},
+			{ onConflict: "user_id" }
+		);
+	} catch {
+		// Silent — localStorage is the fast fallback
 	}
 }
 
@@ -148,10 +211,67 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 	const isAdmin = userRole === 'admin';
 	const isExpert = userRole === 'expert';
 	
-	const [readScanIds, setReadScanIds] = useState<Set<number>>(() => loadReadScanIds());
-	const [readUserIds, setReadUserIds] = useState<Set<string>>(() => loadReadUserIds());
+	// Read state — starts empty; populated from DB / localStorage once user is resolved.
+	// This avoids the old bug where cleanup effects would wipe localStorage before data arrived.
+	const [readScanIds, setReadScanIds] = useState<Set<number>>(new Set());
+	const [readUserIds, setReadUserIds] = useState<Set<string>>(new Set());
+	const [readStateLoaded, setReadStateLoaded] = useState(false);
 	const [pendingUsers, setPendingUsers] = useState<UserProfile[]>([]);
 	const [usersLoading, setUsersLoading] = useState(true);
+
+	// ─── Load persisted read state (DB first → localStorage fallback) ────
+	useEffect(() => {
+		if (!user?.id || userLoading) return;
+		let cancelled = false;
+
+		(async () => {
+			// 1. Try the database (cross-device, authoritative)
+			const dbResult = await loadReadsFromDb(user.id);
+
+			if (cancelled) return;
+
+			if (dbResult) {
+				setReadScanIds(dbResult.scanIds);
+				setReadUserIds(dbResult.userIds);
+				// Mirror to localStorage for instant hydration on next page load
+				saveReadScanIds(dbResult.scanIds, user.id);
+				saveReadUserIds(dbResult.userIds, user.id);
+			} else {
+				// 2. Fallback: user-scoped localStorage
+				setReadScanIds(loadReadScanIds(user.id));
+				setReadUserIds(loadReadUserIds(user.id));
+			}
+
+			setReadStateLoaded(true);
+		})();
+
+		return () => {
+			cancelled = true;
+		};
+	}, [user?.id, userLoading]);
+
+	// ─── Centralised persistence (localStorage + debounced DB write) ─────
+	// Every change to readScanIds / readUserIds flows through here, so the
+	// individual mark* / cleanup functions never call save helpers directly.
+	const dbSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+	useEffect(() => {
+		if (!readStateLoaded || !user?.id) return;
+
+		// Immediate localStorage write (synchronous, fast)
+		saveReadScanIds(readScanIds, user.id);
+		saveReadUserIds(readUserIds, user.id);
+
+		// Debounced DB write – avoids hammering the database on rapid clicks
+		if (dbSaveTimer.current) clearTimeout(dbSaveTimer.current);
+		dbSaveTimer.current = setTimeout(() => {
+			saveReadsToDb(user.id, readScanIds, readUserIds);
+		}, 500);
+
+		return () => {
+			if (dbSaveTimer.current) clearTimeout(dbSaveTimer.current);
+		};
+	}, [readScanIds, readUserIds, readStateLoaded, user?.id]);
 
 	/**
 	 * REAL-TIME FILTERING: Filter scans for 'Pending Validation' status
@@ -313,8 +433,12 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 		};
 	}, [isAdmin, userLoading]);
 
-	// Drop read markers for scans that are no longer pending and persist to localStorage
+	// Drop read markers for scans that are no longer pending.
+	// GUARD: skip while scan data or persisted read-state is still loading —
+	// otherwise the empty pendingScans during initial fetch wipes all read IDs.
 	useEffect(() => {
+		if (loading || !readStateLoaded) return;
+
 		setReadScanIds((prev) => {
 			if (prev.size === 0) return prev;
 
@@ -330,16 +454,15 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 				}
 			});
 
-			if (changed) {
-				saveReadScanIds(next);
-				return next;
-			}
-			return prev;
+			return changed ? next : prev;
 		});
-	}, [pendingScans]);
+	}, [pendingScans, loading, readStateLoaded]);
 
-	// Drop read markers for users that are no longer pending
+	// Drop read markers for users that are no longer pending.
+	// Same loading guard as above to prevent wiping on refresh.
 	useEffect(() => {
+		if (usersLoading || userLoading || !readStateLoaded) return;
+
 		setReadUserIds((prev) => {
 			if (prev.size === 0) return prev;
 
@@ -355,13 +478,9 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 				}
 			});
 
-			if (changed) {
-				saveReadUserIds(next);
-				return next;
-			}
-			return prev;
+			return changed ? next : prev;
 		});
-	}, [pendingUsers]);
+	}, [pendingUsers, usersLoading, userLoading, readStateLoaded]);
 
 	const markScansAsRead = useCallback((scanIds: number[]) => {
 		if (!scanIds || scanIds.length === 0) return;
@@ -377,11 +496,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 				}
 			});
 
-			if (changed) {
-				saveReadScanIds(next);
-				return next;
-			}
-			return prev;
+			return changed ? next : prev;
 		});
 	}, []);
 
@@ -399,11 +514,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 				}
 			});
 
-			if (changed) {
-				saveReadUserIds(next);
-				return next;
-			}
-			return prev;
+			return changed ? next : prev;
 		});
 	}, []);
 
@@ -420,8 +531,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 				for (const scan of pendingScans) {
 					if (!next.has(scan.id)) { next.add(scan.id); changed = true; }
 				}
-				if (changed) { saveReadScanIds(next); return next; }
-				return prev;
+				return changed ? next : prev;
 			});
 		}
 		// Batch-mark all users
@@ -429,11 +539,10 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 			setReadUserIds((prev) => {
 				const next = new Set(prev);
 				let changed = false;
-				for (const user of pendingUsers) {
-					if (!next.has(user.id)) { next.add(user.id); changed = true; }
+				for (const u of pendingUsers) {
+					if (!next.has(u.id)) { next.add(u.id); changed = true; }
 				}
-				if (changed) { saveReadUserIds(next); return next; }
-				return prev;
+				return changed ? next : prev;
 			});
 		}
 	}, [pendingScans, pendingUsers]);
