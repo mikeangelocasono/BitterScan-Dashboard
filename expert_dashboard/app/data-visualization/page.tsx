@@ -445,6 +445,8 @@ export default function DataVisualizationPage() {
   const [recordsSearchQuery, setRecordsSearchQuery] = useState<string>("");
   const [recordsCurrentPage, setRecordsCurrentPage] = useState<number>(1);
   const recordsPerPage = 10;
+  // Selected farm for click-to-view disease records
+  const [selectedRecordFarm, setSelectedRecordFarm] = useState<string | null>(null);
   
   // Farms data state
   const [farmsData, setFarmsData] = useState<any[]>([]);
@@ -1648,6 +1650,7 @@ export default function DataVisualizationPage() {
                     disease: diseaseFilter,
                     farm: farmFilter
                   }}
+                  onFarmSelect={(farmId) => setSelectedRecordFarm(farmId)}
                 />
               )}
             </div>
@@ -1661,7 +1664,7 @@ export default function DataVisualizationPage() {
                       <CardTitle className="text-xl font-bold text-white" style={{ color: 'white' }}>
                         Farm Records
                       </CardTitle>
-                      <p className="text-sm text-white/90 mt-1" style={{ color: 'white' }}>Disease summary by farm location</p>
+                      <p className="text-sm text-white/90 mt-1" style={{ color: 'white' }}>All registered farms — click to view disease records</p>
                     </div>
                     <div className="relative w-full sm:w-auto">
                       <input
@@ -1682,19 +1685,24 @@ export default function DataVisualizationPage() {
                 </CardHeader>
                 <CardContent className="pt-4 px-5 pb-4">
                   {(() => {
-                    // Build farm records: aggregate disease counts per farm
-                    const farmRecordsMap = new Map<string, { farmName: string; diseases: Map<string, number>; totalScans: number }>();
+                    // Build farm records: show ALL registered farms, aggregate disease counts for those with scans
+                    const farmRecordsMap = new Map<string, { farmName: string; diseases: Map<string, number>; totalScans: number; farmAddress?: string }>();
 
+                    // Step 1: Initialize ALL registered farms (even those with 0 scans)
+                    farmsData.forEach((farm: any) => {
+                      farmRecordsMap.set(farm.id, {
+                        farmName: farm.farm_name || 'Unnamed Farm',
+                        diseases: new Map(),
+                        totalScans: 0,
+                        farmAddress: farm.farm_address,
+                      });
+                    });
+
+                    // Step 2: Aggregate scan data onto existing farm records
                     dateFilteredScans.forEach(scan => {
-                      const farmId = scan.farm_id || 'unknown';
-                      const farm = farmsData.find((f: any) => f.id === farmId);
-                      const farmName = farm?.farm_name || 'Unknown Farm';
+                      const farmId = scan.farm_id;
+                      if (!farmId || !farmRecordsMap.has(farmId)) return;
                       const prediction = getAiPrediction(scan) || 'Unknown';
-
-                      if (!farmRecordsMap.has(farmId)) {
-                        farmRecordsMap.set(farmId, { farmName, diseases: new Map(), totalScans: 0 });
-                      }
-
                       const record = farmRecordsMap.get(farmId)!;
                       record.totalScans++;
                       record.diseases.set(prediction, (record.diseases.get(prediction) || 0) + 1);
@@ -1704,6 +1712,7 @@ export default function DataVisualizationPage() {
                       .map(([farmId, data]) => ({
                         farmId,
                         farmName: data.farmName,
+                        farmAddress: data.farmAddress,
                         diseases: Array.from(data.diseases.entries())
                           .map(([disease, count]) => ({ disease, count }))
                           .sort((a, b) => b.count - a.count),
@@ -1740,45 +1749,85 @@ export default function DataVisualizationPage() {
 
                     return (
                       <div className="space-y-4">
-                        {paginatedFarms.map((farm) => (
-                          <div key={farm.farmId} className="border border-gray-200 rounded-lg overflow-hidden hover:shadow-sm transition-shadow duration-200">
-                            {/* Farm header */}
-                            <div className="bg-gray-50 px-4 py-3 flex items-center justify-between border-b border-gray-200">
+                        {paginatedFarms.map((farm) => {
+                          const isExpanded = selectedRecordFarm === farm.farmId;
+                          return (
+                          <div
+                            key={farm.farmId}
+                            className={`border rounded-lg overflow-hidden transition-all duration-200 ${
+                              isExpanded
+                                ? 'border-[#388E3C] shadow-md ring-1 ring-[#388E3C]/20'
+                                : 'border-gray-200 hover:shadow-sm'
+                            }`}
+                          >
+                            {/* Farm header - clickable to expand/collapse */}
+                            <button
+                              onClick={() => setSelectedRecordFarm(isExpanded ? null : farm.farmId)}
+                              className={`w-full text-left px-4 py-3 flex items-center justify-between border-b transition-colors duration-150 ${
+                                isExpanded
+                                  ? 'bg-[#388E3C]/5 border-[#388E3C]/20'
+                                  : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
+                              }`}
+                            >
                               <div className="flex items-center gap-2">
-                                <MapPin className="h-4 w-4 text-[#388E3C]" />
-                                <span className="font-semibold text-sm text-gray-900">{farm.farmName}</span>
+                                <MapPin className={`h-4 w-4 ${isExpanded ? 'text-[#388E3C]' : 'text-gray-400'}`} />
+                                <span className={`font-semibold text-sm ${isExpanded ? 'text-[#388E3C]' : 'text-gray-900'}`}>{farm.farmName}</span>
                               </div>
-                              <span className="text-xs font-medium text-gray-500 bg-white px-2.5 py-1 rounded-full border border-gray-200">
-                                {farm.totalScans} {farm.totalScans === 1 ? 'scan' : 'scans'}
-                              </span>
-                            </div>
-                            {/* Disease summary table */}
-                            <table className="w-full">
-                              <thead>
-                                <tr className="bg-white border-b border-gray-100">
-                                  <th className="text-left py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Disease</th>
-                                  <th className="text-right py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Total Scans</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-gray-50">
-                                {farm.diseases.map((d, idx) => (
-                                  <tr key={`${farm.farmId}-${d.disease}-${idx}`} className="hover:bg-gray-50/50 transition-colors">
-                                    <td className="py-2.5 px-4 text-sm text-gray-700">
-                                      <div className="flex items-center gap-2">
-                                        <span
-                                          className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                                          style={{ backgroundColor: DISEASE_COLORS[d.disease] || RIPENESS_COLORS[d.disease] || '#6B7280' }}
-                                        />
-                                        {d.disease}
-                                      </div>
-                                    </td>
-                                    <td className="py-2.5 px-4 text-sm font-semibold text-gray-900 text-right">{d.count}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
+                              <div className="flex items-center gap-2">
+                                <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${
+                                  farm.totalScans > 0
+                                    ? 'text-gray-600 bg-white border-gray-200'
+                                    : 'text-gray-400 bg-gray-50 border-gray-100'
+                                }`}>
+                                  {farm.totalScans} {farm.totalScans === 1 ? 'scan' : 'scans'}
+                                </span>
+                                <svg
+                                  className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+                                  fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                                >
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                                </svg>
+                              </div>
+                            </button>
+                            {/* Expandable disease detail panel */}
+                            {isExpanded && (
+                              <div className="bg-white">
+                                {farm.diseases.length > 0 ? (
+                                  <table className="w-full">
+                                    <thead>
+                                      <tr className="bg-gray-50/80 border-b border-gray-100">
+                                        <th className="text-left py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Disease / Stage</th>
+                                        <th className="text-right py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Scans</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-50">
+                                      {farm.diseases.map((d, idx) => (
+                                        <tr key={`${farm.farmId}-${d.disease}-${idx}`} className="hover:bg-gray-50/50 transition-colors">
+                                          <td className="py-2.5 px-4 text-sm text-gray-700">
+                                            <div className="flex items-center gap-2">
+                                              <span
+                                                className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                                                style={{ backgroundColor: DISEASE_COLORS[d.disease] || RIPENESS_COLORS[d.disease] || '#6B7280' }}
+                                              />
+                                              {d.disease}
+                                            </div>
+                                          </td>
+                                          <td className="py-2.5 px-4 text-sm font-semibold text-gray-900 text-right">{d.count}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                ) : (
+                                  <div className="px-4 py-6 text-center">
+                                    <p className="text-sm text-gray-400 italic">No scans recorded for this farm</p>
+                                    <p className="text-xs text-gray-300 mt-1">Scan data will appear once detections are made</p>
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
-                        ))}
+                          );
+                        })}
 
                         {/* Pagination */}
                         {totalPages > 1 && (

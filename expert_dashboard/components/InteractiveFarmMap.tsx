@@ -231,18 +231,40 @@ type InteractiveFarmMapProps = {
     disease?: string;
     farm?: string;
   };
-  showAllFarms?: boolean; // New prop to show all farms even without scans
+  showAllFarms?: boolean;
+  /** Callback when a farm is selected (clicked on map or farm list) */
+  onFarmSelect?: (farmId: string | null) => void;
+  /** Externally controlled disease checkbox filters */
+  diseaseFilters?: string[];
+  /** Callback to update disease checkbox filters */
+  onDiseaseFiltersChange?: (diseases: string[]) => void;
 };
 
 export default function InteractiveFarmMap({
   scans,
   farms = [],
   filters = {},
-  showAllFarms = true, // Default to showing all farms
+  showAllFarms = true,
+  onFarmSelect,
+  diseaseFilters: externalDiseaseFilters,
+  onDiseaseFiltersChange,
 }: InteractiveFarmMapProps) {
   const [isClient, setIsClient] = useState(false);
   const [leafletIcon, setLeafletIcon] = useState<any>(null);
   const [selectedFarm, setSelectedFarm] = useState<string | null>(null);
+  // Internal disease filter state (used when no external control is provided)
+  const [internalDiseaseFilters, setInternalDiseaseFilters] = useState<string[]>([]);
+  const [showFilterPanel, setShowFilterPanel] = useState(false);
+
+  // Use external or internal disease filters
+  const activeDiseaseFilters = externalDiseaseFilters ?? internalDiseaseFilters;
+  const setActiveDiseaseFilters = onDiseaseFiltersChange ?? setInternalDiseaseFilters;
+
+  // Wrap setSelectedFarm to also call onFarmSelect callback
+  const handleFarmSelect = (farmId: string | null) => {
+    setSelectedFarm(farmId);
+    onFarmSelect?.(farmId);
+  };
 
   // Ensure component only renders on client
   useEffect(() => {
@@ -371,6 +393,34 @@ export default function InteractiveFarmMap({
     return Array.from(farmDataMap.values());
   }, [scans, farms, filters, showAllFarms]);
 
+  // Extract all unique diseases/ripeness stages from farm data for the filter panel
+  const allDiseases = useMemo(() => {
+    const diseaseSet = new Set<string>();
+    farmMapData.forEach((farm) => {
+      farm.leaf_diseases.forEach((_, disease) => diseaseSet.add(disease));
+      farm.fruit_ripeness.forEach((_, stage) => diseaseSet.add(stage));
+    });
+    return Array.from(diseaseSet).sort();
+  }, [farmMapData]);
+
+  // Filter farmMapData by active disease filters (checkbox panel)
+  const visibleFarmMapData = useMemo(() => {
+    if (activeDiseaseFilters.length === 0) return farmMapData; // No filter = show all
+    return farmMapData.filter((farm) => {
+      // Show farm if it has at least one matching disease/ripeness
+      for (const d of activeDiseaseFilters) {
+        if (farm.leaf_diseases.has(d) || farm.fruit_ripeness.has(d)) return true;
+      }
+      return false;
+    });
+  }, [farmMapData, activeDiseaseFilters]);
+
+  // Get selected farm detail data
+  const selectedFarmData = useMemo(() => {
+    if (!selectedFarm) return null;
+    return farmMapData.find((f) => f.farm_id === selectedFarm) || null;
+  }, [farmMapData, selectedFarm]);
+
   // Calculate map center
   const mapCenter = useMemo(() => {
     if (farmMapData.length === 0) {
@@ -378,19 +428,20 @@ export default function InteractiveFarmMap({
     }
 
     if (selectedFarm) {
-      const farm = farmMapData.find((f) => f.farm_id === selectedFarm);
+      const farm = visibleFarmMapData.find((f) => f.farm_id === selectedFarm);
       if (farm) {
         return { lat: farm.latitude, lng: farm.longitude };
       }
     }
 
-    const avgLat =
-      farmMapData.reduce((sum, f) => sum + f.latitude, 0) / farmMapData.length;
-    const avgLng =
-      farmMapData.reduce((sum, f) => sum + f.longitude, 0) / farmMapData.length;
+    const data = visibleFarmMapData.length > 0 ? visibleFarmMapData : farmMapData;
+    if (data.length === 0) return { lat: 14.5995, lng: 120.9842 };
+
+    const avgLat = data.reduce((sum, f) => sum + f.latitude, 0) / data.length;
+    const avgLng = data.reduce((sum, f) => sum + f.longitude, 0) / data.length;
 
     return { lat: avgLat, lng: avgLng };
-  }, [farmMapData, selectedFarm]);
+  }, [farmMapData, visibleFarmMapData, selectedFarm]);
 
   const getDiseaseColor = (disease: string): string => {
     const colors: Record<string, string> = {
@@ -503,28 +554,162 @@ export default function InteractiveFarmMap({
           </div>
         </div>
 
-        {/* Map Container - Using vanilla Leaflet for better control */}
-        <div className="relative rounded-lg overflow-hidden border border-gray-200" style={{ zIndex: 0, isolation: "isolate" }}>
-          <LeafletMapWrapper
-            center={mapCenter}
-            zoom={selectedFarm ? 13 : 10}
-            farmMapData={farmMapData}
-            leafletIcon={leafletIcon}
-            selectedFarm={selectedFarm}
-            setSelectedFarm={setSelectedFarm}
-            getDiseaseColor={getDiseaseColor}
-            getRipenessColor={getRipenessColor}
-          />
+        {/* Map + Filter Panel Layout */}
+        <div className="flex flex-col lg:flex-row gap-4">
+          {/* Disease Filter Panel (left side on desktop, top on mobile) */}
+          <div className="w-full lg:w-56 flex-shrink-0 order-2 lg:order-1">
+            <div className="border border-gray-200 rounded-lg overflow-hidden">
+              <button
+                onClick={() => setShowFilterPanel(!showFilterPanel)}
+                className="w-full flex items-center justify-between px-3 py-2.5 bg-gray-50 border-b border-gray-200 hover:bg-gray-100 transition-colors lg:cursor-default"
+              >
+                <span className="flex items-center gap-2 text-xs font-semibold text-gray-700 uppercase tracking-wide">
+                  <Filter className="h-3.5 w-3.5 text-[#388E3C]" />
+                  Disease Filter
+                </span>
+                {activeDiseaseFilters.length > 0 && (
+                  <span className="text-[10px] bg-[#388E3C] text-white px-1.5 py-0.5 rounded-full font-bold">
+                    {activeDiseaseFilters.length}
+                  </span>
+                )}
+              </button>
+              {/* Always show on desktop, toggle on mobile */}
+              <div className={`${showFilterPanel ? 'block' : 'hidden'} lg:block max-h-[320px] overflow-y-auto`}>
+                {allDiseases.length > 0 ? (
+                  <div className="p-2 space-y-0.5">
+                    {activeDiseaseFilters.length > 0 && (
+                      <button
+                        onClick={() => setActiveDiseaseFilters([])}
+                        className="w-full text-left text-[11px] text-[#388E3C] hover:text-[#2F7A33] font-medium px-2 py-1 hover:bg-gray-50 rounded transition-colors mb-1"
+                      >
+                        Clear all filters
+                      </button>
+                    )}
+                    {allDiseases.map((disease) => {
+                      const isChecked = activeDiseaseFilters.includes(disease);
+                      const COLORS: Record<string, string> = {
+                        Healthy: "#22C55E", Cercospora: "#EF4444", "Yellow Mosaic Virus": "#F59E0B",
+                        "Downy Mildew": "#3B82F6", "Fusarium Wilt": "#8B5CF6",
+                        Immature: "#3B82F6", Mature: "#22C55E", Overmature: "#F59E0B", Overripe: "#EF4444",
+                      };
+                      return (
+                        <label
+                          key={disease}
+                          className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors text-xs ${
+                            isChecked ? 'bg-[#388E3C]/5 font-semibold' : 'hover:bg-gray-50'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {
+                              setActiveDiseaseFilters(
+                                isChecked
+                                  ? activeDiseaseFilters.filter((d) => d !== disease)
+                                  : [...activeDiseaseFilters, disease]
+                              );
+                            }}
+                            className="rounded border-gray-300 text-[#388E3C] focus:ring-[#388E3C] h-3.5 w-3.5"
+                          />
+                          <span
+                            className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: COLORS[disease] || '#6B7280' }}
+                          />
+                          <span className="text-gray-700 truncate">{disease}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="p-3 text-xs text-gray-400 italic">No diseases detected yet</p>
+                )}
+              </div>
+            </div>
+
+            {/* Selected Farm Detail Panel */}
+            {selectedFarmData && (
+              <div className="mt-3 border border-[#388E3C]/30 rounded-lg overflow-hidden bg-white shadow-sm">
+                <div className="bg-[#388E3C]/10 px-3 py-2 flex items-center justify-between">
+                  <span className="text-xs font-bold text-[#388E3C] uppercase tracking-wide">Farm Detail</span>
+                  <button onClick={() => handleFarmSelect(null)} className="text-gray-400 hover:text-gray-600 transition-colors">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                <div className="p-3 space-y-2">
+                  <h4 className="font-semibold text-sm text-gray-900 flex items-center gap-1.5">
+                    <MapPin className="h-3.5 w-3.5 text-[#388E3C]" />
+                    {selectedFarmData.farm_name}
+                  </h4>
+                  <p className="text-[11px] text-gray-500">
+                    {selectedFarmData.total_scans} {selectedFarmData.total_scans === 1 ? 'scan' : 'scans'} total
+                  </p>
+                  {selectedFarmData.latest_scan_date && (
+                    <p className="text-[11px] text-gray-500">
+                      Latest: {new Date(selectedFarmData.latest_scan_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </p>
+                  )}
+                  {/* Disease breakdown */}
+                  {selectedFarmData.leaf_diseases.size > 0 && (
+                    <div className="pt-1">
+                      <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Leaf Diseases</p>
+                      {Array.from(selectedFarmData.leaf_diseases.entries()).map(([disease, count]) => (
+                        <div key={disease} className="flex items-center justify-between text-[11px] py-0.5">
+                          <div className="flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: getDiseaseColor(disease) }} />
+                            <span className="text-gray-700">{disease}</span>
+                          </div>
+                          <span className="font-semibold text-gray-900">{count}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {selectedFarmData.fruit_ripeness.size > 0 && (
+                    <div className="pt-1">
+                      <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Fruit Ripeness</p>
+                      {Array.from(selectedFarmData.fruit_ripeness.entries()).map(([stage, count]) => (
+                        <div key={stage} className="flex items-center justify-between text-[11px] py-0.5">
+                          <div className="flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: getRipenessColor(stage) }} />
+                            <span className="text-gray-700">{stage}</span>
+                          </div>
+                          <span className="font-semibold text-gray-900">{count}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {selectedFarmData.total_scans === 0 && (
+                    <p className="text-[11px] text-gray-400 italic">No scans recorded for this farm</p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Map Container */}
+          <div className="flex-1 order-1 lg:order-2">
+            <div className="relative rounded-lg overflow-hidden border border-gray-200" style={{ zIndex: 0, isolation: "isolate" }}>
+              <LeafletMapWrapper
+                center={mapCenter}
+                zoom={selectedFarm ? 13 : 10}
+                farmMapData={visibleFarmMapData}
+                leafletIcon={leafletIcon}
+                selectedFarm={selectedFarm}
+                setSelectedFarm={handleFarmSelect}
+                getDiseaseColor={getDiseaseColor}
+                getRipenessColor={getRipenessColor}
+              />
+            </div>
+          </div>
         </div>
 
         {/* Farm List Below Map */}
         <div className="mt-4 space-y-2 max-h-[300px] overflow-y-auto">
           <h4 className="font-semibold text-sm text-gray-700 mb-3 flex items-center justify-between">
-            <span>Farm Locations ({farmMapData.length})</span>
+            <span>Farm Locations ({visibleFarmMapData.length}{activeDiseaseFilters.length > 0 ? ` of ${farmMapData.length}` : ''})</span>
             <span className="text-xs font-normal text-gray-500">Click to focus on map</span>
           </h4>
-          {farmMapData
-            .sort((a, b) => b.total_scans - a.total_scans) // Sort by scan count descending
+          {visibleFarmMapData
+            .sort((a, b) => b.total_scans - a.total_scans)
             .map((farm) => {
               const heatLevel = farm.total_scans >= 16 ? 'high' : farm.total_scans >= 6 ? 'medium' : 'low';
               const heatColor = heatLevel === 'high' ? 'bg-red-500' : heatLevel === 'medium' ? 'bg-yellow-500' : 'bg-green-500';
@@ -533,7 +718,7 @@ export default function InteractiveFarmMap({
               return (
                 <button
                   key={farm.farm_id}
-                  onClick={() => setSelectedFarm(farm.farm_id)}
+                  onClick={() => handleFarmSelect(farm.farm_id)}
                   className={`w-full text-left p-3 rounded-lg border-2 transition-all duration-200 ${
                     selectedFarm === farm.farm_id
                       ? "border-[#388E3C] bg-[#388E3C]/5 shadow-md"
