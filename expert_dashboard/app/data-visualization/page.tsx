@@ -1,23 +1,12 @@
 "use client";
 
-import { useMemo, Suspense, useState, useCallback, useEffect } from "react";
+import { useMemo, Suspense, useState, useEffect } from "react";
 import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import AuthGuard from "@/components/AuthGuard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  LineChart,
-  Line,
   BarChart,
   Bar,
   PieChart as RechartsPieChart,
@@ -34,8 +23,7 @@ import { useData } from "@/components/DataContext";
 import { supabase } from "@/components/supabase";
 import type { Scan, ValidationHistory } from "@/types";
 import { getAiPrediction, isLeafDiseaseScan, isFruitRipenessScan, isNonAmpalayaScan } from "@/types";
-import { Loader2, TrendingUp, Camera, CheckCircle2, AlertCircle, Calendar, Clock3, BarChart3, MapPin, Filter, X } from "lucide-react";
-import toast from "react-hot-toast";
+import { Loader2, TrendingUp, Camera, AlertCircle, Calendar, Clock3, BarChart3, MapPin, Filter, X } from "lucide-react";
 
 // Real-time Clock Component
 function RealTimeClock() {
@@ -425,7 +413,6 @@ const RANGE_LABELS: Record<string, string> = {
 };
 
 export default function DataVisualizationPage() {
-  const router = useRouter();
   const dataContext = useData();
   
   // Force render after timeout to prevent infinite loading
@@ -454,20 +441,14 @@ export default function DataVisualizationPage() {
   const [farmFilter, setFarmFilter] = useState<string>("all");
   const [showFilters, setShowFilters] = useState(false);
   
-  // Detection Records state
+  // Farm Records state
   const [recordsSearchQuery, setRecordsSearchQuery] = useState<string>("");
   const [recordsCurrentPage, setRecordsCurrentPage] = useState<number>(1);
   const recordsPerPage = 10;
   
-  // Delete confirmation modal state
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [scanToDelete, setScanToDelete] = useState<Scan | null>(null);
-  
   // Farms data state
   const [farmsData, setFarmsData] = useState<any[]>([]);
   const [farmsLoading, setFarmsLoading] = useState(true);
-  const [farmerProfiles, setFarmerProfiles] = useState<Map<string, any>>(new Map());
-  const [isDeleting, setIsDeleting] = useState(false);
   
   // Visibility state - prevent chart rendering issues when tab is hidden
   const [isPageVisible, setIsPageVisible] = useState(true);
@@ -495,49 +476,7 @@ export default function DataVisualizationPage() {
     };
   }, []);
   
-  // Delete handler function - Opens confirmation modal
-  const handleDeleteScan = async (scan: Scan) => {
-    setScanToDelete(scan);
-    setShowDeleteModal(true);
-  };
-  
-  // Confirm delete function - Actually deletes the scan
-  const confirmDeleteScan = async () => {
-    if (!scanToDelete) return;
-    
-    const scanTypeLabel = scanToDelete.scan_type === 'leaf_disease' ? 'leaf disease' : 'fruit ripeness';
-    
-    setIsDeleting(true);
-    try {
-      const tableName = scanToDelete.scan_type === 'leaf_disease' ? 'leaf_disease_scans' : 'fruit_ripeness_scans';
-      const { error } = await supabase
-        .from(tableName)
-        .delete()
-        .eq('id', scanToDelete.id);
-      
-      if (error) {
-        console.error('Error deleting scan:', error);
-        toast.error('Failed to delete scan. Please try again.');
-      } else {
-        toast.success('Scan deleted successfully');
-        // Refresh data context to update UI
-        if (dataContext?.refreshData) {
-          await dataContext.refreshData();
-        } else {
-          window.location.reload();
-        }
-      }
-    } catch (error) {
-      console.error('Error deleting scan:', error);
-      toast.error('An unexpected error occurred.');
-    } finally {
-      setIsDeleting(false);
-      setShowDeleteModal(false);
-      setScanToDelete(null);
-    }
-  };
-  
-  // Fetch farms data with farmer profiles
+  // Fetch farms data
   useEffect(() => {
     const fetchFarms = async () => {
       try {
@@ -566,15 +505,6 @@ export default function DataVisualizationPage() {
           setFarmsData([]);
         } else {
           setFarmsData(farmsWithProfiles || []);
-          
-          // Build farmer profiles map for quick lookup
-          const profilesMap = new Map();
-          farmsWithProfiles?.forEach((farm: any) => {
-            if (farm.profiles) {
-              profilesMap.set(farm.farmer_id, farm.profiles);
-            }
-          });
-          setFarmerProfiles(profilesMap);
         }
       } catch (error) {
         console.error('Error fetching farms:', error);
@@ -1172,11 +1102,11 @@ export default function DataVisualizationPage() {
                       });
 
                       return (
-                        <div className="flex-1 w-full flex items-center justify-center" style={{ minHeight: 280 }}>
-                          <ResponsiveContainer key={`validation-perf-${chartKey}`} width="100%" height={280}>
+                        <div className="flex-1 w-full flex items-center justify-center" style={{ minHeight: 320 }}>
+                          <ResponsiveContainer key={`validation-perf-${chartKey}`} width="100%" height={320}>
                             <BarChart 
                               data={sortedData} 
-                              margin={{ top: 15, right: 20, left: 10, bottom: 5 }}
+                              margin={{ top: 15, right: 20, left: 25, bottom: 30 }}
                               barCategoryGap="15%"
                               barSize={32}
                             >
@@ -1188,6 +1118,7 @@ export default function DataVisualizationPage() {
                                 tick={{ fill: "#374151", fontWeight: 600 }}
                                 tickLine={false}
                                 axisLine={false}
+                                label={{ value: "Month", position: "bottom", offset: 10, style: { fontSize: 13, fontWeight: 600, fill: "#374151" } }}
                               />
                               <YAxis 
                                 stroke="#6B7280" 
@@ -1196,7 +1127,8 @@ export default function DataVisualizationPage() {
                                 allowDecimals={false}
                                 tickLine={false}
                                 axisLine={false}
-                                width={50}
+                                width={60}
+                                label={{ value: "Validations", angle: -90, position: "insideLeft", offset: -10, style: { fontSize: 13, fontWeight: 600, fill: "#374151", textAnchor: "middle" } }}
                               />
                               <Tooltip
                                 contentStyle={{
@@ -1230,7 +1162,7 @@ export default function DataVisualizationPage() {
                         </div>
                       );
                     })() : (
-                      <div className="flex-1 w-full flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 min-h-[280px]">
+                      <div className="flex-1 w-full flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 min-h-[320px]">
                         <p className="text-sm font-medium text-gray-500">No validation performance data available yet.</p>
                         <p className="text-xs text-gray-400 mt-1">Validation data will populate this chart automatically.</p>
                       </div>
@@ -1402,11 +1334,11 @@ export default function DataVisualizationPage() {
                     : Math.floor(maxDomain / tickInterval) + 1;
 
                   return (
-                    <div style={{ minHeight: 380 }}>
-                      <ResponsiveContainer key={`monthly-scanned-${chartKey}`} width="100%" height={380}>
+                    <div style={{ minHeight: 420 }}>
+                      <ResponsiveContainer key={`monthly-scanned-${chartKey}`} width="100%" height={420}>
                         <BarChart 
                           data={sortedData} 
-                          margin={{ top: 20, right: 20, left: 0, bottom: 20 }}
+                          margin={{ top: 20, right: 20, left: 25, bottom: 35 }}
                           barCategoryGap="15%"
                           barGap={8}
                         >
@@ -1420,6 +1352,7 @@ export default function DataVisualizationPage() {
                             axisLine={false}
                             interval={0}
                             tickMargin={12}
+                            label={{ value: "Month", position: "bottom", offset: 15, style: { fontSize: 13, fontWeight: 600, fill: "#374151" } }}
                           />
                           <YAxis 
                             stroke="#9CA3AF" 
@@ -1433,7 +1366,8 @@ export default function DataVisualizationPage() {
                               ? [0, 1, 2, 3, 4, 5]
                               : Array.from({ length: tickCount }, (_, i) => i * tickInterval)
                             }
-                            width={40}
+                            width={55}
+                            label={{ value: "Scan Count", angle: -90, position: "insideLeft", offset: -10, style: { fontSize: 13, fontWeight: 600, fill: "#374151", textAnchor: "middle" } }}
                           />
                           <Tooltip
                             contentStyle={{
@@ -1685,7 +1619,7 @@ export default function DataVisualizationPage() {
                     </div>
                   );
                 })() : (
-                  <div className="flex h-[280px] flex-col items-center justify-center">
+                  <div className="flex h-[320px] flex-col items-center justify-center">
                     <div className="text-center">
                       <BarChart3 className="h-10 w-10 text-gray-300 mx-auto mb-3" />
                       <p className="text-sm font-medium text-gray-500">No monthly scan data available yet</p>
@@ -1713,21 +1647,21 @@ export default function DataVisualizationPage() {
               )}
             </div>
 
-            {/* Detection Records Table */}
+            {/* Farm Records Panel */}
             <div className="mt-6">
               <Card className="shadow-lg border border-[#388E3C]/20 hover:shadow-xl transition-all duration-300 bg-white rounded-xl overflow-hidden">
                 <CardHeader className="pb-3 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] text-white px-6 pt-5">
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                     <div>
                       <CardTitle className="text-xl font-bold text-white" style={{ color: 'white' }}>
-                        Detection Records
+                        Farm Records
                       </CardTitle>
-                      <p className="text-sm text-white/90 mt-1" style={{ color: 'white' }}>Comprehensive scan history</p>
+                      <p className="text-sm text-white/90 mt-1" style={{ color: 'white' }}>Disease summary by farm location</p>
                     </div>
                     <div className="relative w-full sm:w-auto">
                       <input
                         type="text"
-                        placeholder="Search by disease, farm, or type..."
+                        placeholder="Search by farm or disease..."
                         value={recordsSearchQuery}
                         onChange={(e) => {
                           setRecordsSearchQuery(e.target.value);
@@ -1743,148 +1677,150 @@ export default function DataVisualizationPage() {
                 </CardHeader>
                 <CardContent className="pt-4 px-5 pb-4">
                   {(() => {
-                    // Filter and search records
-                    const searchedRecords = dateFilteredScans.filter(scan => {
-                      if (!recordsSearchQuery) return true;
-                      const query = recordsSearchQuery.toLowerCase();
-                      const prediction = getAiPrediction(scan)?.toLowerCase() || '';
-                      const farmName = farmsData.find(f => f.id === scan.farm_id)?.farm_name?.toLowerCase() || '';
-                      const scanType = scan.scan_type?.toLowerCase() || '';
-                      return prediction.includes(query) || farmName.includes(query) || scanType.includes(query);
+                    // Build farm records: aggregate disease counts per farm
+                    const farmRecordsMap = new Map<string, { farmName: string; diseases: Map<string, number>; totalScans: number }>();
+
+                    dateFilteredScans.forEach(scan => {
+                      const farmId = scan.farm_id || 'unknown';
+                      const farm = farmsData.find((f: any) => f.id === farmId);
+                      const farmName = farm?.farm_name || 'Unknown Farm';
+                      const prediction = getAiPrediction(scan) || 'Unknown';
+
+                      if (!farmRecordsMap.has(farmId)) {
+                        farmRecordsMap.set(farmId, { farmName, diseases: new Map(), totalScans: 0 });
+                      }
+
+                      const record = farmRecordsMap.get(farmId)!;
+                      record.totalScans++;
+                      record.diseases.set(prediction, (record.diseases.get(prediction) || 0) + 1);
                     });
 
-                    const totalRecords = searchedRecords.length;
-                    const totalPages = Math.ceil(totalRecords / recordsPerPage);
-                    const startIndex = (recordsCurrentPage - 1) * recordsPerPage;
-                    const paginatedRecords = searchedRecords.slice(startIndex, startIndex + recordsPerPage);
+                    const farmRecords = Array.from(farmRecordsMap.entries())
+                      .map(([farmId, data]) => ({
+                        farmId,
+                        farmName: data.farmName,
+                        diseases: Array.from(data.diseases.entries())
+                          .map(([disease, count]) => ({ disease, count }))
+                          .sort((a, b) => b.count - a.count),
+                        totalScans: data.totalScans,
+                      }))
+                      .filter(fr => {
+                        if (!recordsSearchQuery) return true;
+                        const q = recordsSearchQuery.toLowerCase();
+                        return fr.farmName.toLowerCase().includes(q) ||
+                               fr.diseases.some(d => d.disease.toLowerCase().includes(q));
+                      })
+                      .sort((a, b) => b.totalScans - a.totalScans);
 
-                    if (paginatedRecords.length === 0) {
+                    const totalFarms = farmRecords.length;
+                    const totalPages = Math.ceil(totalFarms / recordsPerPage);
+                    const startIndex = (recordsCurrentPage - 1) * recordsPerPage;
+                    const paginatedFarms = farmRecords.slice(startIndex, startIndex + recordsPerPage);
+
+                    if (paginatedFarms.length === 0) {
                       return (
                         <div className="flex h-[200px] flex-col items-center justify-center">
                           <div className="text-center">
-                            <Camera className="h-10 w-10 text-gray-300 mx-auto mb-3" />
-                            <p className="text-sm font-medium text-gray-500">No detection records found</p>
-                            <p className="text-xs text-gray-400 mt-1">Scan data will appear here as records are added</p>
+                            <MapPin className="h-10 w-10 text-gray-300 mx-auto mb-3" />
+                            <p className="text-sm font-medium text-gray-500">
+                              {recordsSearchQuery ? 'No matching farm records found' : 'No farm records available'}
+                            </p>
+                            <p className="text-xs text-gray-400 mt-1">
+                              {recordsSearchQuery ? 'Try adjusting your search query' : 'Farm data will appear here as scans are recorded'}
+                            </p>
                           </div>
                         </div>
                       );
                     }
 
                     return (
-                      <div>
-                        <div className="overflow-x-auto">
-                          <table className="w-full">
-                            <thead>
-                              <tr className="border-b border-gray-100">
-                                <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Date</th>
-                                <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Disease Detected</th>
-                                <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Farmer Name and Farm Location</th>
-                                <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
-                                <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-50">
-                              {paginatedRecords.map((scan, idx) => {
-                                const prediction = getAiPrediction(scan);
-                                const farm = farmsData.find(f => f.id === scan.farm_id);
-                                const farmName = farm?.farm_name || 'Unknown Farm';
-                                // Use scan.farmer_profile from DataContext instead of farm lookup
-                                const farmerProfile = scan.farmer_profile;
-                                const farmerName = farmerProfile?.full_name || farmerProfile?.username || 'Unknown Farmer';
-                                const locationDisplay = `${farmerName} (${farmName})`;
-                                const scanDate = scan.created_at ? new Date(scan.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : 'N/A';
-                                
-                                // Status mapping - use actual database values
-                                let statusColor = 'bg-gray-100 text-gray-600';
-                                let statusText: string = scan.status || 'pending';
-                                
-                                // Normalize status to lowercase for comparison
-                                const normalizedStatus = scan.status?.toLowerCase() || 'pending';
-                                
-                                if (normalizedStatus === 'validated') {
-                                  statusColor = 'bg-emerald-100 text-emerald-700';
-                                  statusText = 'validated';
-                                } else if (normalizedStatus === 'corrected') {
-                                  statusColor = 'bg-blue-100 text-blue-700';
-                                  statusText = 'corrected';
-                                } else {
-                                  statusColor = 'bg-amber-100 text-amber-700';
-                                  statusText = 'pending';
-                                }
-
-                                return (
-                                  <tr key={scan.scan_uuid || `${scan.scan_type}-${scan.id}-${idx}`} className="hover:bg-gray-50/50 transition-colors">
-                                    <td className="py-3 px-4 text-sm text-gray-600">{scanDate}</td>
-                                    <td className="py-3 px-4 text-sm text-gray-900 font-medium">{prediction || 'Unknown'}</td>
-                                    <td className="py-3 px-4 text-sm text-blue-600">{locationDisplay}</td>
-                                    <td className="py-3 px-4">
-                                      <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium ${statusColor}`}>
-                                        {statusText}
-                                      </span>
+                      <div className="space-y-4">
+                        {paginatedFarms.map((farm) => (
+                          <div key={farm.farmId} className="border border-gray-200 rounded-lg overflow-hidden hover:shadow-sm transition-shadow duration-200">
+                            {/* Farm header */}
+                            <div className="bg-gray-50 px-4 py-3 flex items-center justify-between border-b border-gray-200">
+                              <div className="flex items-center gap-2">
+                                <MapPin className="h-4 w-4 text-[#388E3C]" />
+                                <span className="font-semibold text-sm text-gray-900">{farm.farmName}</span>
+                              </div>
+                              <span className="text-xs font-medium text-gray-500 bg-white px-2.5 py-1 rounded-full border border-gray-200">
+                                {farm.totalScans} {farm.totalScans === 1 ? 'scan' : 'scans'}
+                              </span>
+                            </div>
+                            {/* Disease summary table */}
+                            <table className="w-full">
+                              <thead>
+                                <tr className="bg-white border-b border-gray-100">
+                                  <th className="text-left py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Disease</th>
+                                  <th className="text-right py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Total Scans</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-gray-50">
+                                {farm.diseases.map((d, idx) => (
+                                  <tr key={`${farm.farmId}-${d.disease}-${idx}`} className="hover:bg-gray-50/50 transition-colors">
+                                    <td className="py-2.5 px-4 text-sm text-gray-700">
+                                      <div className="flex items-center gap-2">
+                                        <span
+                                          className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                                          style={{ backgroundColor: DISEASE_COLORS[d.disease] || RIPENESS_COLORS[d.disease] || '#6B7280' }}
+                                        />
+                                        {d.disease}
+                                      </div>
                                     </td>
-                                    <td className="py-3 px-4">
-                                      <button 
-                                        onClick={() => handleDeleteScan(scan)}
-                                        disabled={isDeleting}
-                                        className="p-1.5 hover:bg-red-50 rounded-lg transition-colors group disabled:opacity-50 disabled:cursor-not-allowed"
-                                        title="Delete scan"
-                                      >
-                                        <svg className="w-4 h-4 text-gray-400 group-hover:text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                        </svg>
-                                      </button>
-                                    </td>
+                                    <td className="py-2.5 px-4 text-sm font-semibold text-gray-900 text-right">{d.count}</td>
                                   </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        ))}
 
                         {/* Pagination */}
-                        <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
-                          <p className="text-sm text-gray-500">
-                            Showing {startIndex + 1} to {Math.min(startIndex + recordsPerPage, totalRecords)} of {totalRecords} results
-                          </p>
-                          <div className="flex items-center gap-1">
-                            <button
-                              onClick={() => setRecordsCurrentPage(prev => Math.max(prev - 1, 1))}
-                              disabled={recordsCurrentPage === 1}
-                              className="px-3 py-1.5 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                            >
-                              Previous
-                            </button>
-                            {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-                              let pageNum = i + 1;
-                              if (totalPages > 5) {
-                                if (recordsCurrentPage > 3) {
-                                  pageNum = recordsCurrentPage - 2 + i;
+                        {totalPages > 1 && (
+                          <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
+                            <p className="text-sm text-gray-500">
+                              Showing {startIndex + 1} to {Math.min(startIndex + recordsPerPage, totalFarms)} of {totalFarms} farms
+                            </p>
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => setRecordsCurrentPage(prev => Math.max(prev - 1, 1))}
+                                disabled={recordsCurrentPage === 1}
+                                className="px-3 py-1.5 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                              >
+                                Previous
+                              </button>
+                              {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                                let pageNum = i + 1;
+                                if (totalPages > 5) {
+                                  if (recordsCurrentPage > 3) {
+                                    pageNum = recordsCurrentPage - 2 + i;
+                                  }
+                                  if (pageNum > totalPages) pageNum = totalPages - 4 + i;
                                 }
-                                if (pageNum > totalPages) pageNum = totalPages - 4 + i;
-                              }
-                              return (
-                                <button
-                                  key={pageNum}
-                                  onClick={() => setRecordsCurrentPage(pageNum)}
-                                  className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
-                                    recordsCurrentPage === pageNum
-                                      ? 'bg-[#388E3C] text-white'
-                                      : 'text-gray-600 hover:bg-gray-50'
-                                  }`}
-                                >
-                                  {pageNum}
-                                </button>
-                              );
-                            })}
-                            <button
-                              onClick={() => setRecordsCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                              disabled={recordsCurrentPage === totalPages}
-                              className="px-3 py-1.5 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                            >
-                              Next
-                            </button>
+                                return (
+                                  <button
+                                    key={pageNum}
+                                    onClick={() => setRecordsCurrentPage(pageNum)}
+                                    className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                                      recordsCurrentPage === pageNum
+                                        ? 'bg-[#388E3C] text-white'
+                                        : 'text-gray-600 hover:bg-gray-50'
+                                    }`}
+                                  >
+                                    {pageNum}
+                                  </button>
+                                );
+                              })}
+                              <button
+                                onClick={() => setRecordsCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                                disabled={recordsCurrentPage === totalPages}
+                                className="px-3 py-1.5 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                              >
+                                Next
+                              </button>
+                            </div>
                           </div>
-                        </div>
+                        )}
                       </div>
                     );
                   })()}
@@ -1893,55 +1829,6 @@ export default function DataVisualizationPage() {
             </div>
         </div>
         </Suspense>
-
-        {/* Delete Confirmation Modal */}
-        <Dialog open={showDeleteModal} onOpenChange={setShowDeleteModal}>
-          <DialogContent className="sm:max-w-[380px] p-0">
-            <div className="flex flex-col items-center text-center px-6 pt-8 pb-6">
-              {/* Title */}
-              <h2 className="text-xl font-semibold text-gray-900 mb-3">
-                Confirm Deletion
-              </h2>
-              
-              {/* Message */}
-              <p className="text-sm text-gray-600 leading-relaxed mb-6">
-                Are you sure you want to delete this {scanToDelete?.scan_type === 'leaf_disease' ? 'leaf disease' : 'fruit ripeness'} scan? This action cannot be undone.
-              </p>
-              
-              {/* Buttons */}
-              <div className="flex items-center justify-center gap-3 w-full">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setShowDeleteModal(false);
-                    setScanToDelete(null);
-                  }}
-                  disabled={isDeleting}
-                  className="min-w-[100px]"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="button"
-                  variant="default"
-                  onClick={confirmDeleteScan}
-                  disabled={isDeleting}
-                  className="bg-red-600 hover:bg-red-700 text-white min-w-[100px]"
-                >
-                  {isDeleting ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Deleting...
-                    </>
-                  ) : (
-                    'Delete'
-                  )}
-                </Button>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
       </AppShell>
     </AuthGuard>
   );

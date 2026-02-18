@@ -101,7 +101,7 @@ function LeafletMapWrapper({
   return (
     <div
       ref={mapContainerRef}
-      style={{ height: "400px", width: "100%" }}
+      style={{ height: "400px", width: "100%", position: "relative", zIndex: 0 }}
     />
   );
 }
@@ -504,7 +504,7 @@ export default function InteractiveFarmMap({
         </div>
 
         {/* Map Container - Using vanilla Leaflet for better control */}
-        <div className="relative rounded-lg overflow-hidden border border-gray-200">
+        <div className="relative rounded-lg overflow-hidden border border-gray-200" style={{ zIndex: 0, isolation: "isolate" }}>
           <LeafletMapWrapper
             center={mapCenter}
             zoom={selectedFarm ? 13 : 10}
