@@ -1102,11 +1102,11 @@ export default function DataVisualizationPage() {
                       });
 
                       return (
-                        <div className="flex-1 w-full flex items-center justify-center" style={{ minHeight: 320 }}>
-                          <ResponsiveContainer key={`validation-perf-${chartKey}`} width="100%" height={320}>
+                        <div className="flex-1 w-full flex items-center justify-center" style={{ minHeight: 340 }}>
+                          <ResponsiveContainer key={`validation-perf-${chartKey}`} width="100%" height={340}>
                             <BarChart 
                               data={sortedData} 
-                              margin={{ top: 15, right: 20, left: 25, bottom: 30 }}
+                              margin={{ top: 15, right: 20, left: 25, bottom: 50 }}
                               barCategoryGap="15%"
                               barSize={32}
                             >
@@ -1118,7 +1118,9 @@ export default function DataVisualizationPage() {
                                 tick={{ fill: "#374151", fontWeight: 600 }}
                                 tickLine={false}
                                 axisLine={false}
-                                label={{ value: "Month", position: "bottom", offset: 10, style: { fontSize: 13, fontWeight: 600, fill: "#374151" } }}
+                                tickMargin={8}
+                                /* Offset increased to push "Month" label below tick labels, preventing overlap with legend */
+                                label={{ value: "Month", position: "insideBottom", offset: -8, style: { fontSize: 13, fontWeight: 600, fill: "#374151", textAnchor: "middle" } }}
                               />
                               <YAxis 
                                 stroke="#6B7280" 
@@ -1152,8 +1154,10 @@ export default function DataVisualizationPage() {
                                 cursor={{ fill: "rgba(56, 142, 60, 0.1)" }}
                               />
                               <Legend 
-                                wrapperStyle={{ fontSize: "12px", paddingTop: "8px", paddingBottom: "0px", color: "#374151", fontWeight: 600 }}
+                                wrapperStyle={{ fontSize: "12px", paddingTop: "18px", paddingBottom: "0px", color: "#374151", fontWeight: 600 }}
                                 iconSize={12}
+                                align="center"
+                                verticalAlign="bottom"
                               />
                               <Bar dataKey="aiValidated" fill="#22C55E" name="Expert Validated (Confirmed)" radius={[6, 6, 0, 0]} />
                               <Bar dataKey="aiCorrected" fill="#EF4444" name="Expert Corrected" radius={[6, 6, 0, 0]} />
@@ -1334,11 +1338,11 @@ export default function DataVisualizationPage() {
                     : Math.floor(maxDomain / tickInterval) + 1;
 
                   return (
-                    <div style={{ minHeight: 420 }}>
-                      <ResponsiveContainer key={`monthly-scanned-${chartKey}`} width="100%" height={420}>
+                    <div style={{ minHeight: 460 }}>
+                      <ResponsiveContainer key={`monthly-scanned-${chartKey}`} width="100%" height={460}>
                         <BarChart 
                           data={sortedData} 
-                          margin={{ top: 20, right: 20, left: 25, bottom: 35 }}
+                          margin={{ top: 20, right: 20, left: 25, bottom: 55 }}
                           barCategoryGap="15%"
                           barGap={8}
                         >
@@ -1351,8 +1355,9 @@ export default function DataVisualizationPage() {
                             tickLine={false}
                             axisLine={false}
                             interval={0}
-                            tickMargin={12}
-                            label={{ value: "Month", position: "bottom", offset: 15, style: { fontSize: 13, fontWeight: 600, fill: "#374151" } }}
+                            tickMargin={10}
+                            /* Offset adjusted for proper spacing between month ticks, label, and legend */
+                            label={{ value: "Month", position: "insideBottom", offset: -10, style: { fontSize: 13, fontWeight: 600, fill: "#374151", textAnchor: "middle" } }}
                           />
                           <YAxis 
                             stroke="#9CA3AF" 
@@ -1488,7 +1493,7 @@ export default function DataVisualizationPage() {
                             align="center"
                             iconType="square"
                             iconSize={10}
-                            wrapperStyle={{ paddingTop: "20px", fontSize: "11px" }}
+                            wrapperStyle={{ paddingTop: "24px", fontSize: "11px" }}
                             content={({ payload }) => (
                               <div className="flex flex-wrap justify-center gap-x-4 gap-y-2 text-xs">
                                 <div className="flex items-center gap-2">
