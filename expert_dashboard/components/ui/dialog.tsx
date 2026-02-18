@@ -34,7 +34,10 @@ export function DialogHeader({ children, className }: { children?: ReactNode; cl
 }
 
 export function DialogTitle({ children, className }: { children?: ReactNode; className?: string }) {
-	return <h3 className={clsx("text-base font-semibold text-[var(--foreground)]", className)}>{children}</h3>;
+	// Default text color is applied only when no custom text-color class is passed,
+	// so callers like the Edit modal can use text-white on a green header.
+	const hasCustomTextColor = className && /\btext-/.test(className);
+	return <h3 className={clsx("text-base font-semibold", !hasCustomTextColor && "text-[var(--foreground)]", className)}>{children}</h3>;
 }
 
 export function DialogDescription({ children, className }: { children?: ReactNode; className?: string }) {
