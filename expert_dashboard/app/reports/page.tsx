@@ -1473,7 +1473,7 @@ export default function ReportsPage() {
             {scansTrend.length > 0 && isPageVisible ? (
               <div style={{ minHeight: 360 }}>
                 <ResponsiveContainer key={`scans-trend-${chartKey}`} width="100%" height={360}>
-                  <LineChart data={scansTrend} margin={{ top: 10, right: 30, left: 20, bottom: 30 }}>
+                  <LineChart data={scansTrend} margin={{ top: 10, right: 30, left: 20, bottom: 50 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                   <XAxis 
                     dataKey="period" 
@@ -1487,8 +1487,8 @@ export default function ReportsPage() {
                     label={{
                       value: range === "daily" ? "Hours" : range === "weekly" ? "Days" : range === "monthly" ? new Date().toLocaleString("en-US", { month: "long" }) : "Date",
                       position: "insideBottom",
-                      offset: -15,
-                      style: { fontSize: 13, fontWeight: 600, fill: "#374151" },
+                      offset: -10,
+                      style: { fontSize: 13, fontWeight: 600, fill: "#374151", textAnchor: "middle" },
                     }}
                   />
                   <YAxis 
@@ -1517,8 +1517,10 @@ export default function ReportsPage() {
                     }}
                   />
                   <Legend 
-                    wrapperStyle={{ fontSize: "12px", paddingTop: "15px" }}
+                    wrapperStyle={{ fontSize: "12px", paddingTop: "20px" }}
                     iconType="circle"
+                    align="center"
+                    verticalAlign="bottom"
                   />
                   <Line
                     type="monotone"
@@ -1779,7 +1781,7 @@ export default function ReportsPage() {
               <div style={{ minHeight: 380 }}>
               {successRateTrend.length > 0 && isPageVisible ? (
                 <ResponsiveContainer key={`success-rate-${chartKey}`} width="100%" height={380}>
-                  <LineChart data={successRateTrend} margin={{ top: 5, right: 30, left: 20, bottom: 30 }}>
+                  <LineChart data={successRateTrend} margin={{ top: 5, right: 30, left: 20, bottom: 50 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                     <XAxis 
                       dataKey="period" 
@@ -1792,8 +1794,8 @@ export default function ReportsPage() {
                       label={{
                         value: range === "daily" ? "Hours" : range === "weekly" ? "Days" : range === "monthly" ? new Date().toLocaleString("en-US", { month: "long" }) : "Date",
                         position: "insideBottom",
-                        offset: -15,
-                        style: { fontSize: 13, fontWeight: 600, fill: "#374151" },
+                        offset: -10,
+                        style: { fontSize: 13, fontWeight: 600, fill: "#374151", textAnchor: "middle" },
                       }}
                     />
                     <YAxis 
@@ -1825,8 +1827,10 @@ export default function ReportsPage() {
                       }}
                     />
                     <Legend 
-                      wrapperStyle={{ fontSize: "12px", paddingTop: "10px" }}
+                      wrapperStyle={{ fontSize: "12px", paddingTop: "20px" }}
                       iconType="circle"
+                      align="center"
+                      verticalAlign="bottom"
                     />
                     <Line
                       type="monotone"
