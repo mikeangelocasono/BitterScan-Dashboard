@@ -185,25 +185,66 @@ function ManageDiseaseInfoContent() {
     setEditingDisease(prev => prev && prev.disease_id === id ? { ...prev, [field]: value } : prev);
   }, []);
 
+  // Normalize a field value for safe comparison: trims whitespace, converts null/undefined to empty string
+  const normalize = useCallback((value: string | null | undefined): string => {
+    return (value ?? "").trim();
+  }, []);
+
+  // English-to-Bisaya field mapping for translation invalidation
+  const enBiFieldPairs: [keyof DiseaseInfo, keyof DiseaseInfo][] = useMemo(() => [
+    ["description_en", "description_bi"],
+    ["symptoms_en", "symptoms_bi"],
+    ["treatment_en", "treatment_bi"],
+    ["products_en", "products_bi"],
+    ["prevention_en", "prevention_bi"],
+  ], []);
+
   // Save disease information
   const saveDisease = useCallback(async (disease: EditingDisease) => {
     if (savingId) return; // Prevent multiple simultaneous saves
 
     setSavingId(disease.disease_id);
     try {
+      // 1. Fetch existing record to compare English fields
+      const { data: existing, error: fetchError } = await supabase
+        .from("disease_info")
+        .select("*")
+        .eq("disease_id", disease.disease_id)
+        .single();
+
+      if (fetchError || !existing) {
+        console.error("Error fetching existing disease record:", fetchError);
+        toast.error("Disease record not found. It may have been deleted.");
+        return;
+      }
+
+      // 2. Build update payload, resetting Bisaya fields when their English counterpart changed
+      const updatePayload: Record<string, string | null> = {
+        description_en: disease.description_en,
+        description_bi: disease.description_bi,
+        symptoms_en: disease.symptoms_en,
+        symptoms_bi: disease.symptoms_bi,
+        treatment_en: disease.treatment_en,
+        treatment_bi: disease.treatment_bi,
+        products_en: disease.products_en,
+        products_bi: disease.products_bi,
+        prevention_en: disease.prevention_en,
+        prevention_bi: disease.prevention_bi,
+      };
+
+      for (const [enField, biField] of enBiFieldPairs) {
+        const oldEn = normalize(existing[enField] as string | null);
+        const newEn = normalize(disease[enField] as string | null);
+        if (oldEn !== newEn) {
+          // English content changed — invalidate the paired Bisaya translation
+          updatePayload[biField] = null;
+        }
+      }
+
       const { error } = await supabase
         .from("disease_info")
         .update({
-          description_en: disease.description_en,
-          description_bi: disease.description_bi,
-          symptoms_en: disease.symptoms_en,
-          symptoms_bi: disease.symptoms_bi,
-          treatment_en: disease.treatment_en,
-          treatment_bi: disease.treatment_bi,
-          products_en: disease.products_en,
-          products_bi: disease.products_bi,
-          prevention_en: disease.prevention_en,
-          prevention_bi: disease.prevention_bi,
+          ...updatePayload,
           last_updated_by: user?.id,
           updated_at: new Date().toISOString(),
         })
@@ -225,7 +266,7 @@ function ManageDiseaseInfoContent() {
     } finally {
       setSavingId(null);
     }
-  }, [savingId, toggleEdit, fetchDiseases, closeEditDialog, user?.id]);
+  }, [savingId, toggleEdit, fetchDiseases, closeEditDialog, user?.id, normalize, enBiFieldPairs]);
 
   // Cancel editing
   const cancelEdit = useCallback((id: string) => {
