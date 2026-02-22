@@ -14,6 +14,7 @@ import { formatDate } from "@/utils/dateUtils";
 import Badge from "@/components/ui/badge";
 import type { UserProfile } from "@/types";
 import { supabase } from "@/components/supabase";
+import { useNotifications } from "@/components/NotificationContext";
 
 // Cache keys
 const CACHE_KEY_PENDING = 'bs:cache:pending-users';
@@ -52,6 +53,7 @@ export default function AdminApprovalsPage() {
 function ApprovalsContent() {
   const router = useRouter();
   const { user, profile, loading: userLoading, sessionReady } = useUser();
+  const { markUsersAsRead } = useNotifications();
   
   // Initialize from cache for instant display
   const [pendingUsers, setPendingUsers] = useState<UserProfile[]>(() => loadCache<UserProfile[]>(CACHE_KEY_PENDING) || []);
@@ -72,6 +74,14 @@ function ApprovalsContent() {
   const effectiveRole = useMemo(() => profile?.role || user?.user_metadata?.role || null, [profile?.role, user?.user_metadata?.role]);
   const adminEmailHint = useMemo(() => (user?.email || '').toLowerCase().includes('admin'), [user?.email]);
   const isAdmin = useMemo(() => effectiveRole === "admin" || adminEmailHint, [effectiveRole, adminEmailHint]);
+
+  // Auto-mark pending users as read when this page is visited so the
+  // notification bell badge clears for items the admin is already looking at.
+  useEffect(() => {
+    if (pendingUsers.length > 0) {
+      markUsersAsRead(pendingUsers.map((u) => u.id));
+    }
+  }, [pendingUsers, markUsersAsRead]);
 
   const fetchUsers = useCallback(async () => {
     if (!isAdmin) return;

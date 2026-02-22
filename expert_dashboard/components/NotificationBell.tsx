@@ -141,6 +141,9 @@ export default function NotificationBell() {
 				}
 			}
 
+			// Update ref NOW so subsequent renders don't re-fire for the same delta
+			prevUnreadCountRef.current = unreadCount;
+
 			const timer = setTimeout(() => setHasNewNotification(false), 2000);
 			return () => clearTimeout(timer);
 		}
@@ -194,8 +197,8 @@ export default function NotificationBell() {
 		try {
 			const date = new Date(dateString);
 			if (isNaN(date.getTime())) return "Invalid date";
-			let hours = date.getUTCHours();
-			const minutes = date.getUTCMinutes();
+			let hours = date.getHours();
+			const minutes = date.getMinutes();
 			const ampm = hours >= 12 ? "PM" : "AM";
 			hours = hours % 12 || 12;
 			return `${hours}:${minutes < 10 ? "0" : ""}${minutes} ${ampm}`;

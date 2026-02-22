@@ -254,6 +254,14 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 	// Every change to readScanIds / readUserIds flows through here, so the
 	// individual mark* / cleanup functions never call save helpers directly.
 	const dbSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	// Keep latest values in refs so the flush-on-unmount can access them
+	// without stale closures.
+	const latestReadScanIds = useRef(readScanIds);
+	const latestReadUserIds = useRef(readUserIds);
+	const latestUserId = useRef(user?.id);
+	latestReadScanIds.current = readScanIds;
+	latestReadUserIds.current = readUserIds;
+	latestUserId.current = user?.id;
 
 	useEffect(() => {
 		if (!readStateLoaded || !user?.id) return;
@@ -269,7 +277,14 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 		}, 500);
 
 		return () => {
-			if (dbSaveTimer.current) clearTimeout(dbSaveTimer.current);
+			// Flush the pending DB write on unmount / dependency change so data
+			// is never lost when navigating away or logging out.
+			if (dbSaveTimer.current) {
+				clearTimeout(dbSaveTimer.current);
+				if (latestUserId.current) {
+					saveReadsToDb(latestUserId.current, latestReadScanIds.current, latestReadUserIds.current);
+				}
+			}
 		};
 	}, [readScanIds, readUserIds, readStateLoaded, user?.id]);
 
@@ -613,7 +628,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 			isScanRead,
 			isUserRead,
 		}),
-		[pendingScans, pendingUsers, unreadCount, unreadScansCount, unreadUsersCount, loading, usersLoading, userLoading, isAdmin, isExpert, error, refreshNotifications, markScansAsRead, markUsersAsRead, markAllAsRead, isScanRead, isUserRead]
+		[pendingScans, pendingUsers, unreadScansCount, unreadUsersCount, loading, usersLoading, userLoading, isAdmin, isExpert, error, refreshNotifications, markScansAsRead, markUsersAsRead, markAllAsRead, isScanRead, isUserRead]
 	);
 
 	return <NotificationContext.Provider value={value}>{children}</NotificationContext.Provider>;
