@@ -20,6 +20,7 @@ function LoginPageContent() {
   const roleParam = searchParams.get("role");
   const [selectedRole, setSelectedRole] = useState<"admin" | "expert">("expert");
   const [error, setError] = useState<string | null>(null);
+  const [errorType, setErrorType] = useState<'error' | 'pending'>('error');
   const [showPassword, setShowPassword] = useState(false);
   const [mounted, setMounted] = useState(false);
   // State to show "redirecting" UI - set to true right before navigation
@@ -112,9 +113,14 @@ function LoginPageContent() {
       loginInProgress.current = false;
       redirectInitiated.current = false;
       setLoading(false);
-      const statusMsg = "Your account is pending approval. Please wait for an administrator to review your registration.";
+      const statusMsg = "Your account is pending admin approval. Please wait for confirmation.";
+      setErrorType('pending');
       setError(statusMsg);
-      toast.error(statusMsg);
+      toast(statusMsg, {
+        duration: 5000,
+        icon: 'ℹ️',
+        style: { background: '#EFF6FF', color: '#1E40AF', border: '1px solid #BFDBFE' },
+      });
       supabase.auth.signOut().catch(() => {
         // ignore sign-out errors; listener keeps state consistent
       });
@@ -205,6 +211,7 @@ function LoginPageContent() {
     }
     
     setError(null);
+    setErrorType('error');
     setLoading(true);
     loginInProgress.current = true;
 
@@ -319,9 +326,14 @@ function LoginPageContent() {
 
       // STEP 4: Check approval status (experts only)
       if (userRole === 'expert' && userStatus !== 'approved') {
-        const statusMsg = 'Your account is pending approval. Please wait for an administrator to approve your account.';
+        const statusMsg = 'Your account is pending admin approval. Please wait for confirmation.';
+        setErrorType('pending');
         setError(statusMsg);
-        toast.error(statusMsg);
+        toast(statusMsg, {
+          duration: 5000,
+          icon: 'ℹ️',
+          style: { background: '#EFF6FF', color: '#1E40AF', border: '1px solid #BFDBFE' },
+        });
         await supabase.auth.signOut();
         setLoading(false);
         loginInProgress.current = false;
@@ -501,8 +513,14 @@ function LoginPageContent() {
             </form>
 
             {error && (
-              <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-                <p className="text-sm text-red-600">{error}</p>
+              <div className={`mt-6 p-4 rounded-lg ${
+                errorType === 'pending'
+                  ? 'bg-blue-50 border border-blue-200'
+                  : 'bg-red-50 border border-red-200'
+              }`}>
+                <p className={`text-sm ${
+                  errorType === 'pending' ? 'text-blue-700' : 'text-red-600'
+                }`}>{error}</p>
               </div>
             )}
 

@@ -324,32 +324,27 @@ export default function ValidatePage() {
 		return decisionValue !== undefined && decisionValue !== null && decisionValue.trim() !== '';
 	}, [decision]);
 
-	// Helper function to check if Confirm button should be disabled
-	// Confirm is enabled when:
-	// - No decision is selected (user can confirm with default AI prediction)
-	// - Decision matches the AI prediction (user confirms the default value)
-	// Confirm is disabled when:
-	// - Decision is different from AI prediction (user wants to correct, not confirm)
-	const isConfirmDisabled = useCallback((scanId: number): boolean => {
+// Helper: normalize a value for safe comparison (trim whitespace, lowercase, null → empty)
+	const normalizeValue = useCallback((value: string | null | undefined): string => {
+		return (value ?? "").trim().toLowerCase();
+	}, []);
+
+	// Helper: determine if the expert's selected value differs from the AI prediction
+	// Returns true when the expert has changed the result (button should show "Modified")
+	// Returns false when unchanged (button should show "Confirm")
+	const isResultModified = useCallback((scanId: number): boolean => {
 		const decisionValue = decision[scanId.toString()];
-		// If no decision selected, allow confirmation (will use AI prediction as default)
+		// No selection yet → treat as unchanged (Confirm AI as-is)
 		if (!decisionValue || decisionValue.trim() === '') {
 			return false;
 		}
-		
-		// Find the scan to get AI prediction
+
 		const selectedScan = scans.find((scan) => scan.id === scanId);
-		if (!selectedScan) {
-			return true; // Disable if scan not found
-		}
-		
-		// Get AI prediction (default value)
+		if (!selectedScan) return false;
+
 		const aiPrediction = getAiPrediction(selectedScan);
-		
-		// If decision matches AI prediction, allow confirmation
-		// If decision is different, disable confirmation (user should use Correct instead)
-		return decisionValue.trim() !== aiPrediction?.trim();
-	}, [decision, scans]);
+		return normalizeValue(decisionValue) !== normalizeValue(aiPrediction);
+	}, [decision, scans, normalizeValue]);
 
 	/**
 	 * REAL-TIME VALIDATION: Mark scan as Confirmed or Corrected
@@ -1457,29 +1452,43 @@ export default function ValidatePage() {
 												>
 													Cancel
 												</Button>
-												<Button 
-													onClick={(e: React.MouseEvent<HTMLButtonElement>): void => {
-														e.preventDefault();
-														onConfirm(parseInt(detailId));
-													}}
-													disabled={isConfirmDisabled(parseInt(detailId)) || processingScanId === parseInt(detailId)}
-													className="text-base font-semibold bg-[var(--primary)] text-white hover:bg-[var(--primary-600)] active:bg-[var(--primary-700)] disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg transition-all duration-200"
-													title={isConfirmDisabled(parseInt(detailId)) ? "Confirm is disabled when the selected value differs from the AI prediction. Use Modified instead." : "Confirm the AI prediction is correct"}
-												>
-													{processingScanId === parseInt(detailId) ? 'Processing...' : 'Confirm'}
-												</Button>
-												<Button 
-													variant="outline" 
-													onClick={(e: React.MouseEvent<HTMLButtonElement>): void => {
-														e.preventDefault();
-														onReject(parseInt(detailId));
-													}}
-													disabled={!hasDecision(parseInt(detailId)) || processingScanId === parseInt(detailId)}
-													className="text-base font-semibold text-gray-700 border-2 border-gray-300 hover:bg-gray-50 hover:border-gray-400 active:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
-													title={!hasDecision(parseInt(detailId)) ? "Please select a diagnosis first" : "Modify the AI prediction with your selected diagnosis"}
-												>
-													{processingScanId === parseInt(detailId) ? 'Processing...' : 'Modified'}
-												</Button>
+												{(() => {
+													const scanIdNum = parseInt(detailId);
+													const modified = isResultModified(scanIdNum);
+													const isProcessing = processingScanId === scanIdNum;
+
+													if (modified) {
+														// Expert changed the result → show "Modified" button
+														return (
+															<Button
+																onClick={(e: React.MouseEvent<HTMLButtonElement>): void => {
+																	e.preventDefault();
+																	onReject(scanIdNum);
+																}}
+																disabled={!hasDecision(scanIdNum) || isProcessing}
+																className="text-base font-semibold bg-amber-600 text-white hover:bg-amber-700 active:bg-amber-800 disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg transition-all duration-200"
+																title="Submit your modified diagnosis"
+															>
+																{isProcessing ? 'Processing...' : 'Modified'}
+															</Button>
+														);
+													}
+
+													// Selection matches AI prediction → show "Confirm" button
+													return (
+														<Button
+															onClick={(e: React.MouseEvent<HTMLButtonElement>): void => {
+																e.preventDefault();
+																onConfirm(scanIdNum);
+															}}
+															disabled={isProcessing}
+															className="text-base font-semibold bg-[var(--primary)] text-white hover:bg-[var(--primary-600)] active:bg-[var(--primary-700)] disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg transition-all duration-200"
+															title="Confirm the AI prediction is correct"
+														>
+															{isProcessing ? 'Processing...' : 'Confirm'}
+														</Button>
+													);
+												})()}
 											</DialogFooter>
 										</div>
 									</>

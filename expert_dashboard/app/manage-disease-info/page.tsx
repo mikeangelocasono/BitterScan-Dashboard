@@ -11,7 +11,7 @@ import { supabase } from "@/components/supabase";
 import { useUser } from "@/components/UserContext";
 import { 
   Loader2, Save, BookOpen, AlertCircle, CheckCircle2, Edit2, X, 
-  FileText, Stethoscope, Pill, ShieldCheck, Leaf, Search, Plus, Eye, Trash2
+  FileText, Stethoscope, Pill, ShieldCheck, Leaf, Search, Plus, Eye
 } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -416,13 +416,6 @@ function ManageDiseaseInfoContent() {
                           title="Edit"
                         >
                           <Edit2 className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => toast("Delete feature coming soon")}
-                          className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-150"
-                          title="Delete"
-                        >
-                          <Trash2 className="h-4 w-4" />
                         </button>
                       </div>
                     </td>
