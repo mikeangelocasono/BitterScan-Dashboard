@@ -11,9 +11,68 @@ import { supabase } from "@/components/supabase";
 import { useUser } from "@/components/UserContext";
 import { 
   Loader2, Save, BookOpen, AlertCircle, CheckCircle2, Edit2, X, 
-  FileText, Stethoscope, Pill, ShieldCheck, Leaf, Search, Plus, Eye
+  FileText, Stethoscope, Pill, ShieldCheck, Leaf, Search, Plus, Eye,
+  Copy, Filter, AlertTriangle
 } from "lucide-react";
 import toast from "react-hot-toast";
+
+// ============ UTILITY FUNCTIONS ============
+
+/** Check if a text value is effectively empty */
+function isEmptyText(value: string | null | undefined): boolean {
+  return !value || value.trim() === "";
+}
+
+/** Normalize text: trim whitespace, convert empty to null */
+function normalizeText(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  return trimmed === "" ? null : trimmed;
+}
+
+/** Compute Bisaya translation completion status */
+function computeBisayaCompletion(row: DiseaseInfo): { 
+  filled: number; 
+  total: number; 
+  status: "missing" | "partial" | "complete" 
+} {
+  const biFields = [
+    row.description_bi,
+    row.symptoms_bi,
+    row.treatment_bi,
+    row.products_bi,
+    row.prevention_bi,
+  ];
+  const filled = biFields.filter(f => !isEmptyText(f)).length;
+  const total = biFields.length;
+  
+  let status: "missing" | "partial" | "complete";
+  if (filled === 0) status = "missing";
+  else if (filled === total) status = "complete";
+  else status = "partial";
+  
+  return { filled, total, status };
+}
+
+/** Check if any Bisaya field is missing */
+function hasMissingBisaya(row: DiseaseInfo): boolean {
+  return computeBisayaCompletion(row).status !== "complete";
+}
+
+/** Deep compare two disease objects for changes */
+function hasChanges(original: DiseaseInfo | null, current: DiseaseInfo | null): boolean {
+  if (!original || !current) return false;
+  const fieldsToCompare: (keyof DiseaseInfo)[] = [
+    "description_en", "description_bi",
+    "symptoms_en", "symptoms_bi",
+    "treatment_en", "treatment_bi",
+    "products_en", "products_bi",
+    "prevention_en", "prevention_bi",
+  ];
+  return fieldsToCompare.some(field => 
+    normalizeText(original[field] as string | null) !== normalizeText(current[field] as string | null)
+  );
+}
 
 type DiseaseInfo = {
   disease_id: string;
@@ -58,6 +117,11 @@ function ManageDiseaseInfoContent() {
   const [viewingDisease, setViewingDisease] = useState<DiseaseInfo | null>(null);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [fetchAttempted, setFetchAttempted] = useState(false);
+  
+  // New state for filtering and dirty checking
+  const [filterMissingBisaya, setFilterMissingBisaya] = useState(false);
+  const [originalDisease, setOriginalDisease] = useState<EditingDisease | null>(null);
+  const [showUnsavedWarning, setShowUnsavedWarning] = useState(false);
 
   const effectiveRole = useMemo(() => profile?.role || user?.user_metadata?.role || null, [profile?.role, user?.user_metadata?.role]);
   const isAuthorized = useMemo(() => effectiveRole === "expert" || effectiveRole === "admin", [effectiveRole]);
@@ -85,7 +149,7 @@ function ManageDiseaseInfoContent() {
       const { data, error } = await supabase
         .from("disease_info")
         .select("*")
-        .order("disease_name", { ascending: true });
+        .order("updated_at", { ascending: false });
 
       clearTimeout(timeoutId);
 
@@ -136,25 +200,59 @@ function ManageDiseaseInfoContent() {
     return () => clearTimeout(masterTimeout);
   }, [loading]);
 
-  // Filter diseases based on search query
+  // Filter diseases based on search query and filters
   const filteredDiseases = useMemo(() => {
-    if (!searchQuery.trim()) return diseases;
-    const query = searchQuery.toLowerCase();
-    return diseases.filter(disease => 
-      disease.disease_name.toLowerCase().includes(query)
-    );
-  }, [diseases, searchQuery]);
+    let result = diseases;
+    
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(disease => 
+        disease.disease_name.toLowerCase().includes(query)
+      );
+    }
+    
+    // Apply Missing Bisaya filter
+    if (filterMissingBisaya) {
+      result = result.filter(disease => hasMissingBisaya(disease));
+    }
+    
+    return result;
+  }, [diseases, searchQuery, filterMissingBisaya]);
 
-  // Open edit dialog
+  // Open edit dialog - store original for dirty checking
   const openEditDialog = useCallback((disease: EditingDisease) => {
-    setEditingDisease({ ...disease, isEditing: true });
+    const diseaseClone = { ...disease, isEditing: true };
+    setEditingDisease(diseaseClone);
+    setOriginalDisease({ ...disease, isEditing: false }); // Store original state
     setIsDialogOpen(true);
   }, []);
 
-  // Close edit dialog
-  const closeEditDialog = useCallback(() => {
+  // Attempt to close edit dialog - check for unsaved changes
+  const attemptCloseEditDialog = useCallback(() => {
+    if (hasChanges(originalDisease, editingDisease)) {
+      setShowUnsavedWarning(true);
+    } else {
+      setIsDialogOpen(false);
+      setEditingDisease(null);
+      setOriginalDisease(null);
+    }
+  }, [originalDisease, editingDisease]);
+
+  // Force close edit dialog (after user confirms)
+  const forceCloseEditDialog = useCallback(() => {
+    setShowUnsavedWarning(false);
     setIsDialogOpen(false);
     setEditingDisease(null);
+    setOriginalDisease(null);
+  }, []);
+
+  // Close edit dialog (legacy - for successful saves)
+  const closeEditDialog = useCallback(() => {
+    setShowUnsavedWarning(false);
+    setIsDialogOpen(false);
+    setEditingDisease(null);
+    setOriginalDisease(null);
   }, []);
 
   // Open view dialog
@@ -185,6 +283,48 @@ function ManageDiseaseInfoContent() {
     setEditingDisease(prev => prev && prev.disease_id === id ? { ...prev, [field]: value } : prev);
   }, []);
 
+  // Copy English to Bisaya for a specific field pair
+  const copyEnToBi = useCallback((enField: keyof DiseaseInfo, biField: keyof DiseaseInfo) => {
+    if (!editingDisease) return;
+    const enValue = editingDisease[enField] as string | null;
+    if (enValue) {
+      setEditingDisease(prev => prev ? { ...prev, [biField]: enValue } : prev);
+      toast.success(`Copied to Bisaya`);
+    } else {
+      toast.error("No English content to copy");
+    }
+  }, [editingDisease]);
+
+  // Copy all English fields to Bisaya
+  const copyAllEnToBi = useCallback(() => {
+    if (!editingDisease) return;
+    const updates: Partial<DiseaseInfo> = {};
+    let copiedCount = 0;
+    
+    const pairs: [keyof DiseaseInfo, keyof DiseaseInfo][] = [
+      ["description_en", "description_bi"],
+      ["symptoms_en", "symptoms_bi"],
+      ["treatment_en", "treatment_bi"],
+      ["products_en", "products_bi"],
+      ["prevention_en", "prevention_bi"],
+    ];
+    
+    for (const [en, bi] of pairs) {
+      const enValue = editingDisease[en] as string | null;
+      if (enValue && !isEmptyText(enValue)) {
+        updates[bi] = enValue;
+        copiedCount++;
+      }
+    }
+    
+    if (copiedCount > 0) {
+      setEditingDisease(prev => prev ? { ...prev, ...updates } : prev);
+      toast.success(`Copied ${copiedCount} field(s) to Bisaya`);
+    } else {
+      toast.error("No English content to copy");
+    }
+  }, [editingDisease]);
+
   // Normalize a field value for safe comparison: trims whitespace, converts null/undefined to empty string
   const normalize = useCallback((value: string | null | undefined): string => {
     return (value ?? "").trim();
@@ -199,13 +339,20 @@ function ManageDiseaseInfoContent() {
     ["prevention_en", "prevention_bi"],
   ], []);
 
-  // Save disease information
-  const saveDisease = useCallback(async (disease: EditingDisease) => {
+  // Save disease information with concurrency check
+  const saveDisease = useCallback(async (disease: EditingDisease, forceOverwrite = false) => {
     if (savingId) return; // Prevent multiple simultaneous saves
+
+    // Check if there are any changes
+    if (!hasChanges(originalDisease, disease)) {
+      toast("No changes to save");
+      closeEditDialog();
+      return;
+    }
 
     setSavingId(disease.disease_id);
     try {
-      // 1. Fetch existing record to compare English fields
+      // 1. Fetch existing record to compare and check concurrency
       const { data: existing, error: fetchError } = await supabase
         .from("disease_info")
         .select("*")
@@ -215,29 +362,45 @@ function ManageDiseaseInfoContent() {
       if (fetchError || !existing) {
         console.error("Error fetching existing disease record:", fetchError);
         toast.error("Disease record not found. It may have been deleted.");
+        setSavingId(null);
         return;
       }
 
-      // 2. Build update payload, resetting Bisaya fields when their English counterpart changed
+      // 2. Concurrency check - warn if record was modified by someone else
+      if (!forceOverwrite && originalDisease?.updated_at && existing.updated_at) {
+        const originalTime = new Date(originalDisease.updated_at).getTime();
+        const serverTime = new Date(existing.updated_at).getTime();
+        if (serverTime > originalTime) {
+          const confirmOverwrite = window.confirm(
+            "This disease was updated by another user while you were editing. Do you want to overwrite their changes?"
+          );
+          if (!confirmOverwrite) {
+            setSavingId(null);
+            return;
+          }
+        }
+      }
+
+      // 3. Build update payload with normalized values
       const updatePayload: Record<string, string | null> = {
-        description_en: disease.description_en,
-        description_bi: disease.description_bi,
-        symptoms_en: disease.symptoms_en,
-        symptoms_bi: disease.symptoms_bi,
-        treatment_en: disease.treatment_en,
-        treatment_bi: disease.treatment_bi,
-        products_en: disease.products_en,
-        products_bi: disease.products_bi,
-        prevention_en: disease.prevention_en,
-        prevention_bi: disease.prevention_bi,
+        description_en: normalizeText(disease.description_en),
+        description_bi: normalizeText(disease.description_bi),
+        symptoms_en: normalizeText(disease.symptoms_en),
+        symptoms_bi: normalizeText(disease.symptoms_bi),
+        treatment_en: normalizeText(disease.treatment_en),
+        treatment_bi: normalizeText(disease.treatment_bi),
+        products_en: normalizeText(disease.products_en),
+        products_bi: normalizeText(disease.products_bi),
+        prevention_en: normalizeText(disease.prevention_en),
+        prevention_bi: normalizeText(disease.prevention_bi),
       };
 
+      // 4. Check if English content changed - if so, warn that Bisaya may need update
       for (const [enField, biField] of enBiFieldPairs) {
         const oldEn = normalize(existing[enField] as string | null);
         const newEn = normalize(disease[enField] as string | null);
-        if (oldEn !== newEn) {
-          // English content changed — invalidate the paired Bisaya translation
-          updatePayload[biField] = null;
+        if (oldEn !== newEn && updatePayload[biField]) {
+          // English changed but Bisaya wasn't cleared - that's fine, user explicitly set it
         }
       }
 
@@ -252,7 +415,14 @@ function ManageDiseaseInfoContent() {
 
       if (error) {
         console.error("Error saving disease:", error);
-        toast.error(`Failed to save ${disease.disease_name}`);
+        // Handle specific error types
+        if (error.code === "23505") {
+          toast.error("A disease with this name already exists");
+        } else if (error.code === "42501") {
+          toast.error("You don't have permission to update this record");
+        } else {
+          toast.error(`Failed to save ${disease.disease_name}`);
+        }
         return;
       }
 
@@ -262,11 +432,11 @@ function ManageDiseaseInfoContent() {
       await fetchDiseases(); // Refresh data
     } catch (err) {
       console.error("Unexpected error saving disease:", err);
-      toast.error("Failed to save changes");
+      toast.error("Failed to save changes. Please try again.");
     } finally {
       setSavingId(null);
     }
-  }, [savingId, toggleEdit, fetchDiseases, closeEditDialog, user?.id, normalize, enBiFieldPairs]);
+  }, [savingId, toggleEdit, fetchDiseases, closeEditDialog, user?.id, normalize, enBiFieldPairs, originalDisease]);
 
   // Cancel editing
   const cancelEdit = useCallback((id: string) => {
@@ -303,27 +473,64 @@ function ManageDiseaseInfoContent() {
       {/* Search and Actions Bar */}
       <Card className="border-gray-200 shadow-sm">
         <CardContent className="p-6">
-          <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
-            {/* Search Bar */}
-            <div className="relative w-full sm:w-96">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search diseases..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 border-2 border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-transparent text-sm transition-all duration-200"
-              />
-            </div>
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
+              {/* Search Bar */}
+              <div className="relative w-full sm:w-96">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search diseases..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 border-2 border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-transparent text-sm transition-all duration-200"
+                />
+              </div>
 
-            {/* Add New Disease Button */}
-            <Button
-              onClick={() => toast("Add New Disease feature coming soon")}
-              className="bg-[#16a085] hover:bg-[#138f75] text-white font-medium shadow-md hover:shadow-lg transition-all duration-200 whitespace-nowrap"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Add New Disease
-            </Button>
+              {/* Add New Disease Button */}
+              <Button
+                onClick={() => toast("Add New Disease feature coming soon")}
+                className="bg-[#16a085] hover:bg-[#138f75] text-white font-medium shadow-md hover:shadow-lg transition-all duration-200 whitespace-nowrap"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add New Disease
+              </Button>
+            </div>
+            
+            {/* Filter Chips */}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm text-gray-600 mr-2 flex items-center gap-1">
+                <Filter className="h-4 w-4" />
+                Filters:
+              </span>
+              <button
+                onClick={() => setFilterMissingBisaya(!filterMissingBisaya)}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200 ${
+                  filterMissingBisaya
+                    ? "bg-amber-500 text-white shadow-sm"
+                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                }`}
+              >
+                <span className="flex items-center gap-1">
+                  <AlertTriangle className="h-3 w-3" />
+                  Missing Bisaya
+                </span>
+              </button>
+              {(filterMissingBisaya || searchQuery) && (
+                <button
+                  onClick={() => {
+                    setFilterMissingBisaya(false);
+                    setSearchQuery("");
+                  }}
+                  className="px-3 py-1.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 transition-all duration-200"
+                >
+                  Clear All
+                </button>
+              )}
+              <span className="text-xs text-gray-500 ml-auto">
+                Showing {filteredDiseases.length} of {diseases.length} diseases
+              </span>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -375,18 +582,29 @@ function ManageDiseaseInfoContent() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredDiseases.map((disease) => (
+                {filteredDiseases.map((disease) => {
+                  const biStatus = computeBisayaCompletion(disease);
+                  return (
                   <tr key={disease.disease_id} className="hover:bg-gray-50 transition-colors duration-150">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm font-medium text-gray-900">{disease.disease_name}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 items-center">
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                          English
+                          EN
                         </span>
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
-                          Bisaya
+                        <span 
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                            biStatus.status === 'complete' 
+                              ? 'bg-green-100 text-green-800' 
+                              : biStatus.status === 'partial'
+                              ? 'bg-amber-100 text-amber-800'
+                              : 'bg-red-100 text-red-800'
+                          }`}
+                          title={`Bisaya: ${biStatus.filled}/${biStatus.total} fields filled`}
+                        >
+                          BS {biStatus.filled}/{biStatus.total}
                         </span>
                       </div>
                     </td>
@@ -420,7 +638,8 @@ function ManageDiseaseInfoContent() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -488,26 +707,49 @@ function ManageDiseaseInfoContent() {
 
       {/* Edit Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={(open) => {
-        if (!open) closeEditDialog();
+        if (!open) attemptCloseEditDialog();
       }}>
         <div className="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
           <DialogHeader className="bg-gradient-to-r from-[#388E3C] to-[#2F7A33] px-6 py-5 border-b-0">
-            <DialogTitle className="text-xl font-bold text-white flex items-center gap-3">
-              <Edit2 className="h-6 w-6" />
-              Edit {editingDisease?.disease_name}
-            </DialogTitle>
+            <div className="flex items-center justify-between">
+              <DialogTitle className="text-xl font-bold text-white flex items-center gap-3">
+                <Edit2 className="h-6 w-6" />
+                Edit {editingDisease?.disease_name}
+              </DialogTitle>
+              <button
+                onClick={attemptCloseEditDialog}
+                className="text-white/80 hover:text-white transition-colors p-1 rounded-lg hover:bg-white/10"
+                title="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
           </DialogHeader>
           <DialogContent className="overflow-y-auto flex-1 p-6">
             {editingDisease && (
               <div className="space-y-5">
+                {/* Copy All Button */}
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={copyAllEnToBi}
+                    className="text-sm border-[#388E3C] text-[#388E3C] hover:bg-[#388E3C]/10"
+                  >
+                    <Copy className="h-4 w-4 mr-2" />
+                    Copy All EN → BS
+                  </Button>
+                </div>
+                
                 <FieldGroup
                   label="Description"
                   icon={<FileText className="h-4 w-4" />}
                   englishValue={editingDisease.description_en || ""}
                   bisayaValue={editingDisease.description_bi || ""}
                   isEditing={true}
-                  onEnglishChange={(val) => updateField(editingDisease.disease_id, "description_en", val)}
-                  onBisayaChange={(val) => updateField(editingDisease.disease_id, "description_bi", val)}
+                  onEnglishChange={(val) => setEditingDisease(prev => prev ? { ...prev, description_en: val } : prev)}
+                  onBisayaChange={(val) => setEditingDisease(prev => prev ? { ...prev, description_bi: val } : prev)}
+                  onCopyEnToBi={() => copyEnToBi("description_en", "description_bi")}
                 />
                 <FieldGroup
                   label="Symptoms"
@@ -515,8 +757,9 @@ function ManageDiseaseInfoContent() {
                   englishValue={editingDisease.symptoms_en || ""}
                   bisayaValue={editingDisease.symptoms_bi || ""}
                   isEditing={true}
-                  onEnglishChange={(val) => updateField(editingDisease.disease_id, "symptoms_en", val)}
-                  onBisayaChange={(val) => updateField(editingDisease.disease_id, "symptoms_bi", val)}
+                  onEnglishChange={(val) => setEditingDisease(prev => prev ? { ...prev, symptoms_en: val } : prev)}
+                  onBisayaChange={(val) => setEditingDisease(prev => prev ? { ...prev, symptoms_bi: val } : prev)}
+                  onCopyEnToBi={() => copyEnToBi("symptoms_en", "symptoms_bi")}
                 />
                 <FieldGroup
                   label="Treatment"
@@ -524,8 +767,9 @@ function ManageDiseaseInfoContent() {
                   englishValue={editingDisease.treatment_en || ""}
                   bisayaValue={editingDisease.treatment_bi || ""}
                   isEditing={true}
-                  onEnglishChange={(val) => updateField(editingDisease.disease_id, "treatment_en", val)}
-                  onBisayaChange={(val) => updateField(editingDisease.disease_id, "treatment_bi", val)}
+                  onEnglishChange={(val) => setEditingDisease(prev => prev ? { ...prev, treatment_en: val } : prev)}
+                  onBisayaChange={(val) => setEditingDisease(prev => prev ? { ...prev, treatment_bi: val } : prev)}
+                  onCopyEnToBi={() => copyEnToBi("treatment_en", "treatment_bi")}
                 />
                 <FieldGroup
                   label="Products"
@@ -533,8 +777,9 @@ function ManageDiseaseInfoContent() {
                   englishValue={editingDisease.products_en || ""}
                   bisayaValue={editingDisease.products_bi || ""}
                   isEditing={true}
-                  onEnglishChange={(val) => updateField(editingDisease.disease_id, "products_en", val)}
-                  onBisayaChange={(val) => updateField(editingDisease.disease_id, "products_bi", val)}
+                  onEnglishChange={(val) => setEditingDisease(prev => prev ? { ...prev, products_en: val } : prev)}
+                  onBisayaChange={(val) => setEditingDisease(prev => prev ? { ...prev, products_bi: val } : prev)}
+                  onCopyEnToBi={() => copyEnToBi("products_en", "products_bi")}
                 />
                 <FieldGroup
                   label="Prevention"
@@ -542,8 +787,9 @@ function ManageDiseaseInfoContent() {
                   englishValue={editingDisease.prevention_en || ""}
                   bisayaValue={editingDisease.prevention_bi || ""}
                   isEditing={true}
-                  onEnglishChange={(val) => updateField(editingDisease.disease_id, "prevention_en", val)}
-                  onBisayaChange={(val) => updateField(editingDisease.disease_id, "prevention_bi", val)}
+                  onEnglishChange={(val) => setEditingDisease(prev => prev ? { ...prev, prevention_en: val } : prev)}
+                  onBisayaChange={(val) => setEditingDisease(prev => prev ? { ...prev, prevention_bi: val } : prev)}
+                  onCopyEnToBi={() => copyEnToBi("prevention_en", "prevention_bi")}
                 />
               </div>
             )}
@@ -551,7 +797,7 @@ function ManageDiseaseInfoContent() {
           <DialogFooter className="bg-gray-50 px-6 py-4">
             <Button
               variant="outline"
-              onClick={closeEditDialog}
+              onClick={attemptCloseEditDialog}
               disabled={savingId === editingDisease?.disease_id}
               className="border-gray-300 text-gray-700 hover:bg-gray-100"
             >
@@ -568,8 +814,8 @@ function ManageDiseaseInfoContent() {
                   });
                 }
               }}
-              disabled={savingId === editingDisease?.disease_id}
-              className="bg-[#388E3C] hover:bg-[#2F7A33] text-white"
+              disabled={savingId === editingDisease?.disease_id || !hasChanges(originalDisease, editingDisease)}
+              className="bg-[#388E3C] hover:bg-[#2F7A33] text-white disabled:opacity-50"
             >
               {savingId === editingDisease?.disease_id ? (
                 <>
@@ -582,6 +828,38 @@ function ManageDiseaseInfoContent() {
                   Save Changes
                 </>
               )}
+            </Button>
+          </DialogFooter>
+        </div>
+      </Dialog>
+
+      {/* Unsaved Changes Warning Dialog */}
+      <Dialog open={showUnsavedWarning} onOpenChange={setShowUnsavedWarning}>
+        <div className="bg-white rounded-xl max-w-md w-full overflow-hidden">
+          <DialogHeader className="px-6 py-5 border-b">
+            <DialogTitle className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              Unsaved Changes
+            </DialogTitle>
+          </DialogHeader>
+          <DialogContent className="px-6 py-4">
+            <p className="text-gray-600">
+              You have unsaved changes. Are you sure you want to close without saving?
+            </p>
+          </DialogContent>
+          <DialogFooter className="bg-gray-50 px-6 py-4">
+            <Button
+              variant="outline"
+              onClick={() => setShowUnsavedWarning(false)}
+              className="border-gray-300 text-gray-700 hover:bg-gray-100"
+            >
+              Keep Editing
+            </Button>
+            <Button
+              onClick={forceCloseEditDialog}
+              className="bg-red-500 hover:bg-red-600 text-white"
+            >
+              Discard Changes
             </Button>
           </DialogFooter>
         </div>
@@ -643,7 +921,7 @@ function ViewField({
   );
 }
 
-// Reusable field group component with enhanced UI
+// Reusable field group component with enhanced UI and Copy button
 function FieldGroup({
   label,
   icon,
@@ -652,6 +930,7 @@ function FieldGroup({
   isEditing,
   onEnglishChange,
   onBisayaChange,
+  onCopyEnToBi,
 }: {
   label: string;
   icon: React.ReactNode;
@@ -660,6 +939,7 @@ function FieldGroup({
   isEditing: boolean;
   onEnglishChange: (value: string) => void;
   onBisayaChange: (value: string) => void;
+  onCopyEnToBi?: () => void;
 }) {
   const hasContent = englishValue || bisayaValue;
 
@@ -669,11 +949,24 @@ function FieldGroup({
 
   return (
     <div className="bg-white rounded-lg p-5 border-l-4 border-[#388E3C] shadow-sm hover:shadow-md transition-shadow duration-200">
-      <div className="flex items-center gap-2 mb-4">
-        <div className="h-8 w-8 rounded-full bg-[#388E3C]/10 flex items-center justify-center text-[#388E3C]">
-          {icon}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <div className="h-8 w-8 rounded-full bg-[#388E3C]/10 flex items-center justify-center text-[#388E3C]">
+            {icon}
+          </div>
+          <h3 className="text-base font-semibold text-gray-800">{label}</h3>
         </div>
-        <h3 className="text-base font-semibold text-gray-800">{label}</h3>
+        {isEditing && onCopyEnToBi && (
+          <button
+            type="button"
+            onClick={onCopyEnToBi}
+            className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-[#388E3C] hover:bg-[#388E3C]/10 rounded transition-colors"
+            title={`Copy English ${label} to Bisaya`}
+          >
+            <Copy className="h-3 w-3" />
+            EN → BS
+          </button>
+        )}
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* English */}
