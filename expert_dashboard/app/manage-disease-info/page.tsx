@@ -12,7 +12,7 @@ import { useUser } from "@/components/UserContext";
 import { 
   Loader2, Save, BookOpen, AlertCircle, CheckCircle2, Edit2, X, 
   FileText, Stethoscope, Pill, ShieldCheck, Leaf, Search, Plus, Eye,
-  Copy, Filter, AlertTriangle
+  Copy, AlertTriangle
 } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -118,8 +118,7 @@ function ManageDiseaseInfoContent() {
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [fetchAttempted, setFetchAttempted] = useState(false);
   
-  // New state for filtering and dirty checking
-  const [filterMissingBisaya, setFilterMissingBisaya] = useState(false);
+  // State for dirty checking
   const [originalDisease, setOriginalDisease] = useState<EditingDisease | null>(null);
   const [showUnsavedWarning, setShowUnsavedWarning] = useState(false);
 
@@ -200,25 +199,14 @@ function ManageDiseaseInfoContent() {
     return () => clearTimeout(masterTimeout);
   }, [loading]);
 
-  // Filter diseases based on search query and filters
+  // Filter diseases based on search query
   const filteredDiseases = useMemo(() => {
-    let result = diseases;
-    
-    // Apply search filter
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      result = result.filter(disease => 
-        disease.disease_name.toLowerCase().includes(query)
-      );
-    }
-    
-    // Apply Missing Bisaya filter
-    if (filterMissingBisaya) {
-      result = result.filter(disease => hasMissingBisaya(disease));
-    }
-    
-    return result;
-  }, [diseases, searchQuery, filterMissingBisaya]);
+    if (!searchQuery.trim()) return diseases;
+    const query = searchQuery.toLowerCase();
+    return diseases.filter(disease => 
+      disease.disease_name.toLowerCase().includes(query)
+    );
+  }, [diseases, searchQuery]);
 
   // Open edit dialog - store original for dirty checking
   const openEditDialog = useCallback((disease: EditingDisease) => {
@@ -496,41 +484,6 @@ function ManageDiseaseInfoContent() {
                 Add New Disease
               </Button>
             </div>
-            
-            {/* Filter Chips */}
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm text-gray-600 mr-2 flex items-center gap-1">
-                <Filter className="h-4 w-4" />
-                Filters:
-              </span>
-              <button
-                onClick={() => setFilterMissingBisaya(!filterMissingBisaya)}
-                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200 ${
-                  filterMissingBisaya
-                    ? "bg-amber-500 text-white shadow-sm"
-                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                }`}
-              >
-                <span className="flex items-center gap-1">
-                  <AlertTriangle className="h-3 w-3" />
-                  Missing Bisaya
-                </span>
-              </button>
-              {(filterMissingBisaya || searchQuery) && (
-                <button
-                  onClick={() => {
-                    setFilterMissingBisaya(false);
-                    setSearchQuery("");
-                  }}
-                  className="px-3 py-1.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 transition-all duration-200"
-                >
-                  Clear All
-                </button>
-              )}
-              <span className="text-xs text-gray-500 ml-auto">
-                Showing {filteredDiseases.length} of {diseases.length} diseases
-              </span>
-            </div>
           </div>
         </CardContent>
       </Card>
@@ -582,30 +535,14 @@ function ManageDiseaseInfoContent() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredDiseases.map((disease) => {
-                  const biStatus = computeBisayaCompletion(disease);
-                  return (
+                {filteredDiseases.map((disease) => (
                   <tr key={disease.disease_id} className="hover:bg-gray-50 transition-colors duration-150">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm font-medium text-gray-900">{disease.disease_name}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex gap-2 items-center">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                          EN
-                        </span>
-                        <span 
-                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                            biStatus.status === 'complete' 
-                              ? 'bg-green-100 text-green-800' 
-                              : biStatus.status === 'partial'
-                              ? 'bg-amber-100 text-amber-800'
-                              : 'bg-red-100 text-red-800'
-                          }`}
-                          title={`Bisaya: ${biStatus.filled}/${biStatus.total} fields filled`}
-                        >
-                          BS {biStatus.filled}/{biStatus.total}
-                        </span>
+                      <div className="text-sm text-gray-700">
+                        English/Bisaya
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -638,8 +575,7 @@ function ManageDiseaseInfoContent() {
                       </div>
                     </td>
                   </tr>
-                  );
-                })}
+                ))}
               </tbody>
             </table>
           </div>
