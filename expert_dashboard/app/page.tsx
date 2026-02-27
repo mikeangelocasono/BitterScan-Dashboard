@@ -9,11 +9,11 @@ export default function Home() {
   const { user, profile, loading, sessionReady } = useUser();
   const [forceRedirect, setForceRedirect] = useState(false);
 
-  // Master timeout: if page is stuck loading for more than 5s, force redirect to role-select
+  // Master timeout: if page is stuck loading for more than 5s, force redirect to login
   useEffect(() => {
     const timeout = setTimeout(() => {
       if (!sessionReady) {
-        console.warn('[Home] Forcing redirect to role-select after timeout');
+        console.warn('[Home] Forcing redirect to login after timeout');
         setForceRedirect(true);
       }
     }, 5000);
@@ -23,7 +23,7 @@ export default function Home() {
   useEffect(() => {
     // Force redirect if timeout occurred
     if (forceRedirect) {
-      router.replace('/role-select');
+      router.replace('/login');
       return;
     }
 
@@ -43,12 +43,12 @@ export default function Home() {
       } else if (resolvedRole === 'expert') {
         router.replace('/expert-dashboard');
       } else {
-        // Unknown role or farmer - go to role select
-        router.replace('/role-select');
+        // Unknown role or farmer - go to login
+        router.replace('/login');
       }
     } else {
-      // No active session - go to role select
-      router.replace('/role-select');
+      // No active session - go to login
+      router.replace('/login');
     }
   }, [user, profile, sessionReady, forceRedirect, router]);
 

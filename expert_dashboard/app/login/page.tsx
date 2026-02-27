@@ -1,24 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, Suspense } from "react";
 import { supabase } from "@/components/supabase";
 import toast from "react-hot-toast";
-import { Mail, Lock, Eye, EyeOff, ArrowLeft, CheckCircle } from "lucide-react";
+import { Mail, Lock, Eye, EyeOff, CheckCircle } from "lucide-react";
 import { mapSupabaseAuthError, validateEmail } from "@/utils/authErrors";
 import { useUser } from "@/components/UserContext";
+import { getUserAccessProfile, ACCESS_ERRORS } from "@/lib/roleAccess";
 
 function LoginPageContent() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const { user, profile, loading: userLoading, sessionReady, refreshProfile } = useUser();
+  const { user, profile, loading: userLoading, sessionReady } = useUser();
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  // Get role from URL query param - critical for role-based login
-  const roleParam = searchParams.get("role");
-  const [selectedRole, setSelectedRole] = useState<"admin" | "expert">("expert");
   const [error, setError] = useState<string | null>(null);
   const [errorType, setErrorType] = useState<'error' | 'pending'>('error');
   const [showPassword, setShowPassword] = useState(false);
@@ -26,7 +23,7 @@ function LoginPageContent() {
   // State to show "redirecting" UI - set to true right before navigation
   const [isRedirecting, setIsRedirecting] = useState(false);
   const [redirectTarget, setRedirectTarget] = useState<string | null>(null);
-  const roleMismatchHandled = useRef(false);
+  const sessionHandled = useRef(false);
   const loginInProgress = useRef(false);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -34,27 +31,18 @@ function LoginPageContent() {
   useEffect(() => {
     setMounted(true);
     
-    // Set role from URL param if available
-    if (roleParam === "admin" || roleParam === "expert") {
-      setSelectedRole(roleParam);
-    } else if (!roleParam) {
-      // If no role param, redirect to role selection page
-      router.replace("/role-select");
-    }
-    
     // Cleanup timeout on unmount
     return () => {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
       }
     };
-  }, [roleParam, router]);
+  }, []);
 
   // Track if redirect has been initiated to prevent infinite loops
   const redirectInitiated = useRef(false);
 
-  // BULLETPROOF REDIRECT FUNCTION - Uses window.location.href directly
-  // This bypasses all React state management issues
+  // BULLETPROOF REDIRECT FUNCTION
   const performRedirect = (targetRoute: string, showNotification: boolean = true) => {
     // Prevent duplicate redirects
     if (redirectInitiated.current) return;
@@ -70,137 +58,94 @@ function LoginPageContent() {
     
     // Show success notification
     if (showNotification) {
+      const dashboardName = targetRoute.includes('admin') ? 'Admin' : 'Expert';
       toast.success(
-        `Login successful! Redirecting to ${targetRoute.includes('admin') ? 'Admin' : 'Expert'} Dashboard...`,
+        `Login successful! Redirecting to ${dashboardName} Dashboard...`,
         { duration: 3000, icon: '✅' }
       );
     }
     
-    // Use Next.js router for SPA navigation — preserves React state and avoids
-    // full page reload, so UserContext/DataContext don't need to reinitialize
+    // Use Next.js router for SPA navigation
     router.push(targetRoute);
   };
 
   // Handle redirect for existing session on page load
-  // This catches cases where user refreshes the page while logged in
+  // Auto-detect role and redirect to appropriate dashboard
   useEffect(() => {
-    // Skip if login is in progress - let onSubmit handle the redirect
-    if (loginInProgress.current) {
-      return;
-    }
-
-    // Skip if redirect was already initiated (prevents double redirects)
-    if (redirectInitiated.current) {
-      return;
-    }
-
-    // Wait for UserContext to finish loading and resolve session
+    // Skip if login is in progress
+    if (loginInProgress.current) return;
+    // Skip if redirect was already initiated
+    if (redirectInitiated.current) return;
+    // Wait for UserContext to finish loading
     if (userLoading || !sessionReady) {
       redirectInitiated.current = false;
       return;
     }
 
-    // Reset flags when no user (prevents stale state)
+    // Reset flags when no user
     if (!user) {
-      roleMismatchHandled.current = false;
+      sessionHandled.current = false;
       redirectInitiated.current = false;
       return;
     }
 
-    // RBAC: Check if user status is approved before allowing access
-    if (user && profile && profile.status !== 'approved' && profile.role !== 'admin' && !roleMismatchHandled.current) {
-      roleMismatchHandled.current = true;
-      loginInProgress.current = false;
-      redirectInitiated.current = false;
-      setLoading(false);
-      const statusMsg = "Your account is pending admin approval. Please wait for confirmation.";
-      setErrorType('pending');
-      setError(statusMsg);
-      toast(statusMsg, {
-        duration: 5000,
-        icon: 'ℹ️',
-        style: { background: '#EFF6FF', color: '#1E40AF', border: '1px solid #BFDBFE' },
-      });
-      supabase.auth.signOut().catch(() => {
-        // ignore sign-out errors; listener keeps state consistent
-      });
-      return;
-    }
+    // Already handled this session
+    if (sessionHandled.current) return;
 
-    // RBAC: Block farmer accounts from web access
-    if (user && profile && profile.role === 'farmer' && !roleMismatchHandled.current) {
-      roleMismatchHandled.current = true;
-      loginInProgress.current = false;
-      redirectInitiated.current = false;
-      setLoading(false);
-      const farmerMsg = "This account is intended for the mobile application only. Web dashboard access is not available for farmer accounts.";
-      setError(farmerMsg);
-      toast.error(farmerMsg);
-      supabase.auth.signOut().catch(() => {
-        // ignore sign-out errors; listener keeps state consistent
-      });
-      return;
-    }
-
-    // RBAC: Check if existing session role matches selected role
-    // If there's a role mismatch, sign out the user and show error
-    if (user && profile && !roleMismatchHandled.current && !redirectInitiated.current) {
-      // Check if the logged-in user's role matches the selected role
-      if (profile.role !== selectedRole) {
-        roleMismatchHandled.current = true;
-        loginInProgress.current = false;
-        setLoading(false);
-        
-        let mismatchMsg = '';
-        if (selectedRole === 'expert') {
-          if (profile.role === 'admin') {
-            mismatchMsg = 'You are currently logged in with an Admin account. This page is for Expert accounts only. Please log out first or use the Admin login page.';
-          } else if (profile.role === 'farmer') {
-            mismatchMsg = 'You are currently logged in with a Farmer account. This page is for Expert accounts only. Please log out first.';
-          }
-        } else if (selectedRole === 'admin') {
-          if (profile.role === 'expert') {
-            mismatchMsg = 'You are currently logged in with an Expert account. This page is for Admin accounts only. Please log out first or use the Expert login page.';
-          } else if (profile.role === 'farmer') {
-            mismatchMsg = 'You are currently logged in with a Farmer account. This page is for Admin accounts only. Please log out first.';
-          }
-        }
-        
-        setError(mismatchMsg);
-        toast.error(mismatchMsg, { duration: 6000 });
-        
-        // Sign out the user to prevent auto-login with wrong role
-        supabase.auth.signOut().catch(() => {
-          // ignore sign-out errors
-        });
+    // User exists with profile - check access
+    if (user && profile) {
+      sessionHandled.current = true;
+      
+      // Block farmers
+      if (profile.role === 'farmer') {
+        setError(ACCESS_ERRORS.FARMER_DENIED);
+        toast.error(ACCESS_ERRORS.FARMER_DENIED);
+        supabase.auth.signOut().catch(() => {});
         return;
       }
-      
-      // Role matches - proceed with redirect
-      if (profile.status === 'approved' || profile.role === 'admin') {
-        // Clear timeout since redirect is happening
-        if (timeoutRef.current) {
-          clearTimeout(timeoutRef.current);
-          timeoutRef.current = null;
-        }
-        
-        // Direct redirect using bulletproof function
-        const targetRoute = profile.role === 'admin' ? '/admin-dashboard' : '/expert-dashboard';
-        performRedirect(targetRoute, false);
-      }
-    }
 
-    // Fallback: if admin profile cannot be read but user is authenticated as admin, allow redirect
-    if (user && !profile && sessionReady && selectedRole === 'admin' && !redirectInitiated.current) {
+      // Check expert approval status
+      if (profile.role === 'expert' && profile.status !== 'approved') {
+        const statusMsg = profile.status === 'rejected' 
+          ? ACCESS_ERRORS.EXPERT_REJECTED 
+          : ACCESS_ERRORS.EXPERT_NOT_APPROVED;
+        setErrorType('pending');
+        setError(statusMsg);
+        toast(statusMsg, {
+          duration: 5000,
+          icon: 'ℹ️',
+          style: { background: '#EFF6FF', color: '#1E40AF', border: '1px solid #BFDBFE' },
+        });
+        supabase.auth.signOut().catch(() => {});
+        return;
+      }
+
+      // Clear timeout since redirect is happening
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
         timeoutRef.current = null;
       }
 
-      // Direct redirect using bulletproof function
-      performRedirect('/admin-dashboard', false);
+      // Route based on role - admin goes to admin-dashboard, expert goes to expert-dashboard
+      const targetRoute = profile.role === 'admin' ? '/admin-dashboard' : '/expert-dashboard';
+      performRedirect(targetRoute, false);
     }
-  }, [user, profile, userLoading, sessionReady, selectedRole]);
+
+    // Fallback: user exists but no profile yet - wait for profile to load
+    if (user && !profile && sessionReady) {
+      // Give it a moment for profile to load
+      timeoutRef.current = setTimeout(() => {
+        if (!profile && user) {
+          // Still no profile after timeout - user might be admin with RLS issues
+          // Check user metadata as fallback
+          const metaRole = user.user_metadata?.role;
+          if (metaRole === 'admin') {
+            performRedirect('/admin-dashboard', false);
+          }
+        }
+      }, 2000);
+    }
+  }, [user, profile, userLoading, sessionReady]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -235,7 +180,7 @@ function LoginPageContent() {
     try {
       console.log('[Login] Starting sign in process...');
 
-      // STEP 1: Sign in with Supabase - SIMPLE, no timeout race
+      // STEP 1: Sign in with Supabase
       const { data, error: signInError } = await supabase.auth.signInWithPassword({
         email: email.trim().toLowerCase(),
         password,
@@ -266,84 +211,44 @@ function LoginPageContent() {
 
       console.log('[Login] Sign in successful! User ID:', data.user.id);
 
-      // STEP 2: Fetch profile to get role
-      const { data: profileData, error: profileError } = await supabase
-        .from('profiles')
-        .select('role, status')
-        .eq('id', data.user.id)
-        .single();
+      // STEP 2: Get user access profile (role + status) using centralized helper
+      const accessProfile = await getUserAccessProfile(supabase, data.user.id);
 
-      console.log('[Login] Profile fetch result:', { profileData, profileError: profileError?.message });
+      console.log('[Login] Access profile:', accessProfile);
 
-      // Determine role (use profile if available, otherwise use selectedRole)
-      let userRole = profileData?.role || selectedRole;
-      let userStatus = profileData?.status || (selectedRole === 'admin' ? 'approved' : 'pending');
-
-      // If admin and no profile, create one
-      if (!profileData && selectedRole === 'admin') {
-        console.log('[Login] Creating admin profile...');
-        await supabase.from('profiles').upsert({
-          id: data.user.id,
-          email: data.user.email || '',
-          full_name: data.user.user_metadata?.full_name || 'Admin',
-          username: (data.user.email || '').split('@')[0] || 'admin',
-          role: 'admin',
-          status: 'approved',
-        });
-        userRole = 'admin';
-        userStatus = 'approved';
-      }
-
-      // If expert and no profile, create one
-      if (!profileData && selectedRole === 'expert') {
-        console.log('[Login] Creating expert profile...');
-        await supabase.from('profiles').upsert({
-          id: data.user.id,
-          email: data.user.email || '',
-          full_name: data.user.user_metadata?.full_name || 'Expert',
-          username: (data.user.email || '').split('@')[0] || 'expert',
-          role: 'expert',
-          status: 'pending',
-        });
-        userRole = 'expert';
-        userStatus = 'pending';
-      }
-
-      console.log('[Login] User role:', userRole, 'Status:', userStatus);
-
-      // STEP 3: Validate role matches selected role
-      if (userRole !== selectedRole) {
-        const roleMsg = selectedRole === 'admin' 
-          ? 'This account is not an Admin account. Please use the Expert login.'
-          : 'This account is not an Expert account. Please use the Admin login.';
-        setError(roleMsg);
-        toast.error(roleMsg);
+      // STEP 3: Check if user can access dashboard
+      if (!accessProfile.canAccessDashboard) {
+        console.log('[Login] Access denied:', accessProfile.errorMessage);
+        
+        // Set appropriate error type for pending vs other errors
+        if (accessProfile.role === 'expert' && accessProfile.status === 'pending') {
+          setErrorType('pending');
+        }
+        
+        setError(accessProfile.errorMessage || ACCESS_ERRORS.ROLE_MISMATCH);
+        
+        // Show toast with appropriate style
+        if (accessProfile.role === 'expert' && accessProfile.status !== 'approved') {
+          toast(accessProfile.errorMessage || ACCESS_ERRORS.EXPERT_NOT_APPROVED, {
+            duration: 5000,
+            icon: 'ℹ️',
+            style: { background: '#EFF6FF', color: '#1E40AF', border: '1px solid #BFDBFE' },
+          });
+        } else {
+          toast.error(accessProfile.errorMessage || ACCESS_ERRORS.FARMER_DENIED);
+        }
+        
+        // Sign out the user
         await supabase.auth.signOut();
         setLoading(false);
         loginInProgress.current = false;
         return;
       }
 
-      // STEP 4: Check approval status (experts only)
-      if (userRole === 'expert' && userStatus !== 'approved') {
-        const statusMsg = 'Your account is pending admin approval. Please wait for confirmation.';
-        setErrorType('pending');
-        setError(statusMsg);
-        toast(statusMsg, {
-          duration: 5000,
-          icon: 'ℹ️',
-          style: { background: '#EFF6FF', color: '#1E40AF', border: '1px solid #BFDBFE' },
-        });
-        await supabase.auth.signOut();
-        setLoading(false);
-        loginInProgress.current = false;
-        return;
-      }
-
-      // STEP 5: SUCCESS! Redirect immediately
-      console.log('[Login] All validations passed! Redirecting...');
+      // STEP 4: SUCCESS! Redirect to appropriate dashboard
+      console.log('[Login] All validations passed! Redirecting to:', accessProfile.dashboardRoute);
       
-      const dashboardRoute = userRole === 'admin' ? '/admin-dashboard' : '/expert-dashboard';
+      const dashboardRoute = accessProfile.dashboardRoute!;
       
       // Show success state
       setIsRedirecting(true);
@@ -352,12 +257,13 @@ function LoginPageContent() {
       loginInProgress.current = false;
       
       // Show toast
-      toast.success(`Login successful! Redirecting to ${userRole === 'admin' ? 'Admin' : 'Expert'} Dashboard...`, {
+      const dashboardName = accessProfile.role === 'admin' ? 'Admin' : 'Expert';
+      toast.success(`Login successful! Redirecting to ${dashboardName} Dashboard...`, {
         duration: 3000,
         icon: '✅'
       });
 
-      // Use Next.js SPA navigation — preserves React state, no full page reload
+      // Use Next.js SPA navigation
       console.log('[Login] === REDIRECTING NOW TO:', dashboardRoute, '===');
       redirectInitiated.current = true;
       router.push(dashboardRoute);
@@ -390,14 +296,13 @@ function LoginPageContent() {
       {/* Left side - Welcome Text */}
       <div className="hidden lg:flex lg:w-1/2 items-center justify-center p-16">
         <div className="max-w-lg">
-          <h1 className="text-4xl font-bold text-gray-900 mb-6">Welcome Back</h1>
+          <h1 className="text-4xl font-bold text-gray-900 mb-6">Welcome to BitterScan</h1>
           <h2 className="text-xl font-medium text-gray-700 mb-8">
-            {selectedRole === 'admin' ? 'Sign in to your Admin account' : 'Sign in to your Expert account'}
+            Sign in to your account
           </h2>
           <p className="text-gray-600 text-lg leading-relaxed text-justify">
-            {selectedRole === 'admin'
-              ? 'Access administrative tools and manage the system securely.'
-              : 'Access your Expert dashboard to validate and manage content with precision and efficiency.'}
+            Access your dashboard to validate and manage content with precision and efficiency.
+            Your role will be automatically detected upon login.
           </p>
         </div>
       </div>
@@ -407,34 +312,22 @@ function LoginPageContent() {
         <div className="w-full max-w-md">
           {/* Mobile Welcome Text */}
           <div className="lg:hidden mb-8 text-center">
-            <h1 className="text-3xl font-bold text-gray-900 mb-4">Welcome Back</h1>
+            <h1 className="text-3xl font-bold text-gray-900 mb-4">Welcome to BitterScan</h1>
             <h2 className="text-lg font-medium text-gray-700 mb-6">
-              {selectedRole === 'admin' ? 'Sign in to your Admin account' : 'Sign in to your Expert account'}
+              Sign in to your account
             </h2>
             <p className="text-gray-600 text-base leading-relaxed text-justify mb-8">
-              {selectedRole === 'admin'
-                ? 'Access administrative tools and manage the system securely.'
-                : 'Access your Expert dashboard to validate and manage content with precision and efficiency.'}
+              Access your dashboard to validate and manage content.
+              Your role will be automatically detected upon login.
             </p>
           </div>
 
           {/* Form Card */}
           <div className="bg-white border border-gray-200 rounded-2xl shadow-lg p-8">
-            {/* Back to Role Selection */}
-            <Link 
-              href="/role-select" 
-              className="inline-flex items-center text-sm text-gray-600 hover:text-[#388E3C] transition-colors mb-6 group"
-            >
-              <ArrowLeft className="h-4 w-4 mr-1 group-hover:-translate-x-1 transition-transform" />
-              Change Role
-            </Link>
-
-            {/* Role Display Badge */}
-            <div className="mb-6">
-              <div className="inline-flex items-center px-4 py-2 rounded-lg" style={{ backgroundColor: '#E6F3E7', borderColor: '#A7D3AA', border: '1px solid' }}>
-                <span className="text-sm text-gray-600 mr-2">Logging in as:</span>
-                <span className="text-sm font-semibold text-[#388E3C] capitalize">{selectedRole}</span>
-              </div>
+            {/* Header */}
+            <div className="mb-6 text-center">
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">Sign In</h3>
+              <p className="text-sm text-gray-600">Enter your credentials to continue</p>
             </div>
 
             <form onSubmit={onSubmit} className="space-y-6">{/* Email Field */}
@@ -524,34 +417,26 @@ function LoginPageContent() {
               </div>
             )}
 
-            {/* Expert Approval Notice */}
-            {selectedRole === 'expert' && !error && (
+            {/* Info Notice */}
+            {!error && (
               <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
                 <p className="text-xs text-blue-800 leading-relaxed">
                   <span className="font-semibold">Note:</span> New expert accounts require admin approval before you can access the dashboard.
+                  Farmer accounts are only available on the mobile app.
                 </p>
               </div>
             )}
 
-            <div className="mt-8 text-center">{selectedRole === 'admin' ? (
-                <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                  <p className="text-sm text-gray-700 leading-relaxed">
-                    <span className="font-semibold text-gray-900">Admin accounts are created by the MAGRO Head Expert.</span>
-                    <br />
-                    Contact your administrator to request access.
-                  </p>
-                </div>
-              ) : (
-                <p className="text-sm text-gray-600">
-                  Don&apos;t have an account?{" "}
-                  <Link
-                    href="/register"
-                    className="text-[#388E3C] hover:text-[#2F7A33] font-medium hover:underline transition-colors"
-                  >
-                    Create Account
-                  </Link>
-                </p>
-              )}
+            <div className="mt-8 text-center">
+              <p className="text-sm text-gray-600">
+                Don&apos;t have an expert account?{" "}
+                <Link
+                  href="/register"
+                  className="text-[#388E3C] hover:text-[#2F7A33] font-medium hover:underline transition-colors"
+                >
+                  Create Account
+                </Link>
+              </p>
             </div>
           </div>
         </div>

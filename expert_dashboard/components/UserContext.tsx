@@ -354,9 +354,9 @@ export function UserProvider({ children }: { children: ReactNode }) {
     setLoggingOut(false);
     loggingOutRef.current = false;
     
-    // Immediate redirect to role-select page
+    // Immediate redirect to login page
     if (typeof window !== 'undefined') {
-      window.location.href = '/role-select';
+      window.location.href = '/login';
     }
   }, []);
 

@@ -4,26 +4,25 @@ import { ReactNode, useEffect, useMemo, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { useUser } from "./UserContext";
+import { canAccessRoute, ACCESS_ERRORS, getDashboardRouteForRole, UserRole } from "@/lib/roleAccess";
 
 const SUPPRESS_AUTH_TOAST_KEY = "bs:suppress-auth-toast";
+// PUBLIC_ROUTES: /role-select kept for backwards compatibility (it redirects to /login)
 const PUBLIC_ROUTES = ["/login", "/register", "/role-select"];
-const ROLE_ROUTE_MAP: Record<string, string[]> = {
-  admin: ["/admin-dashboard", "/reports", "/data-visualization", "/history", "/profile", "/manage-disease-info"],
-  expert: ["/expert-dashboard", "/dashboard", "/validate", "/history", "/profile", "/manage-disease-info"],
-  farmer: [],
-};
 
 const ADMIN_EMAIL_HINT =
   typeof process !== "undefined" && process.env?.NEXT_PUBLIC_ADMIN_EMAIL
     ? String(process.env.NEXT_PUBLIC_ADMIN_EMAIL).toLowerCase()
     : null;
 
+/**
+ * Check if a user with given role can access the pathname
+ * Uses centralized role access helper from lib/roleAccess.ts
+ */
 function routeAllowed(pathname: string, role: string | null): boolean {
   if (!role) return false;
-  const allowed = ROLE_ROUTE_MAP[role] || [];
-  if (role === "admin" && pathname.startsWith("/admin-dashboard")) return true;
-  if (role === "expert" && pathname.startsWith("/expert-dashboard")) return true;
-  return allowed.some((route) => pathname === route || pathname.startsWith(`${route}/`));
+  // Use centralized canAccessRoute helper
+  return canAccessRoute(role as UserRole, pathname);
 }
 
 export default function AuthGuard({ children }: { children: ReactNode }) {
@@ -80,8 +79,8 @@ export default function AuthGuard({ children }: { children: ReactNode }) {
           // Re-trigger the loading timeout check
           loadingTimeoutRef.current = setTimeout(() => {
             if (!user && !PUBLIC_ROUTES.includes(pathname)) {
-              console.warn('[AuthGuard] Post-visibility auth timeout, redirecting to role-select');
-              router.replace("/role-select");
+              console.warn('[AuthGuard] Post-visibility auth timeout, redirecting to login');
+              router.replace("/login");
             }
           }, 5000); // Shorter timeout after visibility change
         }
@@ -104,8 +103,8 @@ export default function AuthGuard({ children }: { children: ReactNode }) {
     if (!isAuthReady) {
       loadingTimeoutRef.current = setTimeout(() => {
         if (!user && !PUBLIC_ROUTES.includes(pathname)) {
-          console.warn('[AuthGuard] Auth loading timeout, redirecting to role-select');
-          router.replace("/role-select");
+          console.warn('[AuthGuard] Auth loading timeout, redirecting to login');
+          router.replace("/login");
         }
       }, 8000); // Reduced to 8 seconds for better UX
     } else if (loadingTimeoutRef.current) {
@@ -148,36 +147,35 @@ export default function AuthGuard({ children }: { children: ReactNode }) {
           typeof window !== "undefined" && sessionStorage.getItem(SUPPRESS_AUTH_TOAST_KEY) === "true";
         const fromLogout =
           typeof window !== "undefined" && sessionStorage.getItem('bs:from-logout') === "true";
-        // Don't show toast - removed to prevent notification after logout
-        // if (!suppress && !fromLogout) {
-        //   toast.error("Please log in to continue.");
-        // }
         // Clear the flags after checking
         if (typeof window !== "undefined") {
           sessionStorage.removeItem(SUPPRESS_AUTH_TOAST_KEY);
           sessionStorage.removeItem('bs:from-logout');
         }
-        router.replace("/role-select");
+        router.replace("/login");
       }
       return;
     }
 
-    // Farmers are blocked entirely
+    // Farmers are blocked entirely - cannot access any dashboard
     if (resolvedRole === "farmer") {
       if (!redirectHandled.current) {
         redirectHandled.current = true;
-        toast.error("This application is not available for farmer accounts. Please use the mobile app.");
-        router.replace("/role-select");
+        toast.error(ACCESS_ERRORS.FARMER_DENIED);
+        router.replace("/login");
       }
       return;
     }
 
-    // Pending (non-admin) users are blocked
-    if (resolvedRole !== "admin" && resolvedStatus && resolvedStatus !== "approved") {
+    // Pending (non-admin) experts are blocked
+    if (resolvedRole === "expert" && resolvedStatus && resolvedStatus !== "approved") {
       if (!redirectHandled.current) {
         redirectHandled.current = true;
-        toast.error("Your account is pending approval. Please contact an administrator.");
-        router.replace("/role-select");
+        const errorMsg = resolvedStatus === 'rejected' 
+          ? ACCESS_ERRORS.EXPERT_REJECTED 
+          : ACCESS_ERRORS.EXPERT_NOT_APPROVED;
+        toast.error(errorMsg);
+        router.replace("/login");
       }
       return;
     }
@@ -194,8 +192,9 @@ export default function AuthGuard({ children }: { children: ReactNode }) {
       if (!allowed) {
         if (!redirectHandled.current) {
           redirectHandled.current = true;
-          toast.error("You do not have permission to access this page.");
-          const target = resolvedRole === "admin" ? "/admin-dashboard" : "/expert-dashboard";
+          toast.error(ACCESS_ERRORS.ROLE_MISMATCH);
+          // Redirect to correct dashboard based on role
+          const target = getDashboardRouteForRole(resolvedRole as UserRole);
           router.replace(target);
         }
         return;
@@ -256,7 +255,7 @@ export default function AuthGuard({ children }: { children: ReactNode }) {
             </button>
             <button
               className="px-3 py-1.5 text-sm rounded-md border border-gray-200 text-gray-700 hover:bg-gray-50"
-              onClick={() => router.replace("/role-select")}
+              onClick={() => router.replace("/login")}
             >
               Back to login
             </button>

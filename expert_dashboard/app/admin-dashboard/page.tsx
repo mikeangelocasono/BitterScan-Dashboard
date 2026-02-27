@@ -117,7 +117,7 @@ function AdminDashboardContent() {
           <p className="text-gray-600">You do not have permission to view this page.</p>
           <div className="flex justify-center gap-2">
             <Button variant="outline" onClick={() => router.replace("/dashboard")}>Go to dashboard</Button>
-            <Button onClick={() => router.replace("/role-select")}>Login</Button>
+            <Button onClick={() => router.replace("/login")}>Login</Button>
           </div>
         </div>
       </div>

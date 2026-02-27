@@ -24,7 +24,7 @@ export default function ExpertDashboardPage() {
     if (!user) return;
     if (resolvedRole !== "expert") {
       // Non-experts should be rerouted away from expert dashboard
-      router.replace(resolvedRole === "admin" ? "/admin-dashboard" : "/role-select");
+      router.replace(resolvedRole === "admin" ? "/admin-dashboard" : "/login");
     }
   }, [loading, sessionReady, user, resolvedRole, router]);
 
