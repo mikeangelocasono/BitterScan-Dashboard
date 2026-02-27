@@ -422,7 +422,6 @@ function LoginPageContent() {
               <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
                 <p className="text-xs text-blue-800 leading-relaxed">
                   <span className="font-semibold">Note:</span> New expert accounts require admin approval before you can access the dashboard.
-                  Farmer accounts are only available on the mobile app.
                 </p>
               </div>
             )}
