@@ -1664,7 +1664,7 @@ export default function DataVisualizationPage() {
                       <CardTitle className="text-xl font-bold text-white" style={{ color: 'white' }}>
                         Farm Records
                       </CardTitle>
-                      <p className="text-sm text-white/90 mt-1" style={{ color: 'white' }}>All registered farms — click to view disease records</p>
+                      <p className="text-sm text-white/90 mt-1" style={{ color: 'white' }}>All registered farms — click to view disease detection records (excludes ripeness data)</p>
                     </div>
                     <div className="relative w-full sm:w-auto">
                       <input
@@ -1685,7 +1685,7 @@ export default function DataVisualizationPage() {
                 </CardHeader>
                 <CardContent className="pt-4 px-5 pb-4">
                   {(() => {
-                    // Build farm records: show ALL registered farms, aggregate disease counts for those with scans
+                    // Build farm records: show ALL registered farms, aggregate ONLY DISEASE counts (exclude ripeness)
                     const farmRecordsMap = new Map<string, { farmName: string; diseases: Map<string, number>; totalScans: number; farmAddress?: string }>();
 
                     // Step 1: Initialize ALL registered farms (even those with 0 scans)
@@ -1698,8 +1698,11 @@ export default function DataVisualizationPage() {
                       });
                     });
 
-                    // Step 2: Aggregate scan data onto existing farm records
-                    dateFilteredScans.forEach(scan => {
+                    // Step 2: Aggregate ONLY DISEASE scan data (filter out ripeness scans)
+                    // Filter to leaf_disease scans only - excludes fruit_maturity/ripeness records
+                    const diseaseOnlyScans = dateFilteredScans.filter(scan => isLeafDiseaseScan(scan));
+                    
+                    diseaseOnlyScans.forEach(scan => {
                       const farmId = scan.farm_id;
                       if (!farmId || !farmRecordsMap.has(farmId)) return;
                       const prediction = getAiPrediction(scan) || 'Unknown';
@@ -1779,7 +1782,7 @@ export default function DataVisualizationPage() {
                                     ? 'text-gray-600 bg-white border-gray-200'
                                     : 'text-gray-400 bg-gray-50 border-gray-100'
                                 }`}>
-                                  {farm.totalScans} {farm.totalScans === 1 ? 'scan' : 'scans'}
+                                  {farm.totalScans} disease {farm.totalScans === 1 ? 'scan' : 'scans'}
                                 </span>
                                 <svg
                                   className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
@@ -1796,7 +1799,7 @@ export default function DataVisualizationPage() {
                                   <table className="w-full">
                                     <thead>
                                       <tr className="bg-gray-50/80 border-b border-gray-100">
-                                        <th className="text-left py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Disease / Stage</th>
+                                        <th className="text-left py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Disease</th>
                                         <th className="text-right py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Scans</th>
                                       </tr>
                                     </thead>
@@ -1807,7 +1810,7 @@ export default function DataVisualizationPage() {
                                             <div className="flex items-center gap-2">
                                               <span
                                                 className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                                                style={{ backgroundColor: DISEASE_COLORS[d.disease] || RIPENESS_COLORS[d.disease] || '#6B7280' }}
+                                                style={{ backgroundColor: DISEASE_COLORS[d.disease] || '#6B7280' }}
                                               />
                                               {d.disease}
                                             </div>
@@ -1819,8 +1822,8 @@ export default function DataVisualizationPage() {
                                   </table>
                                 ) : (
                                   <div className="px-4 py-6 text-center">
-                                    <p className="text-sm text-gray-400 italic">No scans recorded for this farm</p>
-                                    <p className="text-xs text-gray-300 mt-1">Scan data will appear once detections are made</p>
+                                    <p className="text-sm text-gray-400 italic">No disease records found for this farm</p>
+                                    <p className="text-xs text-gray-300 mt-1">Disease detection data will appear once leaf disease scans are recorded</p>
                                   </div>
                                 )}
                               </div>
