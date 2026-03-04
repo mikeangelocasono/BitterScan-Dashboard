@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { CheckCircle2, XCircle, UserCheck, Loader2, Filter, AlertCircle } from "lucide-react";
+import Pagination from "@/components/ui/pagination";
 import { useUser } from "@/components/UserContext";
 import { formatDate } from "@/utils/dateUtils";
 import Badge from "@/components/ui/badge";
@@ -21,6 +22,9 @@ const CACHE_KEY_PENDING = 'bs:cache:pending-users';
 const CACHE_KEY_APPROVED = 'bs:cache:approved-users';
 const CACHE_KEY_REJECTED = 'bs:cache:rejected-users';
 const CACHE_EXPIRY_MS = 2 * 60 * 1000; // 2 min cache
+
+// Pagination constants
+const PAGE_SIZE = 5;
 
 function loadCache<T>(key: string): T | null {
   if (typeof window === 'undefined') return null;
@@ -297,6 +301,42 @@ function ApprovalsContent() {
     return pendingUsers.filter((user) => user.role === roleFilter);
   }, [pendingUsers, roleFilter]);
 
+  // Pagination state for each table
+  const [currentPagePending, setCurrentPagePending] = useState(1);
+  const [currentPageApproved, setCurrentPageApproved] = useState(1);
+  const [currentPageRejected, setCurrentPageRejected] = useState(1);
+
+  // Reset to page 1 when filter or data changes
+  useEffect(() => {
+    setCurrentPagePending(1);
+  }, [roleFilter, pendingUsers.length]);
+
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(approvedUsers.length / PAGE_SIZE));
+    if (currentPageApproved > totalPages) setCurrentPageApproved(totalPages);
+  }, [approvedUsers.length, currentPageApproved]);
+
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(rejectedUsers.length / PAGE_SIZE));
+    if (currentPageRejected > totalPages) setCurrentPageRejected(totalPages);
+  }, [rejectedUsers.length, currentPageRejected]);
+
+  // Paginated records for each table
+  const displayedPending = useMemo(() => {
+    const startIndex = (currentPagePending - 1) * PAGE_SIZE;
+    return filteredPending.slice(startIndex, startIndex + PAGE_SIZE);
+  }, [filteredPending, currentPagePending]);
+
+  const displayedApproved = useMemo(() => {
+    const startIndex = (currentPageApproved - 1) * PAGE_SIZE;
+    return approvedUsers.slice(startIndex, startIndex + PAGE_SIZE);
+  }, [approvedUsers, currentPageApproved]);
+
+  const displayedRejected = useMemo(() => {
+    const startIndex = (currentPageRejected - 1) * PAGE_SIZE;
+    return rejectedUsers.slice(startIndex, startIndex + PAGE_SIZE);
+  }, [rejectedUsers, currentPageRejected]);
+
   // Only show full-page loading during initial session resolution
   if (!sessionReady) {
     return (
@@ -408,20 +448,21 @@ function ApprovalsContent() {
               <p className="mt-1 text-xs text-gray-400">New user registrations will appear here.</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <Table className="rounded-lg border border-gray-200 shadow-sm">
-                <Thead>
-                  <Tr>
-                    <Th>Name</Th>
-                    <Th>Email</Th>
-                    <Th>Username</Th>
-                    <Th>Role</Th>
-                    <Th>Registered</Th>
-                    <Th>Actions</Th>
-                  </Tr>
-                </Thead>
+            <>
+              <div className="overflow-x-auto">
+                <Table className="rounded-lg border border-gray-200 shadow-sm">
+                  <Thead>
+                    <Tr>
+                      <Th>Name</Th>
+                      <Th>Email</Th>
+                      <Th>Username</Th>
+                      <Th>Role</Th>
+                      <Th>Registered</Th>
+                      <Th>Actions</Th>
+                    </Tr>
+                  </Thead>
                 <Tbody>
-                  {filteredPending.map((user) => (
+                  {displayedPending.map((user) => (
                     <Tr key={user.id}>
                       <Td>{user.full_name}</Td>
                       <Td>{user.email}</Td>
@@ -463,7 +504,16 @@ function ApprovalsContent() {
                 </Tbody>
               </Table>
             </div>
-          )}
+            {/* Pagination Controls */}
+            <div className="mt-4">
+              <Pagination
+                currentPage={currentPagePending}
+                totalRecords={filteredPending.length}
+                pageSize={PAGE_SIZE}
+                onPageChange={setCurrentPagePending}
+                showInfo={true}
+              />
+            </div>            </>          )}
         </CardContent>
       </Card>
 
@@ -478,19 +528,20 @@ function ApprovalsContent() {
               <p className="mt-1 text-xs text-gray-400">Approved users will appear here.</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <Table className="rounded-lg border border-gray-200 shadow-sm">
-                <Thead>
-                  <Tr>
-                    <Th>Name</Th>
-                    <Th>Email</Th>
-                    <Th>Username</Th>
-                    <Th>Role</Th>
-                    <Th>Approved</Th>
-                  </Tr>
-                </Thead>
+            <>
+              <div className="overflow-x-auto">
+                <Table className="rounded-lg border border-gray-200 shadow-sm">
+                  <Thead>
+                    <Tr>
+                      <Th>Name</Th>
+                      <Th>Email</Th>
+                      <Th>Username</Th>
+                      <Th>Role</Th>
+                      <Th>Approved</Th>
+                    </Tr>
+                  </Thead>
                 <Tbody>
-                  {approvedUsers.map((user) => (
+                  {displayedApproved.map((user) => (
                     <Tr key={user.id}>
                       <Td>{user.full_name}</Td>
                       <Td>{user.email}</Td>
@@ -504,6 +555,17 @@ function ApprovalsContent() {
                 </Tbody>
               </Table>
             </div>
+            {/* Pagination Controls */}
+            <div className="mt-4">
+              <Pagination
+                currentPage={currentPageApproved}
+                totalRecords={approvedUsers.length}
+                pageSize={PAGE_SIZE}
+                onPageChange={setCurrentPageApproved}
+                showInfo={true}
+              />
+            </div>
+            </>
           )}
         </CardContent>
       </Card>
@@ -519,19 +581,20 @@ function ApprovalsContent() {
               <p className="mt-1 text-xs text-gray-400">Rejected users will appear here.</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <Table className="rounded-lg border border-gray-200 shadow-sm">
-                <Thead>
-                  <Tr>
-                    <Th>Name</Th>
-                    <Th>Email</Th>
-                    <Th>Username</Th>
-                    <Th>Role</Th>
-                    <Th>Rejected</Th>
-                  </Tr>
-                </Thead>
+            <>
+              <div className="overflow-x-auto">
+                <Table className="rounded-lg border border-gray-200 shadow-sm">
+                  <Thead>
+                    <Tr>
+                      <Th>Name</Th>
+                      <Th>Email</Th>
+                      <Th>Username</Th>
+                      <Th>Role</Th>
+                      <Th>Rejected</Th>
+                    </Tr>
+                  </Thead>
                 <Tbody>
-                  {rejectedUsers.map((user) => (
+                  {displayedRejected.map((user) => (
                     <Tr key={user.id}>
                       <Td>{user.full_name}</Td>
                       <Td>{user.email}</Td>
@@ -545,6 +608,17 @@ function ApprovalsContent() {
                 </Tbody>
               </Table>
             </div>
+            {/* Pagination Controls */}
+            <div className="mt-4">
+              <Pagination
+                currentPage={currentPageRejected}
+                totalRecords={rejectedUsers.length}
+                pageSize={PAGE_SIZE}
+                onPageChange={setCurrentPageRejected}
+                showInfo={true}
+              />
+            </div>
+            </>
           )}
         </CardContent>
       </Card>

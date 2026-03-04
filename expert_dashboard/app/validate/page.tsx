@@ -10,6 +10,7 @@ import toast from "react-hot-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { supabase } from "@/components/supabase";
 import { Loader2, AlertCircle, X, Eye } from "lucide-react";
+import Pagination from "@/components/ui/pagination";
 import { Scan, SupabaseApiError, isSupabaseApiError, getAiPrediction, getSolution, getRecommendedProducts } from "@/types";
 import { useUser } from "@/components/UserContext";
 import { useData } from "@/components/DataContext";
@@ -48,6 +49,9 @@ type DebugLogObject = {
 // Error throttling to prevent console spam
 // Track errors silently - only log once per unique image error
 const errorThrottle = new Map<string, boolean>();
+
+// Pagination constants
+const PAGE_SIZE = 5;
 
 const throttledErrorLog = (key: string, message: string, data?: ErrorLogData) => {
 	// Only log each unique error once per page session
@@ -238,6 +242,8 @@ export default function ValidatePage() {
 	const [imageUrlAttempts, setImageUrlAttempts] = useState<Record<string, number>>({});
 	// Force render after timeout to prevent infinite loading
 	const [forceRender, setForceRender] = useState(false);
+	// Pagination state
+	const [currentPage, setCurrentPage] = useState(1);
 	const { user, profile } = useUser();
 	// Get scans from DataContext - these update automatically via Supabase Realtime subscriptions
 	const { scans, loading, error, removeScanFromState, updateScanStatusInState, refreshData } = useData();
@@ -724,6 +730,29 @@ export default function ValidatePage() {
 		});
 	}, [scans, dateRangeType, tab, getDateRangeForFilter]);
 
+	// Reset to page 1 when filters change
+	useEffect(() => {
+		setCurrentPage(1);
+	}, [tab, dateRangeType, startDate, endDate]);
+
+	// Calculate total pages
+	const totalPages = useMemo(() => {
+		return Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+	}, [filtered.length]);
+
+	// Ensure currentPage doesn't exceed totalPages when data changes
+	useEffect(() => {
+		if (currentPage > totalPages) {
+			setCurrentPage(totalPages);
+		}
+	}, [currentPage, totalPages]);
+
+	// Paginated records - show PAGE_SIZE records per page
+	const displayedRecords = useMemo(() => {
+		const startIndex = (currentPage - 1) * PAGE_SIZE;
+		return filtered.slice(startIndex, startIndex + PAGE_SIZE);
+	}, [filtered, currentPage]);
+
 
 	// Parse scan result details from scan data
 	// Updated to use new schema: leaf_disease_scans and fruit_ripeness_scans
@@ -948,6 +977,7 @@ export default function ValidatePage() {
 							</div>
 						</div>
 					) : (
+						<>
 						<div className="overflow-x-auto">
 							<Table>
 								<Thead>
@@ -961,7 +991,7 @@ export default function ValidatePage() {
 									</Tr>
 								</Thead>
 								<Tbody>
-									{filtered.map((scan: Scan) => {
+									{displayedRecords.map((scan: Scan) => {
 										const cropType = scan.scan_type === 'leaf_disease' ? 'Leaf Disease' : 'Fruit Ripeness';
 										const farmerName = scan.farmer_profile?.full_name || scan.farmer_profile?.username || 'Unknown Farmer';
 										
@@ -1067,6 +1097,17 @@ export default function ValidatePage() {
 								</Tbody>
 							</Table>
 						</div>
+						{/* Pagination Controls */}
+						<div className="mt-4">
+							<Pagination
+								currentPage={currentPage}
+								totalRecords={filtered.length}
+								pageSize={PAGE_SIZE}
+								onPageChange={setCurrentPage}
+								showInfo={true}
+							/>
+						</div>
+						</>
 					)}
 
 					<Dialog open={!!detailId} onOpenChange={(open: boolean): void => {
