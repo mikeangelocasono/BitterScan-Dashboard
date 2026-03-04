@@ -12,7 +12,7 @@ import { useUser } from "@/components/UserContext";
 import { 
   Loader2, Save, BookOpen, AlertCircle, CheckCircle2, Edit2, X, 
   FileText, Stethoscope, Pill, ShieldCheck, Leaf, Search, Plus, Eye,
-  Copy, AlertTriangle
+  AlertTriangle
 } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -270,48 +270,6 @@ function ManageDiseaseInfoContent() {
     // Also update editing disease if it's open
     setEditingDisease(prev => prev && prev.disease_id === id ? { ...prev, [field]: value } : prev);
   }, []);
-
-  // Copy English to Bisaya for a specific field pair
-  const copyEnToBi = useCallback((enField: keyof DiseaseInfo, biField: keyof DiseaseInfo) => {
-    if (!editingDisease) return;
-    const enValue = editingDisease[enField] as string | null;
-    if (enValue) {
-      setEditingDisease(prev => prev ? { ...prev, [biField]: enValue } : prev);
-      toast.success(`Copied to Bisaya`);
-    } else {
-      toast.error("No English content to copy");
-    }
-  }, [editingDisease]);
-
-  // Copy all English fields to Bisaya
-  const copyAllEnToBi = useCallback(() => {
-    if (!editingDisease) return;
-    const updates: Partial<DiseaseInfo> = {};
-    let copiedCount = 0;
-    
-    const pairs: [keyof DiseaseInfo, keyof DiseaseInfo][] = [
-      ["description_en", "description_bi"],
-      ["symptoms_en", "symptoms_bi"],
-      ["treatment_en", "treatment_bi"],
-      ["products_en", "products_bi"],
-      ["prevention_en", "prevention_bi"],
-    ];
-    
-    for (const [en, bi] of pairs) {
-      const enValue = editingDisease[en] as string | null;
-      if (enValue && !isEmptyText(enValue)) {
-        updates[bi] = enValue;
-        copiedCount++;
-      }
-    }
-    
-    if (copiedCount > 0) {
-      setEditingDisease(prev => prev ? { ...prev, ...updates } : prev);
-      toast.success(`Copied ${copiedCount} field(s) to Bisaya`);
-    } else {
-      toast.error("No English content to copy");
-    }
-  }, [editingDisease]);
 
   // Normalize a field value for safe comparison: trims whitespace, converts null/undefined to empty string
   const normalize = useCallback((value: string | null | undefined): string => {
@@ -663,69 +621,46 @@ function ManageDiseaseInfoContent() {
           </DialogHeader>
           <DialogContent className="overflow-y-auto flex-1 p-6">
             {editingDisease && (
-              <div className="space-y-5">
-                {/* Copy All Button */}
-                <div className="flex justify-end">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={copyAllEnToBi}
-                    className="text-sm border-[#388E3C] text-[#388E3C] hover:bg-[#388E3C]/10"
-                  >
-                    <Copy className="h-4 w-4 mr-2" />
-                    Copy All EN → BS
-                  </Button>
-                </div>
-                
+              <div className="space-y-4">
                 <FieldGroup
                   label="Description"
                   icon={<FileText className="h-4 w-4" />}
                   englishValue={editingDisease.description_en || ""}
                   bisayaValue={editingDisease.description_bi || ""}
-                  isEditing={true}
                   onEnglishChange={(val) => setEditingDisease(prev => prev ? { ...prev, description_en: val } : prev)}
                   onBisayaChange={(val) => setEditingDisease(prev => prev ? { ...prev, description_bi: val } : prev)}
-                  onCopyEnToBi={() => copyEnToBi("description_en", "description_bi")}
                 />
                 <FieldGroup
                   label="Symptoms"
                   icon={<Stethoscope className="h-4 w-4" />}
                   englishValue={editingDisease.symptoms_en || ""}
                   bisayaValue={editingDisease.symptoms_bi || ""}
-                  isEditing={true}
                   onEnglishChange={(val) => setEditingDisease(prev => prev ? { ...prev, symptoms_en: val } : prev)}
                   onBisayaChange={(val) => setEditingDisease(prev => prev ? { ...prev, symptoms_bi: val } : prev)}
-                  onCopyEnToBi={() => copyEnToBi("symptoms_en", "symptoms_bi")}
                 />
                 <FieldGroup
                   label="Treatment"
                   icon={<Pill className="h-4 w-4" />}
                   englishValue={editingDisease.treatment_en || ""}
                   bisayaValue={editingDisease.treatment_bi || ""}
-                  isEditing={true}
                   onEnglishChange={(val) => setEditingDisease(prev => prev ? { ...prev, treatment_en: val } : prev)}
                   onBisayaChange={(val) => setEditingDisease(prev => prev ? { ...prev, treatment_bi: val } : prev)}
-                  onCopyEnToBi={() => copyEnToBi("treatment_en", "treatment_bi")}
                 />
                 <FieldGroup
                   label="Products"
                   icon={<CheckCircle2 className="h-4 w-4" />}
                   englishValue={editingDisease.products_en || ""}
                   bisayaValue={editingDisease.products_bi || ""}
-                  isEditing={true}
                   onEnglishChange={(val) => setEditingDisease(prev => prev ? { ...prev, products_en: val } : prev)}
                   onBisayaChange={(val) => setEditingDisease(prev => prev ? { ...prev, products_bi: val } : prev)}
-                  onCopyEnToBi={() => copyEnToBi("products_en", "products_bi")}
                 />
                 <FieldGroup
                   label="Prevention"
                   icon={<ShieldCheck className="h-4 w-4" />}
                   englishValue={editingDisease.prevention_en || ""}
                   bisayaValue={editingDisease.prevention_bi || ""}
-                  isEditing={true}
                   onEnglishChange={(val) => setEditingDisease(prev => prev ? { ...prev, prevention_en: val } : prev)}
                   onBisayaChange={(val) => setEditingDisease(prev => prev ? { ...prev, prevention_bi: val } : prev)}
-                  onCopyEnToBi={() => copyEnToBi("prevention_en", "prevention_bi")}
                 />
               </div>
             )}
@@ -863,86 +798,51 @@ function FieldGroup({
   icon,
   englishValue,
   bisayaValue,
-  isEditing,
   onEnglishChange,
   onBisayaChange,
-  onCopyEnToBi,
 }: {
   label: string;
   icon: React.ReactNode;
   englishValue: string;
   bisayaValue: string;
-  isEditing: boolean;
   onEnglishChange: (value: string) => void;
   onBisayaChange: (value: string) => void;
-  onCopyEnToBi?: () => void;
 }) {
-  const hasContent = englishValue || bisayaValue;
-
-  if (!isEditing && !hasContent) {
-    return null; // Hide empty fields when not editing
-  }
-
   return (
-    <div className="bg-white rounded-lg p-5 border-l-4 border-[#388E3C] shadow-sm hover:shadow-md transition-shadow duration-200">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded-full bg-[#388E3C]/10 flex items-center justify-center text-[#388E3C]">
-            {icon}
-          </div>
-          <h3 className="text-base font-semibold text-gray-800">{label}</h3>
+    <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+      <div className="flex items-center gap-2 mb-3">
+        <div className="h-7 w-7 rounded-full bg-[#388E3C]/10 flex items-center justify-center text-[#388E3C]">
+          {icon}
         </div>
-        {isEditing && onCopyEnToBi && (
-          <button
-            type="button"
-            onClick={onCopyEnToBi}
-            className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-[#388E3C] hover:bg-[#388E3C]/10 rounded transition-colors"
-            title={`Copy English ${label} to Bisaya`}
-          >
-            <Copy className="h-3 w-3" />
-            EN → BS
-          </button>
-        )}
+        <h3 className="text-sm font-semibold text-gray-800">{label}</h3>
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         {/* English */}
         <div>
-          <label className="flex items-center gap-2 text-xs font-semibold text-gray-700 mb-2 uppercase tracking-wide">
-            <span className="h-5 w-5 rounded bg-blue-100 text-blue-700 flex items-center justify-center text-[10px] font-bold">EN</span>
+          <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600 mb-1.5">
+            <span className="h-4 w-4 rounded bg-blue-100 text-blue-700 flex items-center justify-center text-[9px] font-bold">EN</span>
             English
           </label>
-          {isEditing ? (
-            <textarea
-              value={englishValue}
-              onChange={(e) => onEnglishChange(e.target.value)}
-              className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-transparent text-sm min-h-[120px] resize-y transition-all duration-200 bg-white"
-              placeholder={`Enter ${label.toLowerCase()} in English...`}
-            />
-          ) : (
-            <div className="px-4 py-3 bg-blue-50 rounded-lg text-sm text-gray-800 min-h-[120px] whitespace-pre-wrap border border-blue-200">
-              {englishValue || <span className="text-gray-400 italic">No information available</span>}
-            </div>
-          )}
+          <textarea
+            value={englishValue}
+            onChange={(e) => onEnglishChange(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-transparent text-sm min-h-[100px] resize-y bg-white"
+            placeholder={`Enter ${label.toLowerCase()} in English...`}
+          />
         </div>
 
         {/* Bisaya */}
         <div>
-          <label className="flex items-center gap-2 text-xs font-semibold text-gray-700 mb-2 uppercase tracking-wide">
-            <span className="h-5 w-5 rounded bg-green-100 text-green-700 flex items-center justify-center text-[10px] font-bold">BS</span>
+          <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600 mb-1.5">
+            <span className="h-4 w-4 rounded bg-green-100 text-green-700 flex items-center justify-center text-[9px] font-bold">BS</span>
             Bisaya
           </label>
-          {isEditing ? (
-            <textarea
-              value={bisayaValue}
-              onChange={(e) => onBisayaChange(e.target.value)}
-              className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-transparent text-sm min-h-[120px] resize-y transition-all duration-200 bg-white"
-              placeholder={`Enter ${label.toLowerCase()} in Bisaya...`}
-            />
-          ) : (
-            <div className="px-4 py-3 bg-green-50 rounded-lg text-sm text-gray-800 min-h-[120px] whitespace-pre-wrap border border-green-200">
-              {bisayaValue || <span className="text-gray-400 italic">Walay impormasyon</span>}
-            </div>
-          )}
+          <textarea
+            value={bisayaValue}
+            onChange={(e) => onBisayaChange(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-transparent text-sm min-h-[100px] resize-y bg-white"
+            placeholder={`Enter ${label.toLowerCase()} in Bisaya...`}
+          />
         </div>
       </div>
     </div>
