@@ -233,11 +233,22 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 		if (!user?.id || userLoading) return;
 		let cancelled = false;
 
-		// Phase 1: instant hydration from localStorage (no blank flash)
+		// Phase 1: merge localStorage data with any existing state
+		// (preserves reads the user made before hydration completed)
 		const cachedScans = loadReadScanIds(user.id);
 		const cachedUsers = loadReadUserIds(user.id);
-		if (cachedScans.size > 0) setReadScanIds(cachedScans);
-		if (cachedUsers.size > 0) setReadUserIds(cachedUsers);
+		if (cachedScans.size > 0) {
+			setReadScanIds(prev => {
+				const merged = new Set([...prev, ...cachedScans]);
+				return merged.size > prev.size ? merged : prev;
+			});
+		}
+		if (cachedUsers.size > 0) {
+			setReadUserIds(prev => {
+				const merged = new Set([...prev, ...cachedUsers]);
+				return merged.size > prev.size ? merged : prev;
+			});
+		}
 		setReadStateLoaded(true);
 
 		// Phase 2: authoritative API state → union merge (read stays read)
@@ -519,7 +530,14 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
 			return changed ? next : prev;
 		});
-	}, []);
+
+		// Immediately persist to localStorage (atomic merge) to survive refresh
+		if (user?.id) {
+			const currentStored = loadReadScanIds(user.id);
+			scanIds.forEach(id => currentStored.add(id));
+			saveReadScanIds(currentStored, user.id);
+		}
+	}, [user?.id]);
 
 	const markUsersAsRead = useCallback((userIds: string[]) => {
 		if (!userIds || userIds.length === 0) return;
@@ -537,7 +555,14 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
 			return changed ? next : prev;
 		});
-	}, []);
+
+		// Immediately persist to localStorage (atomic merge) to survive refresh
+		if (user?.id) {
+			const currentStored = loadReadUserIds(user.id);
+			userIds.forEach(id => currentStored.add(id));
+			saveReadUserIds(currentStored, user.id);
+		}
+	}, [user?.id]);
 
 	/**
 	 * Mark ALL pending scans + pending users as read in a single batch.
@@ -554,6 +579,13 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 				}
 				return changed ? next : prev;
 			});
+
+			// Immediately persist to localStorage
+			if (user?.id) {
+				const currentStored = loadReadScanIds(user.id);
+				pendingScans.forEach(scan => currentStored.add(scan.id));
+				saveReadScanIds(currentStored, user.id);
+			}
 		}
 		// Batch-mark all users
 		if (pendingUsers.length > 0) {
@@ -565,8 +597,15 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 				}
 				return changed ? next : prev;
 			});
+
+			// Immediately persist to localStorage
+			if (user?.id) {
+				const currentStored = loadReadUserIds(user.id);
+				pendingUsers.forEach(u => currentStored.add(u.id));
+				saveReadUserIds(currentStored, user.id);
+			}
 		}
-	}, [pendingScans, pendingUsers]);
+	}, [pendingScans, pendingUsers, user?.id]);
 
 	/**
 	 * REAL-TIME UNREAD COUNT: Calculate unread notifications for scans and users
