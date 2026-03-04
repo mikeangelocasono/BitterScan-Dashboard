@@ -230,6 +230,51 @@ export async function verifyExpertOrAdminAuth(request: NextRequest): Promise<Exp
   }
 }
 
+// ─── Generic auth result (any role) ──────────────────────────────────────
+export interface BasicAuthResult {
+  authenticated: boolean;
+  userId?: string;
+  email?: string;
+  error?: string;
+}
+
+/**
+ * Verify that the request comes from any authenticated user (no role check).
+ * Use this for endpoints accessible to all logged-in users.
+ */
+export async function verifyAuth(request: NextRequest): Promise<BasicAuthResult> {
+  try {
+    const authHeader = request.headers.get('authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return { authenticated: false, error: 'Missing or invalid authorization header' };
+    }
+
+    const token = authHeader.substring(7);
+    if (!token) {
+      return { authenticated: false, error: 'No token provided' };
+    }
+
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return { authenticated: false, error: 'Server configuration error' };
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+
+    if (authError || !user) {
+      return { authenticated: false, error: 'Invalid or expired token' };
+    }
+
+    return { authenticated: true, userId: user.id, email: user.email ?? undefined };
+  } catch (error) {
+    console.error('[authMiddleware] verifyAuth error:', error);
+    return { authenticated: false, error: 'Authentication verification failed' };
+  }
+}
+
 /**
  * Helper to create unauthorized response
  */

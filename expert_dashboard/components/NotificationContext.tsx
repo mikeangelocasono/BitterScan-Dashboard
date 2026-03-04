@@ -103,36 +103,36 @@ function saveReadUserIds(ids: Set<string>, userId?: string): void {
 	}
 }
 
-// ─── Database persistence helpers ────────────────────────────────────────
-// Reads / writes to the `notification_reads` table in Supabase so read-state
-// survives across browsers, devices, and cache clears.
-// Falls back silently to localStorage if the table doesn't exist yet.
-//
-// To create the table run this SQL in your Supabase SQL editor:
-//
-//   CREATE TABLE IF NOT EXISTS notification_reads (
-//     user_id  UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-//     read_scan_ids JSONB NOT NULL DEFAULT '[]',
-//     read_user_ids JSONB NOT NULL DEFAULT '[]',
-//     updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
-//   );
-//   ALTER TABLE notification_reads ENABLE ROW LEVEL SECURITY;
-//   CREATE POLICY "Users manage own reads"
-//     ON notification_reads FOR ALL
-//     USING (auth.uid() = user_id)
-//     WITH CHECK (auth.uid() = user_id);
+// ─── Server API persistence helpers ──────────────────────────────────────
+// Reads / writes go through /api/notifications/reads which uses the admin
+// (service-role) Supabase client. This eliminates client-side RLS timing
+// issues and ensures reliable persistence across devices and cache clears.
+// Falls back seamlessly to localStorage when the API is unavailable.
 
-async function loadReadsFromDb(
-	userId: string
-): Promise<{ scanIds: Set<number>; userIds: Set<string> } | null> {
+/** Get the current access token from the Supabase client session */
+async function getAccessToken(): Promise<string | null> {
 	try {
-		const { data, error } = await supabase
-			.from("notification_reads")
-			.select("read_scan_ids, read_user_ids")
-			.eq("user_id", userId)
-			.maybeSingle();
+		const { data: { session } } = await supabase.auth.getSession();
+		return session?.access_token ?? null;
+	} catch {
+		return null;
+	}
+}
 
-		if (error || !data) return null;
+/** Load read state from the server API (admin client, bypasses RLS) */
+async function loadReadsFromApi(): Promise<{ scanIds: Set<number>; userIds: Set<string> } | null> {
+	try {
+		const token = await getAccessToken();
+		if (!token) return null;
+
+		const res = await fetch("/api/notifications/reads", {
+			headers: { Authorization: `Bearer ${token}` },
+			cache: "no-store",
+		});
+
+		if (!res.ok) return null;
+
+		const data = await res.json();
 
 		const scanIds = new Set<number>(
 			Array.isArray(data.read_scan_ids)
@@ -147,28 +147,34 @@ async function loadReadsFromDb(
 
 		return { scanIds, userIds };
 	} catch {
-		// Table probably doesn't exist — fall back to localStorage silently
+		// API unavailable — caller will fall back to localStorage
 		return null;
 	}
 }
 
-async function saveReadsToDb(
-	userId: string,
+/** Persist read state to the server API (fire-and-forget safe with keepalive) */
+async function saveReadsToApi(
 	scanIds: Set<number>,
 	userIds: Set<string>
 ): Promise<void> {
 	try {
-		await supabase.from("notification_reads").upsert(
-			{
-				user_id: userId,
+		const token = await getAccessToken();
+		if (!token) return;
+
+		await fetch("/api/notifications/reads", {
+			method: "PATCH",
+			headers: {
+				Authorization: `Bearer ${token}`,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
 				read_scan_ids: Array.from(scanIds),
 				read_user_ids: Array.from(userIds),
-				updated_at: new Date().toISOString(),
-			},
-			{ onConflict: "user_id" }
-		);
+			}),
+			keepalive: true, // Ensures the request completes even during page unload
+		});
 	} catch {
-		// Silent — localStorage is the fast fallback
+		// Silent — localStorage is the synchronous fallback
 	}
 }
 
@@ -219,30 +225,35 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 	const [pendingUsers, setPendingUsers] = useState<UserProfile[]>([]);
 	const [usersLoading, setUsersLoading] = useState(true);
 
-	// ─── Load persisted read state (DB first → localStorage fallback) ────
+	// ─── Load persisted read state (localStorage instant → API merge) ────
+	// Phase 1: Synchronous localStorage hydration for instant UI render.
+	// Phase 2: Async API call to fetch authoritative server state, then
+	//          union-merge so "read" from either source stays read.
 	useEffect(() => {
 		if (!user?.id || userLoading) return;
 		let cancelled = false;
 
+		// Phase 1: instant hydration from localStorage (no blank flash)
+		const cachedScans = loadReadScanIds(user.id);
+		const cachedUsers = loadReadUserIds(user.id);
+		if (cachedScans.size > 0) setReadScanIds(cachedScans);
+		if (cachedUsers.size > 0) setReadUserIds(cachedUsers);
+		setReadStateLoaded(true);
+
+		// Phase 2: authoritative API state → union merge (read stays read)
 		(async () => {
-			// 1. Try the database (cross-device, authoritative)
-			const dbResult = await loadReadsFromDb(user.id);
+			const apiResult = await loadReadsFromApi();
+			if (cancelled || !apiResult) return;
 
-			if (cancelled) return;
-
-			if (dbResult) {
-				setReadScanIds(dbResult.scanIds);
-				setReadUserIds(dbResult.userIds);
-				// Mirror to localStorage for instant hydration on next page load
-				saveReadScanIds(dbResult.scanIds, user.id);
-				saveReadUserIds(dbResult.userIds, user.id);
-			} else {
-				// 2. Fallback: user-scoped localStorage
-				setReadScanIds(loadReadScanIds(user.id));
-				setReadUserIds(loadReadUserIds(user.id));
-			}
-
-			setReadStateLoaded(true);
+			// Merge: if API has IDs not yet in local state, add them
+			setReadScanIds((prev) => {
+				const merged = new Set([...prev, ...apiResult.scanIds]);
+				return merged.size !== prev.size ? merged : prev;
+			});
+			setReadUserIds((prev) => {
+				const merged = new Set([...prev, ...apiResult.userIds]);
+				return merged.size !== prev.size ? merged : prev;
+			});
 		})();
 
 		return () => {
@@ -250,18 +261,16 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 		};
 	}, [user?.id, userLoading]);
 
-	// ─── Centralised persistence (localStorage + debounced DB write) ─────
+	// ─── Centralised persistence (localStorage + debounced API write) ────
 	// Every change to readScanIds / readUserIds flows through here, so the
 	// individual mark* / cleanup functions never call save helpers directly.
-	const dbSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const apiSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	// Keep latest values in refs so the flush-on-unmount can access them
 	// without stale closures.
 	const latestReadScanIds = useRef(readScanIds);
 	const latestReadUserIds = useRef(readUserIds);
-	const latestUserId = useRef(user?.id);
 	latestReadScanIds.current = readScanIds;
 	latestReadUserIds.current = readUserIds;
-	latestUserId.current = user?.id;
 
 	useEffect(() => {
 		if (!readStateLoaded || !user?.id) return;
@@ -270,20 +279,17 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 		saveReadScanIds(readScanIds, user.id);
 		saveReadUserIds(readUserIds, user.id);
 
-		// Debounced DB write – avoids hammering the database on rapid clicks
-		if (dbSaveTimer.current) clearTimeout(dbSaveTimer.current);
-		dbSaveTimer.current = setTimeout(() => {
-			saveReadsToDb(user.id, readScanIds, readUserIds);
+		// Debounced API write – avoids hammering the server on rapid clicks
+		if (apiSaveTimer.current) clearTimeout(apiSaveTimer.current);
+		apiSaveTimer.current = setTimeout(() => {
+			saveReadsToApi(readScanIds, readUserIds);
 		}, 500);
 
 		return () => {
-			// Flush the pending DB write on unmount / dependency change so data
-			// is never lost when navigating away or logging out.
-			if (dbSaveTimer.current) {
-				clearTimeout(dbSaveTimer.current);
-				if (latestUserId.current) {
-					saveReadsToDb(latestUserId.current, latestReadScanIds.current, latestReadUserIds.current);
-				}
+			// Flush pending API write on unmount (keepalive ensures completion)
+			if (apiSaveTimer.current) {
+				clearTimeout(apiSaveTimer.current);
+				saveReadsToApi(latestReadScanIds.current, latestReadUserIds.current);
 			}
 		};
 	}, [readScanIds, readUserIds, readStateLoaded, user?.id]);
