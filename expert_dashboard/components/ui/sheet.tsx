@@ -19,7 +19,7 @@ export function Sheet({ open, onOpenChange, children }: { open: boolean; onOpenC
             {/* Sliding drawer */}
             <div 
                 className={clsx(
-                    "absolute top-0 left-0 h-full w-80 bg-[var(--surface)] text-[var(--foreground)] shadow-xl border-r border-[var(--color-border)] transform transition-transform duration-300 ease-out pointer-events-auto",
+                    "absolute top-0 left-0 h-full w-[min(80vw,20rem)] bg-[var(--surface)] text-[var(--foreground)] shadow-xl border-r border-[var(--color-border)] transform transition-transform duration-300 ease-out pointer-events-auto",
                     open ? "translate-x-0" : "-translate-x-full"
                 )}
             >

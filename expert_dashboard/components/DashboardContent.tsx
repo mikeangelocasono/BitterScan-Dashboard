@@ -170,12 +170,12 @@ function DashboardContent() {
 	}
 
 	return (
-		<div className="space-y-8 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+		<div className="space-y-6 sm:space-y-8 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
 			{/* Welcome Section */}
-			<div className="flex items-center justify-between">
+			<div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
 				<div>
-					<h1 className="text-3xl font-bold text-gray-900 tracking-tight mb-1">Welcome back, {displayName}!</h1>
-					<p className="text-gray-600 text-sm">Here&apos;s what&apos;s happening with your {userRole.toLowerCase()} dashboard today.</p>
+					<h1 className="text-2xl sm:text-3xl font-bold text-gray-900 tracking-tight mb-1">Welcome back, {displayName}!</h1>
+					<p className="text-gray-600 text-xs sm:text-sm">Here&apos;s what&apos;s happening with your {userRole.toLowerCase()} dashboard today.</p>
 				</div>
 			</div>
 

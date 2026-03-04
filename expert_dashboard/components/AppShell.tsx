@@ -65,13 +65,13 @@ const AppShellContent = memo(function AppShellContent({ children }: PropsWithChi
 				{/* Content area */}
 				<div className={contentAreaClassName}>
 					{/* Header with account */}
-					<header className="sticky top-0 z-40 bg-[var(--surface)] border-b border-[var(--color-border)] shadow-sm h-16">
-						<div className="flex items-center justify-end gap-3 px-4 md:px-6 lg:px-8 h-full">
+					<header className="sticky top-0 z-30 bg-[var(--surface)] border-b border-[var(--color-border)] shadow-sm h-16">
+						<div className="flex items-center justify-end gap-2 sm:gap-3 pl-14 lg:pl-4 pr-4 md:px-6 lg:px-8 h-full">
 							<NotificationBell />
 							<AccountDropdown />
 						</div>
 					</header>
-					<main className="p-4 md:p-6 lg:p-8 max-w-full">
+					<main className="p-3 sm:p-4 md:p-6 lg:p-8 max-w-full overflow-x-hidden">
 						{children}
 					</main>
 				</div>

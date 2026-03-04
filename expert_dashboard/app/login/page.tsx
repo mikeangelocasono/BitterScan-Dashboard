@@ -294,7 +294,7 @@ function LoginPageContent() {
   return (
     <div className="min-h-screen bg-white flex">
       {/* Left side - Welcome Text */}
-      <div className="hidden lg:flex lg:w-1/2 items-center justify-center p-16">
+      <div className="hidden lg:flex lg:w-1/2 items-center justify-center p-8 xl:p-16">
         <div className="max-w-lg">
           <h1 className="text-4xl font-bold text-gray-900 mb-6">Welcome to BitterScan</h1>
           <h2 className="text-xl font-medium text-gray-700 mb-8">
@@ -308,22 +308,22 @@ function LoginPageContent() {
       </div>
 
       {/* Right side - Login Form Card */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-8">
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-4 sm:p-8">
         <div className="w-full max-w-md">
           {/* Mobile Welcome Text */}
-          <div className="lg:hidden mb-8 text-center">
-            <h1 className="text-3xl font-bold text-gray-900 mb-4">Welcome to BitterScan</h1>
-            <h2 className="text-lg font-medium text-gray-700 mb-6">
+          <div className="lg:hidden mb-6 sm:mb-8 text-center">
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-3 sm:mb-4">Welcome to BitterScan</h1>
+            <h2 className="text-base sm:text-lg font-medium text-gray-700 mb-4 sm:mb-6">
               Sign in to your account
             </h2>
-            <p className="text-gray-600 text-base leading-relaxed text-justify mb-8">
+            <p className="text-gray-600 text-sm sm:text-base leading-relaxed text-justify mb-6 sm:mb-8">
               Access your dashboard to validate and manage content.
               Your role will be automatically detected upon login.
             </p>
           </div>
 
           {/* Form Card */}
-          <div className="bg-white border border-gray-200 rounded-2xl shadow-lg p-8">
+          <div className="bg-white border border-gray-200 rounded-2xl shadow-lg p-5 sm:p-8">
             {/* Header */}
             <div className="mb-6 text-center">
               <h3 className="text-xl font-semibold text-gray-900 mb-2">Sign In</h3>

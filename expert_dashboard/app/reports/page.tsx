@@ -1311,12 +1311,12 @@ export default function ReportsPage() {
           {/* Header Section with Title */}
           <div className="space-y-3">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Reports &amp; Analytics</h1>
-              <p className="text-gray-600 text-sm">Comprehensive insights into scan activity and AI performance</p>
+              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 tracking-tight">Reports &amp; Analytics</h1>
+              <p className="text-gray-600 text-xs sm:text-sm">Comprehensive insights into scan activity and AI performance</p>
             </div>
             
             {/* Real-time Clock */}
-            <div className="flex items-center justify-between px-5 py-3 text-sm bg-gradient-to-r from-[#388E3C] to-[#2F7A33] rounded-lg shadow-md">
+            <div className="flex items-center justify-between px-3 sm:px-5 py-2.5 sm:py-3 text-xs sm:text-sm bg-gradient-to-r from-[#388E3C] to-[#2F7A33] rounded-lg shadow-md overflow-hidden">
               <RealTimeClock />
             </div>
           </div>
@@ -1400,7 +1400,7 @@ export default function ReportsPage() {
             </div>
             
             {/* Export Buttons - Right Side */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-shrink-0">
               <Button
                 variant="outline"
                 size="sm"
@@ -1408,18 +1408,18 @@ export default function ReportsPage() {
                   const csvContent = generateCSV();
                   downloadCSV(csvContent);
                 }}
-                className="flex items-center gap-2"
+                className="flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm"
               >
-                <Download className="h-4 w-4" />
-                Export CSV
+                <Download className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                <span className="hidden sm:inline">Export</span> CSV
               </Button>
               <Button
                 size="sm"
                 onClick={() => generatePDF()}
-                className="flex items-center gap-2 text-white bg-[#388E3C] border-[#388E3C] hover:bg-[#2F7A33] hover:border-[#2F7A33] transition-colors"
+                className="flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm text-white bg-[#388E3C] border-[#388E3C] hover:bg-[#2F7A33] hover:border-[#2F7A33] transition-colors"
               >
-                <Download className="h-4 w-4" />
-                Export PDF
+                <Download className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                <span className="hidden sm:inline">Export</span> PDF
               </Button>
             </div>
           </div>

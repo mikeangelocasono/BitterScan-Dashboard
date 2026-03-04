@@ -779,9 +779,9 @@ export default function ValidatePage() {
 			<AppShell>
 				<div className="space-y-6">
 					{/* Header with Toggle Buttons */}
-					<div className="flex items-center justify-between">
-						<h2 className="text-2xl font-semibold text-gray-900">Validation</h2>
-						<div className="inline-flex rounded-lg border border-gray-200 overflow-hidden bg-white shadow-sm">
+					<div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+						<h2 className="text-xl sm:text-2xl font-semibold text-gray-900">Validation</h2>
+						<div className="inline-flex rounded-lg border border-gray-200 overflow-hidden bg-white shadow-sm self-start sm:self-auto">
 							<button 
 								className={`px-5 py-2.5 text-sm font-medium transition-all ${
 									tab === 'leaf' 
@@ -1086,7 +1086,7 @@ export default function ValidatePage() {
 							setDetailId(null);
 						}
 					}}>
-						<DialogContent className="!max-w-6xl w-[calc(100%-2rem)] max-w-[95vw] p-0 flex flex-col max-h-[95vh] h-[95vh] overflow-hidden bg-white rounded-xl shadow-2xl">
+						<DialogContent className="!max-w-6xl w-[calc(100%-1rem)] sm:w-[calc(100%-2rem)] max-w-[98vw] sm:max-w-[95vw] p-0 flex flex-col max-h-[95vh] h-[95vh] overflow-hidden bg-white rounded-xl shadow-2xl">
 							{detailId && (() => {
 								const selectedScan = scans.find((scan: Scan) => scan.id.toString() === detailId);
 								if (!selectedScan) {
@@ -1117,10 +1117,10 @@ export default function ValidatePage() {
 								return (
 									<>
 										{/* Modal Header - Fixed at top */}
-										<div className="flex items-center justify-between px-6 py-5 border-b border-gray-200 bg-gradient-to-r from-white to-gray-50 flex-shrink-0 z-10">
+										<div className="flex items-center justify-between px-4 sm:px-6 py-4 sm:py-5 border-b border-gray-200 bg-gradient-to-r from-white to-gray-50 flex-shrink-0 z-10">
 											<DialogHeader className="p-0">
-												<DialogTitle className="text-xl font-bold text-gray-900">Scan Validation Details</DialogTitle>
-												<p className="text-sm text-gray-500 mt-1">Review and validate the scan information</p>
+												<DialogTitle className="text-lg sm:text-xl font-bold text-gray-900">Scan Validation Details</DialogTitle>
+												<p className="text-xs sm:text-sm text-gray-500 mt-1">Review and validate the scan information</p>
 											</DialogHeader>
 											<button 
 												aria-label="Close" 
@@ -1136,7 +1136,7 @@ export default function ValidatePage() {
 
 										{/* Scrollable Content - Main scrollable area */}
 										<div 
-											className="px-6 py-6 overflow-y-auto overflow-x-hidden bg-gray-50 flex-1 min-h-0 scrollable-details-content" 
+											className="px-3 sm:px-6 py-4 sm:py-6 overflow-y-auto overflow-x-hidden bg-gray-50 flex-1 min-h-0 scrollable-details-content" 
 											style={{ 
 												maxHeight: 'calc(95vh - 200px)',
 												scrollBehavior: 'smooth',
@@ -1440,8 +1440,8 @@ export default function ValidatePage() {
 										</div>
 
 										{/* Modal Footer */}
-										<div className="bg-white border-t-2 border-gray-200 px-6 py-4 flex-shrink-0 shadow-lg z-10">
-											<DialogFooter className="flex flex-row items-center justify-end gap-3 sm:gap-3">
+										<div className="bg-white border-t-2 border-gray-200 px-3 sm:px-6 py-3 sm:py-4 flex-shrink-0 shadow-lg z-10">
+											<DialogFooter className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 sm:gap-3">
 												<Button 
 													variant="outline" 
 													onClick={(e: React.MouseEvent<HTMLButtonElement>): void => {

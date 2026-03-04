@@ -852,12 +852,12 @@ export default function DataVisualizationPage() {
             {/* Header Section with Title */}
             <div className="space-y-3">
               <div>
-                <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Data Visualization</h1>
-                <p className="text-gray-600 text-sm">Advanced Analytics & Farm Disease Mapping</p>
+                <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 tracking-tight">Data Visualization</h1>
+                <p className="text-gray-600 text-xs sm:text-sm">Advanced Analytics & Farm Disease Mapping</p>
               </div>
               
               {/* Real-time Clock */}
-              <div className="flex items-center justify-between px-5 py-3 text-sm bg-gradient-to-r from-[#388E3C] to-[#2F7A33] rounded-lg shadow-md">
+              <div className="flex items-center justify-between px-3 sm:px-5 py-2.5 sm:py-3 text-xs sm:text-sm bg-gradient-to-r from-[#388E3C] to-[#2F7A33] rounded-lg shadow-md overflow-hidden">
                 <RealTimeClock />
               </div>
             </div>
@@ -1831,11 +1831,11 @@ export default function DataVisualizationPage() {
 
                         {/* Pagination */}
                         {totalPages > 1 && (
-                          <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
-                            <p className="text-sm text-gray-500">
+                          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mt-4 pt-4 border-t border-gray-100">
+                            <p className="text-xs sm:text-sm text-gray-500">
                               Showing {startIndex + 1} to {Math.min(startIndex + recordsPerPage, totalFarms)} of {totalFarms} farms
                             </p>
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-1 flex-wrap">
                               <button
                                 onClick={() => setRecordsCurrentPage(prev => Math.max(prev - 1, 1))}
                                 disabled={recordsCurrentPage === 1}

@@ -337,9 +337,9 @@ export default function HistoryPage() {
 	return (
 		<AuthGuard>
 			<AppShell>
-				<div className="space-y-8 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+				<div className="space-y-8 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
 					<div className="no-print">
-						<h1 className="text-3xl font-bold text-gray-900 tracking-tight">History</h1>
+						<h1 className="text-2xl sm:text-3xl font-bold text-gray-900 tracking-tight">History</h1>
 					</div>
 					<div className="print-only" style={{ display: 'none' }}>
 						<h1 className="text-3xl font-bold text-gray-900 tracking-tight mb-2">Validation History Report</h1>
@@ -1453,11 +1453,11 @@ export default function HistoryPage() {
 
 					{/* View Details Dialog */}
 					<Dialog open={detailIdx !== null} onOpenChange={() => setDetailIdx(null)}>
-						<DialogContent className="sm:max-w-4xl p-0 overflow-hidden bg-white max-h-[90vh] flex flex-col">
+						<DialogContent className="sm:max-w-4xl w-[calc(100%-1rem)] sm:w-auto p-0 overflow-hidden bg-white max-h-[90vh] flex flex-col">
 							{/* Header */}
-							<div className="flex items-center justify-between px-6 py-5 border-b border-gray-200 bg-gradient-to-r from-white to-gray-50 sticky top-0 z-10">
+							<div className="flex items-center justify-between px-4 sm:px-6 py-4 sm:py-5 border-b border-gray-200 bg-gradient-to-r from-white to-gray-50 sticky top-0 z-10">
 								<DialogHeader className="p-0">
-									<DialogTitle className="text-xl font-bold text-gray-900">Validation Record Details</DialogTitle>
+									<DialogTitle className="text-lg sm:text-xl font-bold text-gray-900">Validation Record Details</DialogTitle>
 								</DialogHeader>
 								<button 
 									aria-label="Close" 

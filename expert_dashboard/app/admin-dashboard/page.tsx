@@ -147,11 +147,11 @@ function AdminDashboardContent() {
   }
 
   return (
-    <div className="space-y-8 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="space-y-6 sm:space-y-8 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 tracking-tight mb-1">Admin Dashboard</h1>
-          <p className="text-gray-600 text-sm">Monitor platform activity and recent scans</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 tracking-tight mb-1">Admin Dashboard</h1>
+          <p className="text-gray-600 text-xs sm:text-sm">Monitor platform activity and recent scans</p>
         </div>
       </div>
 

@@ -149,7 +149,7 @@ export default function RegisterPage() {
   return (
     <div className="min-h-screen bg-white flex">
       {/* Left side - Welcome Text */}
-      <div className="hidden lg:flex lg:w-1/2 items-center justify-center p-16">
+      <div className="hidden lg:flex lg:w-1/2 items-center justify-center p-8 xl:p-16">
         <div className="max-w-lg">
           <h1 className="text-4xl font-bold text-gray-900 mb-6">Join Us Today</h1>
           <h2 className="text-xl font-medium text-gray-700 mb-8">Create your expert account</h2>
@@ -160,19 +160,19 @@ export default function RegisterPage() {
       </div>
 
       {/* Right side - Register Form Card */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-8">
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-4 sm:p-8">
         <div className="w-full max-w-md">
           {/* Mobile Welcome Text */}
-          <div className="lg:hidden mb-8 text-center">
-            <h1 className="text-3xl font-bold text-gray-900 mb-4">Join Us Today</h1>
-            <h2 className="text-lg font-medium text-gray-700 mb-6">Create your expert account</h2>
-            <p className="text-gray-600 text-base leading-relaxed text-justify mb-8">
+          <div className="lg:hidden mb-6 sm:mb-8 text-center">
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-3 sm:mb-4">Join Us Today</h1>
+            <h2 className="text-base sm:text-lg font-medium text-gray-700 mb-4 sm:mb-6">Create your expert account</h2>
+            <p className="text-gray-600 text-sm sm:text-base leading-relaxed text-justify mb-6 sm:mb-8">
               Gain access to your expert dashboard to validate and manage content with precision and efficiency.
             </p>
           </div>
 
           {/* Form Card */}
-          <div className="bg-white border border-gray-200 rounded-2xl shadow-lg p-8">
+          <div className="bg-white border border-gray-200 rounded-2xl shadow-lg p-5 sm:p-8">
             {/* Back to Login */}
             <Link 
               href="/login?role=expert" 
