@@ -136,7 +136,7 @@ function createPopupContent(
           </span>
         </div>
         <p style="font-size: 11px; color: #4b5563; margin-top: 8px;">
-          <strong>Total Detection Count:</strong> ${farm.total_scans} ${farm.total_scans === 1 ? 'scan' : 'scans'}
+          <strong>Disease Detection Count:</strong> ${farm.total_scans} ${farm.total_scans === 1 ? 'scan' : 'scans'}
         </p>
         <p style="font-size: 11px; color: #4b5563;">
           <strong>Latest Scan:</strong> ${farm.latest_scan_date ? new Date(farm.latest_scan_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}
@@ -145,7 +145,7 @@ function createPopupContent(
   } else {
     content += `
         <p style="font-size: 11px; color: #6b7280; margin-top: 8px; font-style: italic;">
-          No scan data recorded yet for this farm
+          No disease records for this farm
         </p>
     `;
   }
@@ -176,29 +176,7 @@ function createPopupContent(
     content += `</div></div>`;
   }
 
-  // Fruit Ripeness section
-  if (farm.fruit_ripeness.size > 0) {
-    content += `
-      <div>
-        <div style="display: flex; align-items: center; gap: 4px; margin-bottom: 8px;">
-          <span style="color: #F97316;">🍎</span>
-          <h4 style="font-weight: 600; font-size: 11px; color: #374151;">Fruit Ripeness</h4>
-        </div>
-        <div style="display: flex; flex-direction: column; gap: 4px;">
-    `;
-    farm.fruit_ripeness.forEach((count, stage) => {
-      content += `
-          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px;">
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <div style="width: 10px; height: 10px; border-radius: 50%; background: ${getRipenessColor(stage)};"></div>
-              <span style="color: #1f2937;">${stage}</span>
-            </div>
-            <span style="font-weight: 600; color: #374151; background: #f3f4f6; padding: 2px 8px; border-radius: 4px;">${count}</span>
-          </div>
-      `;
-    });
-    content += `</div></div>`;
-  }
+  // Note: Fruit Ripeness section removed - showing only disease records
 
   content += `</div>`;
   return content;
@@ -351,7 +329,10 @@ export default function InteractiveFarmMap({
       filteredScans = filteredScans.filter((scan) => scan.farm_id === filters.farm);
     }
 
-    filteredScans.forEach((scan) => {
+    // Filter to only disease scans (exclude ripeness scans)
+    const diseaseOnlyScans = filteredScans.filter(scan => isLeafDiseaseScan(scan));
+
+    diseaseOnlyScans.forEach((scan) => {
       // Skip scans without farm_id
       if (!scan.farm_id) return;
 
@@ -374,7 +355,7 @@ export default function InteractiveFarmMap({
           latitude,
           longitude,
           leaf_diseases: new Map(),
-          fruit_ripeness: new Map(),
+          fruit_ripeness: new Map(), // Kept for type compatibility but won't be populated
           total_scans: 0,
           latest_scan_date: scan.created_at || "",
         });
@@ -388,29 +369,22 @@ export default function InteractiveFarmMap({
         farmData.latest_scan_date = scan.created_at;
       }
 
-      // Categorize by scan type
-      if (isLeafDiseaseScan(scan)) {
-        farmData.leaf_diseases.set(
-          prediction,
-          (farmData.leaf_diseases.get(prediction) || 0) + 1
-        );
-      } else if (isFruitRipenessScan(scan)) {
-        farmData.fruit_ripeness.set(
-          prediction,
-          (farmData.fruit_ripeness.get(prediction) || 0) + 1
-        );
-      }
+      // Only process leaf disease scans (ripeness excluded)
+      farmData.leaf_diseases.set(
+        prediction,
+        (farmData.leaf_diseases.get(prediction) || 0) + 1
+      );
     });
 
     return Array.from(farmDataMap.values());
   }, [scans, farms, filters, showAllFarms]);
 
-  // Extract all unique diseases/ripeness stages from farm data for the filter panel
+  // Extract all unique diseases from farm data for the filter panel (excludes ripeness)
   const allDiseases = useMemo(() => {
     const diseaseSet = new Set<string>();
     farmMapData.forEach((farm) => {
       farm.leaf_diseases.forEach((_, disease) => diseaseSet.add(disease));
-      farm.fruit_ripeness.forEach((_, stage) => diseaseSet.add(stage));
+      // Note: fruit_ripeness excluded from filter options
     });
     return Array.from(diseaseSet).sort();
   }, [farmMapData]);
@@ -419,9 +393,9 @@ export default function InteractiveFarmMap({
   const visibleFarmMapData = useMemo(() => {
     if (activeDiseaseFilters.length === 0) return farmMapData; // No filter = show all
     return farmMapData.filter((farm) => {
-      // Show farm if it has at least one matching disease/ripeness
+      // Show farm if it has at least one matching disease (ripeness excluded)
       for (const d of activeDiseaseFilters) {
-        if (farm.leaf_diseases.has(d) || farm.fruit_ripeness.has(d)) return true;
+        if (farm.leaf_diseases.has(d)) return true;
       }
       return false;
     });
@@ -581,10 +555,10 @@ export default function InteractiveFarmMap({
                   {allDiseases.length > 0 ? (
                     allDiseases.map((disease) => {
                       const isChecked = activeDiseaseFilters.includes(disease);
+                      // Disease colors only (ripeness excluded from map)
                       const COLORS: Record<string, string> = {
                         Healthy: "#22C55E", Cercospora: "#EF4444", "Yellow Mosaic Virus": "#F59E0B",
                         "Downy Mildew": "#3B82F6", "Fusarium Wilt": "#8B5CF6",
-                        Immature: "#3B82F6", Mature: "#22C55E", Overmature: "#F59E0B", Overripe: "#EF4444",
                       };
                       return (
                         <button
@@ -677,7 +651,7 @@ export default function InteractiveFarmMap({
                     {selectedFarmData.farm_name}
                   </h4>
                   <p className="text-[11px] text-gray-500">
-                    {selectedFarmData.total_scans} {selectedFarmData.total_scans === 1 ? 'scan' : 'scans'} total
+                    {selectedFarmData.total_scans} disease {selectedFarmData.total_scans === 1 ? 'scan' : 'scans'}
                   </p>
                   {selectedFarmData.latest_scan_date && (
                     <p className="text-[11px] text-gray-500">
@@ -699,22 +673,9 @@ export default function InteractiveFarmMap({
                       ))}
                     </div>
                   )}
-                  {selectedFarmData.fruit_ripeness.size > 0 && (
-                    <div className="pt-1">
-                      <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Fruit Ripeness</p>
-                      {Array.from(selectedFarmData.fruit_ripeness.entries()).map(([stage, count]) => (
-                        <div key={stage} className="flex items-center justify-between text-[11px] py-0.5">
-                          <div className="flex items-center gap-1.5">
-                            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: getRipenessColor(stage) }} />
-                            <span className="text-gray-700">{stage}</span>
-                          </div>
-                          <span className="font-semibold text-gray-900">{count}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  {/* Note: Fruit Ripeness section removed - showing only disease records */}
                   {selectedFarmData.total_scans === 0 && (
-                    <p className="text-[11px] text-gray-400 italic">No scans recorded for this farm</p>
+                    <p className="text-[11px] text-gray-400 italic">No disease records for this farm</p>
                   )}
                 </div>
               </div>
@@ -791,7 +752,7 @@ export default function InteractiveFarmMap({
                         {farm.total_scans > 0 ? farm.total_scans : '0'}
                       </span>
                       <p className="text-xs text-gray-500">
-                        {farm.total_scans === 1 ? 'detection' : 'detections'}
+                        disease {farm.total_scans === 1 ? 'scan' : 'scans'}
                       </p>
                     </div>
                   </div>
