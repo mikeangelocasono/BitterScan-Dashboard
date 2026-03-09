@@ -1365,14 +1365,6 @@ export default function ValidatePage() {
 															<label className="block text-sm font-medium text-gray-700">Scan Type</label>
 															<p className="text-base text-gray-900 bg-gray-50 px-4 py-2.5 rounded-lg border border-gray-200">{cropType}</p>
 														</div>
-														
-														{/* Confidence Level */}
-														<div className="space-y-2">
-															<label className="block text-sm font-medium text-gray-700">AI Confidence Level</label>
-															<p className="text-base text-gray-900 bg-blue-50 px-4 py-2.5 rounded-lg border border-blue-200 text-blue-900">
-																{scanDetails.confidence}
-															</p>
-														</div>
 													</CardContent>
 												</Card>
 
@@ -1499,7 +1491,7 @@ export default function ValidatePage() {
 													const isProcessing = processingScanId === scanIdNum;
 
 													if (modified) {
-														// Expert changed the result → show "Modified" button
+														// Expert changed the result → show "Modify" button
 														return (
 															<Button
 																onClick={(e: React.MouseEvent<HTMLButtonElement>): void => {
@@ -1510,7 +1502,7 @@ export default function ValidatePage() {
 																className="text-base font-semibold bg-amber-600 text-white hover:bg-amber-700 active:bg-amber-800 disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg transition-all duration-200"
 																title="Submit your modified diagnosis"
 															>
-																{isProcessing ? 'Processing...' : 'Modified'}
+																{isProcessing ? 'Processing...' : 'Modify'}
 															</Button>
 														);
 													}
