@@ -754,6 +754,69 @@ export default function ValidatePage() {
 	}, [filtered, currentPage]);
 
 
+	/**
+	 * Parse text content into an array of list items for bullet/numbered display.
+	 * Handles various formats: numbered lists, comma-separated, line breaks, etc.
+	 */
+	const parseTextToListItems = useCallback((text: string | null | undefined): string[] => {
+		if (!text || typeof text !== 'string') return [];
+		
+		const trimmed = text.trim();
+		if (!trimmed) return [];
+		
+		// Try to detect numbered list patterns (e.g., "1. item", "1) item", "(1) item")
+		const numberedPattern = /^[\s]*(?:\d+[.\)\]\-]|\(\d+\))[\s]+/m;
+		if (numberedPattern.test(trimmed)) {
+			// Split by numbered patterns and filter empty items
+			const items = trimmed
+				.split(/(?:^|\n)[\s]*(?:\d+[.\)\]\-]|\(\d+\))[\s]+/)
+				.map(item => item.trim())
+				.filter(item => item.length > 0);
+			if (items.length > 0) return items;
+		}
+		
+		// Try to detect bullet points (e.g., "• item", "- item", "* item")
+		const bulletPattern = /^[\s]*[•\-\*][\s]+/m;
+		if (bulletPattern.test(trimmed)) {
+			const items = trimmed
+				.split(/(?:^|\n)[\s]*[•\-\*][\s]+/)
+				.map(item => item.trim())
+				.filter(item => item.length > 0);
+			if (items.length > 0) return items;
+		}
+		
+		// Try line breaks (if multiple lines exist)
+		if (trimmed.includes('\n')) {
+			const items = trimmed
+				.split(/\n+/)
+				.map(item => item.replace(/^[\s]*[•\-\*\d+.\)]+[\s]*/g, '').trim())
+				.filter(item => item.length > 0);
+			if (items.length > 1) return items;
+		}
+		
+		// Try semicolon-separated items
+		if (trimmed.includes(';')) {
+			const items = trimmed
+				.split(/;/)
+				.map(item => item.trim())
+				.filter(item => item.length > 0);
+			if (items.length > 1) return items;
+		}
+		
+		// Try comma-separated items (only if items look like distinct phrases)
+		if (trimmed.includes(',')) {
+			const items = trimmed
+				.split(/,/)
+				.map(item => item.trim())
+				.filter(item => item.length > 0);
+			// Only use comma split if we have multiple items and they're not too short
+			if (items.length > 1 && items.every(item => item.length >= 3)) return items;
+		}
+		
+		// Return as single item if no pattern detected
+		return [trimmed];
+	}, []);
+
 	// Parse scan result details from scan data
 	// Updated to use new schema: leaf_disease_scans and fruit_ripeness_scans
 	const parseScanDetails = useCallback((scan: Scan) => {
@@ -763,10 +826,12 @@ export default function ValidatePage() {
 		const solution = getSolution(scan); // Gets solution or harvest_recommendation
 		const recommendedProducts = getRecommendedProducts(scan); // Gets recommendation (only for leaf scans)
 
-		// Format confidence as "Confidence: X.XX%" (convert decimal to percentage with 2 decimal places)
+		// Format confidence as percentage with 2 decimal places
 		// Formula: confidence (%) = confidence * 100
 		// Example: 0.835 → 83.50%
-		let formattedConfidence = null;
+		let confidencePercentage: number | null = null;
+		let formattedConfidence: string = 'N/A';
+		
 		if (confidence !== null && confidence !== undefined) {
 			let confidenceValue: number;
 			
@@ -778,10 +843,10 @@ export default function ValidatePage() {
 				if (!isNaN(parsedConfidence)) {
 					confidenceValue = parsedConfidence;
 				} else {
-					formattedConfidence = 'Confidence: N/A';
 					return {
 						disease: disease || 'N/A',
-						confidence: formattedConfidence,
+						confidence: 'N/A',
+						confidencePercentage: null,
 						solution: solution || null,
 						recommendedProducts: recommendedProducts || null,
 					};
@@ -789,15 +854,14 @@ export default function ValidatePage() {
 			}
 			
 			// Convert decimal (0-1) to percentage (0-100) and format with 2 decimal places
-			const confidencePercentage = confidenceValue * 100;
-			formattedConfidence = `Confidence: ${confidencePercentage.toFixed(2)}%`;
-		} else {
-			formattedConfidence = 'Confidence: N/A';
+			confidencePercentage = confidenceValue * 100;
+			formattedConfidence = `${confidencePercentage.toFixed(2)}%`;
 		}
 
 		return {
 			disease: disease || 'N/A',
 			confidence: formattedConfidence,
+			confidencePercentage,
 			solution: solution || null,
 			recommendedProducts: recommendedProducts || null,
 		};
@@ -1368,49 +1432,152 @@ export default function ValidatePage() {
 													</CardContent>
 												</Card>
 
-												{/* Leaf Disease Details or Fruit Ripeness Details */}
-												<Card className="shadow-md border border-gray-200 bg-white">
-													<CardHeader className="pb-4 border-b border-gray-200 bg-gradient-to-r from-emerald-50/50 to-white">
-														<CardTitle className="text-lg font-semibold text-gray-900">
-															{selectedScan.scan_type === 'leaf_disease' ? 'Leaf Disease Details' : 'Fruit Ripeness Details'}
-														</CardTitle>
-													</CardHeader>
-													<CardContent className="pt-6">
-														<div className="bg-gray-50 border border-gray-200 rounded-lg px-5 py-4">
+{/* Leaf Disease Details or Fruit Ripeness Details - Improved Layout */}
+													<Card className="shadow-md border border-gray-200 bg-white">
+														<CardHeader className="pb-4 border-b border-gray-200 bg-gradient-to-r from-emerald-50/50 to-white">
+															<CardTitle className="text-lg font-semibold text-gray-900">
+																{selectedScan.scan_type === 'leaf_disease' ? 'Leaf Disease Details' : 'Fruit Ripeness Details'}
+															</CardTitle>
+														</CardHeader>
+														<CardContent className="pt-6">
 															{selectedScan.scan_type === 'leaf_disease' ? (
-																<div className="space-y-3 text-base text-gray-900 leading-relaxed">
-																	<div>
-																		<span className="text-gray-900">Disease: </span>
-																		<span className="text-gray-900">{scanDetails.disease}</span>
+																<div className="space-y-5">
+																	{/* Disease Detection Row */}
+																	<div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+																		{/* Disease Detected */}
+																		<div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
+																			<label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Disease Detected</label>
+																			<p className="text-base font-medium text-gray-900">{scanDetails.disease}</p>
+																		</div>
+																		{/* AI Confidence Level - Restored */}
+																		<div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
+																			<label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">AI Confidence Level</label>
+																			<div className="flex items-center gap-2">
+																				<span className="text-base font-medium text-gray-900">{scanDetails.confidence}</span>
+																				{scanDetails.confidencePercentage !== null && (
+																					<div className="flex-1 max-w-[120px]">
+																						<div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+																							<div 
+																								className={`h-full rounded-full transition-all duration-300 ${
+																									scanDetails.confidencePercentage >= 80 ? 'bg-emerald-500' :
+																									scanDetails.confidencePercentage >= 60 ? 'bg-yellow-500' :
+																									'bg-red-500'
+																								}`}
+																								style={{ width: `${Math.min(scanDetails.confidencePercentage, 100)}%` }}
+																							/>
+																						</div>
+																					</div>
+																				)}
+																			</div>
+																		</div>
 																	</div>
-																	<div>
-																		<span className="text-gray-900">Solution: </span>
-																		<span className="text-gray-900 whitespace-pre-wrap">
-																			{scanDetails.solution || 'No solution available'}
-																		</span>
+
+																	{/* Solution Section - Improved with bullet list */}
+																	<div className="bg-emerald-50/50 border border-emerald-200 rounded-lg px-4 py-4">
+																		<label className="block text-xs font-semibold text-emerald-700 uppercase tracking-wide mb-3">Solution</label>
+																		{scanDetails.solution ? (
+																			(() => {
+																				const items = parseTextToListItems(scanDetails.solution);
+																				return items.length > 1 ? (
+																					<ul className="space-y-2">
+																						{items.map((item, index) => (
+																							<li key={index} className="flex items-start gap-2 text-sm text-gray-800">
+																								<span className="flex-shrink-0 w-1.5 h-1.5 mt-2 rounded-full bg-emerald-500"></span>
+																								<span className="leading-relaxed">{item}</span>
+																							</li>
+																						))}
+																					</ul>
+																				) : (
+																					<p className="text-sm text-gray-800 leading-relaxed">{items[0] || scanDetails.solution}</p>
+																				);
+																			})()
+																		) : (
+																			<p className="text-sm text-gray-500 italic">No solution available</p>
+																		)}
 																	</div>
-																	<div>
-																		<span className="text-gray-900">Recommended Products: </span>
-																		<span className="text-gray-900 whitespace-pre-wrap">
-																			{scanDetails.recommendedProducts || 'No products recommended'}
-																		</span>
+
+																	{/* Recommended Products Section - Improved with bullet list */}
+																	<div className="bg-blue-50/50 border border-blue-200 rounded-lg px-4 py-4">
+																		<label className="block text-xs font-semibold text-blue-700 uppercase tracking-wide mb-3">Recommended Products</label>
+																		{scanDetails.recommendedProducts ? (
+																			(() => {
+																				const items = parseTextToListItems(scanDetails.recommendedProducts);
+																				return items.length > 1 ? (
+																					<ul className="space-y-2">
+																						{items.map((item, index) => (
+																							<li key={index} className="flex items-start gap-2 text-sm text-gray-800">
+																								<span className="flex-shrink-0 w-5 h-5 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold flex items-center justify-center">{index + 1}</span>
+																								<span className="leading-relaxed">{item}</span>
+																							</li>
+																						))}
+																					</ul>
+																				) : (
+																					<p className="text-sm text-gray-800 leading-relaxed">{items[0] || scanDetails.recommendedProducts}</p>
+																				);
+																			})()
+																		) : (
+																			<p className="text-sm text-gray-500 italic">No products recommended</p>
+																		)}
 																	</div>
 																</div>
 															) : (
-																<div className="space-y-3 text-base text-gray-900 leading-relaxed">
-																	<div>
-																		<span className="text-gray-900">Ripeness Stage: </span>
-																		<span className="text-gray-900">{scanDetails.disease}</span>
+																/* Fruit Ripeness Details - Improved Layout */
+																<div className="space-y-5">
+																	{/* Ripeness Detection Row */}
+																	<div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+																		{/* Ripeness Stage */}
+																		<div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
+																			<label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Ripeness Stage</label>
+																			<p className="text-base font-medium text-gray-900">{scanDetails.disease}</p>
+																		</div>
+																		{/* AI Confidence Level - Restored */}
+																		<div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
+																			<label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">AI Confidence Level</label>
+																			<div className="flex items-center gap-2">
+																				<span className="text-base font-medium text-gray-900">{scanDetails.confidence}</span>
+																				{scanDetails.confidencePercentage !== null && (
+																					<div className="flex-1 max-w-[120px]">
+																						<div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+																							<div 
+																								className={`h-full rounded-full transition-all duration-300 ${
+																									scanDetails.confidencePercentage >= 80 ? 'bg-emerald-500' :
+																									scanDetails.confidencePercentage >= 60 ? 'bg-yellow-500' :
+																									'bg-red-500'
+																								}`}
+																								style={{ width: `${Math.min(scanDetails.confidencePercentage, 100)}%` }}
+																							/>
+																						</div>
+																					</div>
+																				)}
+																			</div>
+																		</div>
 																	</div>
-																	<div>
-																		<span className="text-gray-900">Harvest Recommendation: </span>
-																		<span className="text-gray-900 whitespace-pre-wrap">
-																			{scanDetails.solution || 'No recommendation.'}
-																		</span>
+
+																	{/* Harvest Recommendation Section - Improved with bullet list */}
+																	<div className="bg-amber-50/50 border border-amber-200 rounded-lg px-4 py-4">
+																		<label className="block text-xs font-semibold text-amber-700 uppercase tracking-wide mb-3">Harvest Recommendation</label>
+																		{scanDetails.solution ? (
+																			(() => {
+																				const items = parseTextToListItems(scanDetails.solution);
+																				return items.length > 1 ? (
+																					<ul className="space-y-2">
+																						{items.map((item, index) => (
+																							<li key={index} className="flex items-start gap-2 text-sm text-gray-800">
+																								<span className="flex-shrink-0 w-1.5 h-1.5 mt-2 rounded-full bg-amber-500"></span>
+																								<span className="leading-relaxed">{item}</span>
+																							</li>
+																						))}
+																					</ul>
+																				) : (
+																					<p className="text-sm text-gray-800 leading-relaxed">{items[0] || scanDetails.solution}</p>
+																				);
+																			})()
+																		) : (
+																			<p className="text-sm text-gray-500 italic">No recommendation available</p>
+																		)}
 																	</div>
 																</div>
 															)}
-														</div>
 													</CardContent>
 												</Card>
 
