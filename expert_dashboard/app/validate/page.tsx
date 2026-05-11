@@ -1234,7 +1234,7 @@ export default function ValidatePage() {
 								return (
 									<>
 										{/* Modal Header */}
-										<div className="flex items-center justify-between px-5 sm:px-6 py-4 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] flex-shrink-0 relative overflow-hidden">
+										<div className="flex items-center justify-between px-5 sm:px-6 py-4 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] flex-shrink-0 relative overflow-hidden rounded-t-xl">
 											<div className="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-white/10 blur-2xl pointer-events-none" />
 											<div className="absolute -bottom-10 -left-10 w-32 h-32 rounded-full bg-white/5 blur-2xl pointer-events-none" />
 											<DialogHeader className="p-0 relative">
