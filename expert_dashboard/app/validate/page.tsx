@@ -9,7 +9,7 @@ import { Table, Thead, Tbody, Tr, Th, Td } from "@/components/ui/table";
 import toast from "react-hot-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { supabase } from "@/components/supabase";
-import { Loader2, AlertCircle, X, Eye, Calendar, User, ScanLine, CheckCircle2, Activity, ClipboardCheck, ExternalLink, ShieldCheck } from "lucide-react";
+import { Loader2, AlertCircle, X, Eye, Calendar, User, ScanLine, CheckCircle2, Activity, ClipboardCheck, ExternalLink, ShieldCheck, ZoomIn, Download, Lightbulb, Maximize2 } from "lucide-react";
 import Pagination from "@/components/ui/pagination";
 import { Scan, SupabaseApiError, isSupabaseApiError, getAiPrediction, getSolution, getRecommendedProducts } from "@/types";
 import { useUser } from "@/components/UserContext";
@@ -1319,29 +1319,55 @@ export default function ValidatePage() {
 												</div>
 											</div>
 
-											{/* Main Content */}
+											{/* Main Content — Row 1: Image (left) + AI Prediction & Expert Validation (right) */}
 											<div className="px-5 sm:px-6 py-5 space-y-5">
-												<div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
-													{/* Left Column - Image */}
-													<div className="lg:col-span-3">
+												<div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+													{/* Left Column - Scan Image */}
+													<div>
 														<Card className="border border-gray-100 shadow-sm h-full">
 															<div className="p-4">
 																<div className="flex items-center justify-between mb-3">
 																	<span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Scan Image</span>
-																	<div className="flex items-center gap-1.5">
+																	<div className="flex items-center gap-1">
 																		<button
 																			onClick={() => {
 																				const allUrls = getAllPossibleImageUrls(selectedScan);
 																				if (allUrls.length > 0) window.open(allUrls[0], '_blank');
 																			}}
 																			className="p-1.5 rounded-md text-gray-400 hover:text-[#388E3C] hover:bg-emerald-50 transition-colors"
-																			title="Open full image"
+																			title="Zoom"
 																		>
-																			<ExternalLink className="h-3.5 w-3.5" />
+																			<ZoomIn className="h-3.5 w-3.5" />
+																		</button>
+																		<button
+																			onClick={() => {
+																				const allUrls = getAllPossibleImageUrls(selectedScan);
+																				if (allUrls.length > 0) window.open(allUrls[0], '_blank');
+																			}}
+																			className="p-1.5 rounded-md text-gray-400 hover:text-[#388E3C] hover:bg-emerald-50 transition-colors"
+																			title="Expand"
+																		>
+																			<Maximize2 className="h-3.5 w-3.5" />
+																		</button>
+																		<button
+																			onClick={() => {
+																				const allUrls = getAllPossibleImageUrls(selectedScan);
+																				if (allUrls.length > 0) {
+																					const a = document.createElement('a');
+																					a.href = allUrls[0];
+																					a.download = `scan-${selectedScan.scan_uuid || selectedScan.id}.jpg`;
+																					a.target = '_blank';
+																					a.click();
+																				}
+																			}}
+																			className="p-1.5 rounded-md text-gray-400 hover:text-[#388E3C] hover:bg-emerald-50 transition-colors"
+																			title="Download"
+																		>
+																			<Download className="h-3.5 w-3.5" />
 																		</button>
 																	</div>
 																</div>
-																<div className="aspect-video w-full bg-gray-100 rounded-xl overflow-hidden border border-gray-200">
+																<div className="w-full bg-gray-100 rounded-xl overflow-hidden border border-gray-200" style={{ minHeight: '280px' }}>
 																	{(() => {
 																		const allUrls = getAllPossibleImageUrls(selectedScan);
 																		const attemptKey = selectedScan?.scan_uuid || selectedScan?.id?.toString() || 'unknown';
@@ -1354,7 +1380,7 @@ export default function ValidatePage() {
 
 																		if (!imageUrl || allUrls.length === 0) {
 																			return (
-																				<div className="flex flex-col items-center justify-center h-full">
+																				<div className="flex flex-col items-center justify-center h-full min-h-[280px]">
 																					<AlertCircle className="h-8 w-8 text-gray-300 mb-2" />
 																					<p className="text-sm text-gray-400">Image not available</p>
 																				</div>
@@ -1367,70 +1393,45 @@ export default function ValidatePage() {
 																			<Image
 																				key={imageKey}
 																				src={imageUrl}
-																				alt={`Scan preview`}
+																				alt="Scan preview"
 																				width={700}
-																					height={400}
-																					className="w-full h-full object-contain"
-																					unoptimized={true}
-																					onError={(e: React.SyntheticEvent<HTMLImageElement, Event>): void => {
-																						if (attemptIndex < allUrls.length - 1) {
-																							setImageUrlAttempts((prev: Record<string, number>): Record<string, number> => ({
-																								...prev,
+																				height={400}
+																				className="w-full h-full object-contain"
+																				style={{ minHeight: '280px' }}
+																				unoptimized={true}
+																				onError={(e: React.SyntheticEvent<HTMLImageElement, Event>): void => {
+																					if (attemptIndex < allUrls.length - 1) {
+																						setImageUrlAttempts((prev: Record<string, number>): Record<string, number> => ({
+																							...prev,
 																							[attemptKey]: attemptIndex + 1
-																							}));
-																							return;
-																						}
-																						throttledErrorLog(errorKey, '[Validate Page] Image not available:', {
-																							scan_uuid: scanUuid,
-																							scan_type: scanType,
-																							scan_id: scanId
-																						});
-																						e.currentTarget.style.display = 'none';
-																					}}
-																					onLoad={(): void => {
-																							errorThrottle.delete(errorKey);
-																							setImageUrlAttempts((prev: Record<string, number>): Record<string, number> => {
-																								const next: Record<string, number> = { ...prev };
-																								delete next[attemptKey];
-																								return next;
-																							});
-																						}}
-																				/>
-																			);
+																						}));
+																						return;
+																					}
+																					throttledErrorLog(errorKey, '[Validate Page] Image not available:', {
+																						scan_uuid: scanUuid,
+																						scan_type: scanType,
+																						scan_id: scanId
+																					});
+																					e.currentTarget.style.display = 'none';
+																				}}
+																				onLoad={(): void => {
+																					errorThrottle.delete(errorKey);
+																					setImageUrlAttempts((prev: Record<string, number>): Record<string, number> => {
+																						const next: Record<string, number> = { ...prev };
+																						delete next[attemptKey];
+																						return next;
+																					});
+																				}}
+																			/>
+																		);
 																	})()}
 																</div>
 															</div>
 														</Card>
-
-														{/* Solution / Recommendation */}
-														{scanDetails.solution && (
-															<Card className="border border-gray-100 shadow-sm mt-4">
-																<div className="p-4">
-																	<span className="text-xs font-semibold text-gray-500 uppercase tracking-wider block mb-2">
-																		{selectedScan.scan_type === 'leaf_disease' ? 'Recommended Solution' : 'Harvest Recommendation'}
-																	</span>
-																	{(() => {
-																		const items = parseTextToListItems(scanDetails.solution);
-																		return items.length > 1 ? (
-																			<ul className="space-y-1.5">
-																				{items.map((item, index) => (
-																					<li key={index} className="flex items-start gap-2 text-sm text-gray-700">
-																						<CheckCircle2 className="h-3.5 w-3.5 text-[#388E3C] mt-0.5 flex-shrink-0" />
-																						<span className="leading-relaxed">{item}</span>
-																					</li>
-																					))}
-																			</ul>
-																		) : (
-																				<p className="text-sm text-gray-700 leading-relaxed">{items[0] || scanDetails.solution}</p>
-																			);
-																		})()}
-																</div>
-															</Card>
-														)}
 													</div>
 
-													{/* Right Column */}
-													<div className="lg:col-span-2 space-y-4">
+													{/* Right Column — AI Prediction + Expert Validation stacked */}
+													<div className="space-y-4">
 														{/* AI Prediction Card */}
 														<Card className="border border-gray-100 shadow-sm">
 															<div className="p-4">
@@ -1444,17 +1445,17 @@ export default function ValidatePage() {
 																		<p className="text-lg font-bold text-gray-900">{scanDetails.disease}</p>
 																	</div>
 																	<div className="flex items-center gap-2">
-																		<span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${confidenceColor}`}>
+																		<span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full border ${confidenceColor}`}>
 																			Confidence: {scanDetails.confidence}
 																		</span>
 																	</div>
 																	{scanDetails.confidencePercentage !== null && (
-																		<div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+																		<div className="h-2 bg-gray-100 rounded-full overflow-hidden">
 																			<div
-																				className={`h-full rounded-full ${
-																				scanDetails.confidencePercentage >= 80 ? 'bg-emerald-500' :
-																				scanDetails.confidencePercentage >= 60 ? 'bg-amber-500' :
-																				'bg-red-500'
+																				className={`h-full rounded-full transition-all duration-500 ${
+																					scanDetails.confidencePercentage >= 80 ? 'bg-emerald-500' :
+																					scanDetails.confidencePercentage >= 60 ? 'bg-amber-500' :
+																					'bg-red-500'
 																				}`}
 																				style={{ width: `${Math.min(scanDetails.confidencePercentage, 100)}%` }}
 																			/>
@@ -1474,90 +1475,137 @@ export default function ValidatePage() {
 																<div className="space-y-4">
 																	<div>
 																		<label className="block text-xs font-medium text-gray-700 mb-1.5">
-																		{selectedScan.scan_type === 'leaf_disease' ? 'Diagnosis' : 'Ripeness Stage'}
-																		<span className="text-red-500 ml-0.5">*</span>
-																	</label>
-																	{selectedScan.scan_type === 'leaf_disease' ? (
-																		<select
-																			value={decision[detailId!] ?? ''}
-																			onChange={(e: React.ChangeEvent<HTMLSelectElement>): void => setDecision({...decision, [detailId!]: e.target.value})}
-																			className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-[#388E3C] bg-white transition-all"
-																		>
-																			<option value="">Select diagnosis</option>
-																			<option>Healthy</option>
-																			<option>Fusarium Wilt</option>
-																			<option>Downy Mildew</option>
-																			<option>Yellow Mosaic Virus</option>
-																			<option>Cercospora</option>
-																			<option>Other</option>
-																		</select>
-																	) : (
-																		<select
-																			value={decision[detailId!] ?? ''}
-																			onChange={(e: React.ChangeEvent<HTMLSelectElement>): void => setDecision({...decision, [detailId!]: e.target.value})}
-																			className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-[#388E3C] bg-white transition-all"
-																		>
-																			<option value="">Select ripeness stage</option>
-																			<option>Immature</option>
-																			<option>Mature</option>
-																			<option>Overmature</option>
-																			<option>Overripe</option>
-																		</select>
-																	)}
+																			{selectedScan.scan_type === 'leaf_disease' ? 'Diagnosis' : 'Ripeness Stage'}
+																			<span className="text-red-500 ml-0.5">*</span>
+																		</label>
+																		{selectedScan.scan_type === 'leaf_disease' ? (
+																			<select
+																				value={decision[detailId!] ?? ''}
+																				onChange={(e: React.ChangeEvent<HTMLSelectElement>): void => setDecision({...decision, [detailId!]: e.target.value})}
+																				className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-[#388E3C] bg-white transition-all"
+																			>
+																				<option value="">Select diagnosis</option>
+																				<option>Healthy</option>
+																				<option>Fusarium Wilt</option>
+																				<option>Downy Mildew</option>
+																				<option>Yellow Mosaic Virus</option>
+																				<option>Cercospora</option>
+																				<option>Other</option>
+																			</select>
+																		) : (
+																			<select
+																				value={decision[detailId!] ?? ''}
+																				onChange={(e: React.ChangeEvent<HTMLSelectElement>): void => setDecision({...decision, [detailId!]: e.target.value})}
+																				className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-[#388E3C] bg-white transition-all"
+																			>
+																				<option value="">Select ripeness stage</option>
+																				<option>Immature</option>
+																				<option>Mature</option>
+																				<option>Overmature</option>
+																				<option>Overripe</option>
+																			</select>
+																		)}
 																	</div>
 
 																	<div>
 																		<label className="block text-xs font-medium text-gray-700 mb-1.5">Expert Notes <span className="text-gray-400 font-normal">(Optional)</span></label>
-																		<textarea
-																			value={notes[detailId!] ?? ''}
-																			onChange={(e: React.ChangeEvent<HTMLTextAreaElement>): void => setNotes({...notes, [detailId!]: e.target.value})}
-																			placeholder="Add observations, recommendations, or additional comments..."
-																			className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-[#388E3C] resize-none transition-all"
-																			rows={3}
-																		/>
+																		<div className="relative">
+																			<textarea
+																				value={notes[detailId!] ?? ''}
+																				onChange={(e: React.ChangeEvent<HTMLTextAreaElement>): void => {
+																					if (e.target.value.length <= 500) {
+																						setNotes({...notes, [detailId!]: e.target.value});
+																					}
+																				}}
+																				placeholder="Add notes or recommendations..."
+																				className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-[#388E3C] resize-none transition-all"
+																				rows={3}
+																				maxLength={500}
+																			/>
+																			<span className="absolute bottom-2 right-3 text-[10px] text-gray-400">{(notes[detailId!] ?? '').length} / 500</span>
+																		</div>
 																	</div>
 																</div>
 															</div>
 														</Card>
+													</div>
+												</div>
 
-														{/* AI vs Expert Summary */}
-														{expertValue && (
-															<Card className={`border shadow-sm ${isMatch ? 'border-emerald-100 bg-emerald-50/30' : 'border-amber-100 bg-amber-50/30'}`}>
-																<div className="p-4">
-																	<span className="text-xs font-semibold text-gray-500 uppercase tracking-wider block mb-3">AI vs Expert Summary</span>
-																	<div className="grid grid-cols-2 gap-3">
+												{/* Row 2: AI vs Expert Summary (left) + Recommended Solution (right) */}
+												<div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+													{/* AI vs Expert Summary */}
+													<Card className={`border shadow-sm ${expertValue ? (isMatch ? 'border-emerald-200 bg-emerald-50/40' : 'border-amber-200 bg-amber-50/40') : 'border-gray-100 bg-white'}`}>
+														<div className="p-4">
+															<div className="flex items-center gap-2 mb-3">
+																<ClipboardCheck className="h-4 w-4 text-[#388E3C]" />
+																<span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">AI vs Expert Summary</span>
+															</div>
+															{expertValue ? (
+																<>
+																	<div className="grid grid-cols-3 gap-3">
 																		<div>
 																			<p className="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">AI Prediction</p>
-																			<p className="text-sm font-semibold text-gray-900">{aiPrediction}</p>
+																			<p className="text-sm font-semibold text-[#388E3C]">{aiPrediction}</p>
 																		</div>
 																		<div>
 																			<p className="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">Expert Validation</p>
-																			<p className="text-sm font-semibold text-gray-900">{expertValue}</p>
+																			<p className="text-sm font-semibold text-[#388E3C]">{expertValue}</p>
+																		</div>
+																		<div>
+																			<p className="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">Result</p>
+																			<span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border ${
+																				isMatch
+																					? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+																					: 'bg-amber-50 text-amber-700 border-amber-200'
+																			}`}>
+																				{isMatch ? (
+																					<><CheckCircle2 className="h-3 w-3" /> Match — AI Confirmed</>
+																				) : (
+																					<><AlertCircle className="h-3 w-3" /> Modified by Expert</>
+																				)}
+																			</span>
 																		</div>
 																	</div>
-																	<div className="mt-3 pt-3 border-t border-gray-100/60">
-																		<span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border ${
-																			isMatch
-																				? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-																				: 'bg-amber-50 text-amber-700 border-amber-200'
-																			}`}>
-																			{isMatch ? (
-																				<>
-																					<CheckCircle2 className="h-3.5 w-3.5" />
-																					Match — AI Confirmed
-																				</>
-																			) : (
-																				<>
-																					<AlertCircle className="h-3.5 w-3.5" />
-																				Modified by Expert
-																				</>
-																			)}
-																		</span>
-																	</div>
-																</div>
-															</Card>
-														)}
-													</div>
+																	<p className="text-xs text-gray-500 mt-3">
+																		{isMatch
+																			? 'The expert validation matches the AI prediction.'
+																			: 'The expert has corrected the AI prediction.'}
+																	</p>
+																</>
+															) : (
+																<p className="text-xs text-gray-400 italic">Select a diagnosis above to see the comparison.</p>
+															)}
+														</div>
+													</Card>
+
+													{/* Recommended Solution */}
+													<Card className="border border-gray-100 shadow-sm">
+														<div className="p-4">
+															<div className="flex items-center gap-2 mb-3">
+																<Lightbulb className="h-4 w-4 text-[#388E3C]" />
+																<span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Recommended Solution</span>
+															</div>
+															{scanDetails.solution ? (
+																(() => {
+																	const items = parseTextToListItems(scanDetails.solution);
+																	return items.length > 1 ? (
+																		<ul className="space-y-2">
+																			{items.map((item, index) => (
+																				<li key={index} className="flex items-start gap-2 text-sm text-gray-700">
+																					<CheckCircle2 className="h-4 w-4 text-[#388E3C] mt-0.5 flex-shrink-0" />
+																					<span className="leading-relaxed">{item}</span>
+																				</li>
+																			))}
+																		</ul>
+																	) : (
+																		<p className="text-sm text-gray-700 leading-relaxed">{items[0] || scanDetails.solution}</p>
+																	);
+																})()
+															) : (
+																<p className="text-xs text-gray-400 italic">No recommendation available for this scan.</p>
+															)}
+														</div>
+													</Card>
 												</div>
 											</div>
 										</div>
