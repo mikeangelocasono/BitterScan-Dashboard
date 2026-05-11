@@ -70,14 +70,15 @@ function AdminDashboardContent() {
 
   const stats = useMemo(() => {
     if (!validScans || validScans.length === 0) {
-      return { total: 0, pending: 0, validated: 0, corrected: 0 };
+      return { total: 0, pending: 0, confirmed: 0, corrections: 0 };
     }
     const total = validScans.length;
     const pending = validScans.filter((s) => s.status === "Pending" || s.status === "Pending Validation").length;
-    const validated = validScans.filter((s) => s.status === "Validated").length;
-    const corrected = validScans.filter((s) => s.status === "Corrected").length;
-    return { total, pending, validated, corrected };
-  }, [validScans]);
+    // Use validationHistory for accurate confirmed vs corrected counts
+    const confirmed = validationHistory ? validationHistory.filter((v) => v.status === "Validated").length : 0;
+    const corrections = validationHistory ? validationHistory.filter((v) => v.status === "Corrected").length : 0;
+    return { total, pending, confirmed, corrections };
+  }, [validScans, validationHistory]);
 
   // Latest 5 validations sorted by date descending
   const latestValidations = useMemo(() => {
@@ -182,14 +183,14 @@ function AdminDashboardContent() {
           tone: "text-amber-600",
           bgTone: "bg-amber-50",
         }, {
-          label: "Validated",
-          value: stats.validated,
+          label: "Confirmed Validations",
+          value: stats.confirmed,
           icon: CheckCircle2,
           tone: "text-emerald-600",
           bgTone: "bg-emerald-50",
         }, {
-          label: "Corrected",
-          value: stats.corrected,
+          label: "Corrections",
+          value: stats.corrections,
           icon: AlertCircle,
           tone: "text-purple-600",
           bgTone: "bg-purple-50",
@@ -244,22 +245,22 @@ function AdminDashboardContent() {
                       transform="rotate(-90 80 80)"
                       className="transition-all duration-700"
                     />
-                    {/* Validated segment */}
+                    {/* Confirmed segment */}
                     <circle
                       cx="80" cy="80" r="70" fill="none"
                       stroke="#10B981" strokeWidth="20"
-                      strokeDasharray={`${(stats.validated / stats.total) * 439.82} 439.82`}
+                      strokeDasharray={`${(stats.confirmed / stats.total) * 439.82} 439.82`}
                       strokeDashoffset={`-${(stats.pending / stats.total) * 439.82}`}
                       strokeLinecap="round"
                       transform="rotate(-90 80 80)"
                       className="transition-all duration-700"
                     />
-                    {/* Corrected segment */}
+                    {/* Corrections segment */}
                     <circle
                       cx="80" cy="80" r="70" fill="none"
                       stroke="#8B5CF6" strokeWidth="20"
-                      strokeDasharray={`${(stats.corrected / stats.total) * 439.82} 439.82`}
-                      strokeDashoffset={`-${((stats.pending + stats.validated) / stats.total) * 439.82}`}
+                      strokeDasharray={`${(stats.corrections / stats.total) * 439.82} 439.82`}
+                      strokeDashoffset={`-${((stats.pending + stats.confirmed) / stats.total) * 439.82}`}
                       strokeLinecap="round"
                       transform="rotate(-90 80 80)"
                       className="transition-all duration-700"
@@ -277,8 +278,8 @@ function AdminDashboardContent() {
               <div className="space-y-4">
                 {[
                   { label: 'Pending Validation', value: stats.pending, color: 'bg-amber-500', textColor: 'text-amber-600', lightBg: 'bg-amber-50' },
-                  { label: 'Validated', value: stats.validated, color: 'bg-emerald-500', textColor: 'text-emerald-600', lightBg: 'bg-emerald-50' },
-                  { label: 'Corrected', value: stats.corrected, color: 'bg-violet-500', textColor: 'text-violet-600', lightBg: 'bg-violet-50' },
+                  { label: 'Confirmed Validations', value: stats.confirmed, color: 'bg-emerald-500', textColor: 'text-emerald-600', lightBg: 'bg-emerald-50' },
+                  { label: 'Corrections', value: stats.corrections, color: 'bg-violet-500', textColor: 'text-violet-600', lightBg: 'bg-violet-50' },
                 ].map((item) => {
                   const pct = stats.total > 0 ? Math.round((item.value / stats.total) * 100) : 0;
                   return (
@@ -308,12 +309,12 @@ function AdminDashboardContent() {
                       <div>
                         <p className="text-sm font-medium text-gray-700">Validation Rate</p>
                         <p className="text-[10px] text-gray-400">
-                          {stats.validated + stats.corrected} of {stats.total} scans reviewed
+                          {stats.confirmed + stats.corrections} of {stats.total} scans reviewed
                         </p>
                       </div>
                     </div>
                     <span className="text-xl font-bold text-[#388E3C]">
-                      {stats.total > 0 ? Math.round(((stats.validated + stats.corrected) / stats.total) * 100) : 0}%
+                      {stats.total > 0 ? Math.round(((stats.confirmed + stats.corrections) / stats.total) * 100) : 0}%
                     </span>
                   </div>
                 </div>
