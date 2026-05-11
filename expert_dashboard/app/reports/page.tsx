@@ -526,28 +526,21 @@ export default function ReportsPage() {
     return filteredScans.filter((s) => s.status === "Corrected").length;
   }, [filteredScans]);
 
-  // Weekly Scan Activity — always shows current week (Sun-Sat)
+  // Weekly Scan Activity — shows scan activity by day of week within the selected date range
   const weeklyScanActivity = useMemo(() => {
     const now = new Date();
     const dayOfWeek = now.getDay(); // 0 = Sunday
-    const startOfWeek = new Date(now);
-    startOfWeek.setDate(now.getDate() - dayOfWeek);
-    startOfWeek.setHours(0, 0, 0, 0);
-
     const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     const counts = new Array(7).fill(0);
 
-    if (scans && scans.length > 0) {
-      scans.forEach((scan) => {
+    if (filteredScans && filteredScans.length > 0) {
+      filteredScans.forEach((scan) => {
         if (!scan.created_at) return;
         try {
           const createdAt = new Date(scan.created_at);
           if (isNaN(createdAt.getTime())) return;
-          if (isNonAmpalayaScan(scan)) return;
-          if (createdAt >= startOfWeek && createdAt <= now) {
-            const scanDay = createdAt.getDay();
-            counts[scanDay] += 1;
-          }
+          const scanDay = createdAt.getDay();
+          counts[scanDay] += 1;
         } catch {}
       });
     }
@@ -557,7 +550,7 @@ export default function ReportsPage() {
       scans: counts[idx],
       isToday: idx === dayOfWeek,
     }));
-  }, [scans]);
+  }, [filteredScans]);
 
   const scansTrend = useMemo(() => buildScansTrend(range, filteredScans, rangeStart, rangeEnd), [range, filteredScans, rangeStart, rangeEnd]);
 
@@ -1633,7 +1626,7 @@ export default function ReportsPage() {
             <Card className="shadow-sm border border-gray-200 bg-white rounded-xl overflow-hidden">
               <CardHeader className="px-6 py-5 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] rounded-t-xl">
                 <CardTitle className="text-lg font-bold" style={{ color: '#ffffff' }}>Weekly Scan Activity</CardTitle>
-                <p className="text-xs mt-0.5" style={{ color: '#ffffff', opacity: 0.8 }}>Total scans per day this week</p>
+                <p className="text-xs mt-0.5" style={{ color: '#ffffff', opacity: 0.8 }}>Scans by day of week for selected period</p>
               </CardHeader>
               <CardContent className="p-6">
                 {weeklyScanActivity.some((d) => d.scans > 0) && isPageVisible ? (
@@ -1679,8 +1672,8 @@ export default function ReportsPage() {
                 ) : (
                   <div className="flex h-[320px] flex-col items-center justify-center rounded-xl bg-gray-50/70 text-center">
                     <BarChart3 className="w-10 h-10 text-gray-300 mb-3" />
-                    <p className="text-sm font-medium text-gray-500">No weekly scan data</p>
-                    <p className="text-xs text-gray-400 mt-1">Scans recorded this week will appear here.</p>
+                    <p className="text-sm font-medium text-gray-500">No scan activity data</p>
+                    <p className="text-xs text-gray-400 mt-1">Scans for the selected period will appear here.</p>
                   </div>
                 )}
               </CardContent>
@@ -1711,7 +1704,7 @@ export default function ReportsPage() {
                           tickLine={false}
                           axisLine={{ stroke: '#e5e7eb' }}
                           tick={{ fill: '#6b7280' }}
-                          interval={range === "monthly" ? Math.floor(successRateTrend.length / 15) : "preserveStartEnd"}
+                          interval={(range === "monthly" || range === "custom") ? Math.max(1, Math.floor(successRateTrend.length / 10)) : "preserveStartEnd"}
                         />
                         <YAxis
                           stroke="#9ca3af"
