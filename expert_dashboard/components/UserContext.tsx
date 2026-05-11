@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, useRef, useCallback, ReactNode } from 'react';
-import { supabase, validateSupabaseClient } from './supabase';
+import { supabase, validateSupabaseClient, isConfigured } from './supabase';
 import { UserProfile, User, UserContextType, isSupabaseApiError } from '../types';
 
 const SUPPRESS_AUTH_TOAST_KEY = 'bs:suppress-auth-toast';
@@ -58,6 +58,20 @@ function isRefreshTokenError(error: unknown): boolean {
 function isPermissionDeniedError(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
 
+  const code = (error as { code?: string | number }).code?.toString().toUpperCase();
+  const status = (error as { status?: number }).status;
+  const message = ((error as { message?: string }).message || '').toLowerCase();
+
+  return (
+    code === '42501' || // Postgres insufficient privilege / RLS
+    code === 'PGRST301' ||
+    status === 403 ||
+    message.includes('rls') ||
+    message.includes('policy') ||
+    message.includes('permission')
+  );
+}
+
 /**
  * Wraps a promise with a timeout. Returns defaultValue if timeout is exceeded.
  * Prevents hanging promises from causing infinite loading states.
@@ -84,20 +98,6 @@ async function withTimeout<T>(
     clearTimeout(timeoutHandle!);
     throw error;
   }
-}
-
-  const code = (error as { code?: string | number }).code?.toString().toUpperCase();
-  const status = (error as { status?: number }).status;
-  const message = ((error as { message?: string }).message || '').toLowerCase();
-
-  return (
-    code === '42501' || // Postgres insufficient privilege / RLS
-    code === 'PGRST301' ||
-    status === 403 ||
-    message.includes('rls') ||
-    message.includes('policy') ||
-    message.includes('permission')
-  );
 }
 
 function buildAdminFallbackProfile(authUser: User): UserProfile {
@@ -185,12 +185,14 @@ export function UserProvider({ children }: { children: ReactNode }) {
         .eq('id', userId)
         .single();
 
-      const { data: profileData, error: profileError } = await withTimeout(
-        fetchPromise,
+      const result = await withTimeout(
+        fetchPromise as unknown as Promise<{ data: Record<string, unknown> | null; error: Record<string, unknown> | null }>,
         10000,
         { data: null, error: null },
         'fetchProfile'
       );
+      const profileData = result.data as Record<string, unknown> | null;
+      const profileError = result.error as Record<string, unknown> | null;
 
       // RBAC: Successfully fetched profile data
       if (profileData) {
@@ -211,11 +213,11 @@ export function UserProvider({ children }: { children: ReactNode }) {
           } catch {
             // Fall through to set local profile with approved status
           }
-          setProfile({ ...profileData, status: 'approved' } as UserProfile);
+          setProfile({ ...profileData, status: 'approved' } as unknown as UserProfile);
           return;
         }
 
-        setProfile(profileData as UserProfile);
+        setProfile(profileData as unknown as UserProfile);
         return;
       }
 
@@ -223,7 +225,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       if (profileError && Object.keys(profileError).length > 0) {
         const isMissing = profileError.code === 'PGRST116';
         const authUserRes = await supabase.auth.getUser();
-        const authUser = authUserRes?.data?.user || authUserRes?.user;
+        const authUser = authUserRes?.data?.user;
         const isAdminCandidate = authUser?.user_metadata?.role === 'admin' || (authUser?.email || '').toLowerCase().includes('admin');
 
         // If profile is missing or RLS blocked the read, bootstrap admin so login flow can continue
@@ -251,7 +253,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
           }
 
           // Fallback to in-memory profile so guards can proceed
-          setProfile(buildAdminFallbackProfile(authUser as User));
+          setProfile(buildAdminFallbackProfile(authUser as unknown as User));
           return;
         }
 
@@ -367,6 +369,18 @@ export function UserProvider({ children }: { children: ReactNode }) {
     if (sessionTimeoutRef.current) clearTimeout(sessionTimeoutRef.current);
     timeoutRef.current = null;
     sessionTimeoutRef.current = null;
+
+    // Short-circuit when Supabase credentials are missing.
+    // This prevents all network calls (getSession, auth listener, realtime)
+    // and avoids noisy "Failed to fetch" errors in the console.
+    if (!isConfigured) {
+      setUser(null);
+      setProfile(null);
+      setLoading(false);
+      setSessionReady(true);
+      initialResolved.current = true;
+      return () => { isMountedRef.current = false; };
+    }
 
     const getInitialSession = async () => {
       try {

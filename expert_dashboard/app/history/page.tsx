@@ -14,7 +14,7 @@ import { Loader2, AlertCircle, Trash2, X, Download, Calendar, Camera, CheckCircl
 import Pagination from "@/components/ui/pagination";
 import { useUser } from "@/components/UserContext";
 import { useData } from "@/components/DataContext";
-import { getAiPrediction, isNonAmpalayaScan } from "@/types";
+import { getAiPrediction, isNonAmpalayaScan, getSolution, getRecommendedProducts } from "@/types";
 import type { Scan } from "@/types";
 import Image from "next/image";
 import { getScanImageUrlWithFallback } from "@/utils/imageUtils";
@@ -375,7 +375,7 @@ export default function HistoryPage() {
 					</div>
 
 					{/* Stats */}
-					<div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 md:gap-6">
+					<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
 						<Card className="shadow-sm hover:shadow-md transition-all duration-200">
 							<CardHeader className="pb-2 pt-4">
 								<CardTitle className="flex items-center justify-between">
@@ -742,7 +742,8 @@ export default function HistoryPage() {
 																scan_uuid: ''
 															} as Scan;
 														} else {
-															scan.scan_type = isFruitRipeness ? 'fruit_maturity' : 'leaf_disease';
+															// eslint-disable-next-line @typescript-eslint/no-explicit-any
+															(scan as any).scan_type = isFruitRipeness ? 'fruit_maturity' : 'leaf_disease';
 														}
 													}
 												});
@@ -762,7 +763,7 @@ export default function HistoryPage() {
 											// Filter out Unknown records
 											const validRecords = records.filter((record: ValidationHistoryRecord) => {
 												// Exclude if scan has Unknown status
-												if (record.scan && record.scan.status === 'Unknown') return false;
+												if (record.scan && (record.scan.status as string) === 'Unknown') return false;
 												// Exclude if AI prediction is Unknown
 												if (record.ai_prediction === 'Unknown') return false;
 												// Exclude if expert validation is Unknown
@@ -770,7 +771,7 @@ export default function HistoryPage() {
 												// Exclude if disease_detected or ripeness_stage is Unknown
 												const scan = record.scan;
 												if (scan) {
-													if (scan.disease_detected === 'Unknown' || scan.ripeness_stage === 'Unknown') return false;
+													if (getAiPrediction(scan) === 'Unknown') return false;
 												}
 												return true;
 											});
@@ -1037,7 +1038,8 @@ export default function HistoryPage() {
 																scan_uuid: ''
 															} as Scan;
 														} else {
-															scan.scan_type = isFruitRipeness ? 'fruit_maturity' : 'leaf_disease';
+															// eslint-disable-next-line @typescript-eslint/no-explicit-any
+															(scan as any).scan_type = isFruitRipeness ? 'fruit_maturity' : 'leaf_disease';
 														}
 													}
 												});
@@ -1057,7 +1059,7 @@ export default function HistoryPage() {
 											// Filter out Unknown records
 											const validRecords = records.filter((record: ValidationHistoryRecord) => {
 												// Exclude if scan has Unknown status
-												if (record.scan && record.scan.status === 'Unknown') return false;
+												if (record.scan && (record.scan.status as string) === 'Unknown') return false;
 												// Exclude if AI prediction is Unknown
 												if (record.ai_prediction === 'Unknown') return false;
 												// Exclude if expert validation is Unknown
@@ -1065,7 +1067,7 @@ export default function HistoryPage() {
 												// Exclude if disease_detected or ripeness_stage is Unknown
 												const scan = record.scan;
 												if (scan) {
-													if (scan.disease_detected === 'Unknown' || scan.ripeness_stage === 'Unknown') return false;
+													if (getAiPrediction(scan) === 'Unknown') return false;
 												}
 												return true;
 											});
@@ -1619,7 +1621,7 @@ export default function HistoryPage() {
 											})()}
 
 											{/* Scan Details (Solution, Products) */}
-											{record.scan && (record.scan.solution || record.scan.recommended_products) && (
+											{record.scan && (getSolution(record.scan) || getRecommendedProducts(record.scan)) && (
 												<Card className="shadow-md border border-gray-200 bg-white">
 													<CardHeader className="pb-4 border-b border-gray-200 bg-gradient-to-r from-emerald-50/50 to-white">
 														<CardTitle className="text-lg font-semibold text-gray-900">
@@ -1627,21 +1629,21 @@ export default function HistoryPage() {
 														</CardTitle>
 													</CardHeader>
 													<CardContent className="pt-6 space-y-4">
-														{record.scan.solution && (
+														{getSolution(record.scan) && (
 															<div className="space-y-2">
 																<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">
 																	{isFruitMaturity ? 'Harvest Recommendation' : 'Treatment / Solution'}
 																</label>
 																<div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-																	<p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{record.scan.solution}</p>
+																	<p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{getSolution(record.scan!)}</p>
 																</div>
 															</div>
 														)}
-														{record.scan.recommended_products && (
+														{getRecommendedProducts(record.scan) && (
 															<div className="space-y-2">
 																<label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">Recommended Products</label>
 																<div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-																	<p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{record.scan.recommended_products}</p>
+																	<p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{getRecommendedProducts(record.scan!)}</p>
 																</div>
 															</div>
 														)}

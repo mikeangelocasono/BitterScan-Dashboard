@@ -96,7 +96,7 @@ export async function GET(request: NextRequest) {
 
     // Fetch all relevant profiles in one query
     const allUserIds = new Set([...farmerIds, ...expertIds]);
-    let profilesMap = new Map<string, Record<string, unknown>>();
+    const profilesMap = new Map<string, Record<string, unknown>>();
     
     if (allUserIds.size > 0) {
       const { data: profiles } = await supabaseAdmin

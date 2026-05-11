@@ -9,7 +9,7 @@ import { Table, Thead, Tbody, Tr, Th, Td } from "@/components/ui/table";
 import toast from "react-hot-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { supabase } from "@/components/supabase";
-import { Loader2, AlertCircle, X, Eye } from "lucide-react";
+import { Loader2, AlertCircle, X, Eye, Calendar, User, ScanLine, CheckCircle2, Activity, ClipboardCheck, ExternalLink, ZoomIn, Download, MessageSquare, ShieldCheck } from "lucide-react";
 import Pagination from "@/components/ui/pagination";
 import { Scan, SupabaseApiError, isSupabaseApiError, getAiPrediction, getSolution, getRecommendedProducts } from "@/types";
 import { useUser } from "@/components/UserContext";
@@ -233,6 +233,7 @@ export default function ValidatePage() {
 	const [tab, setTab] = useState<'leaf' | 'fruit'>('leaf');
 	const [notes, setNotes] = useState<Record<string, string>>({});
 	const [decision, setDecision] = useState<Record<string, string>>({});
+	const [severity, setSeverity] = useState<Record<string, 'Mild' | 'Moderate' | 'Severe'>>({});
 	const [dateRangeType, setDateRangeType] = useState<'daily' | 'weekly' | 'monthly' | 'custom' | 'none'>('none');
 	const [startDate, setStartDate] = useState<string>("");
 	const [endDate, setEndDate] = useState<string>("");
@@ -635,6 +636,10 @@ export default function ValidatePage() {
 					const { [scanKey]: _, ...rest } = prev;
 					return rest;
 				});
+				setSeverity((prev: Record<string, 'Mild' | 'Moderate' | 'Severe'>) => {
+					const { [scanKey]: _, ...rest } = prev;
+					return rest;
+				});
 				if (detailId === scanKey) setDetailId(null);
 			} catch (err: unknown) {
 				// Log structured error details
@@ -872,49 +877,55 @@ export default function ValidatePage() {
 			<AppShell>
 				<div className="space-y-6">
 					{/* Header with Toggle Buttons */}
-					<div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-						<h2 className="text-xl sm:text-2xl font-semibold text-gray-900">Validation</h2>
-						<div className="inline-flex rounded-lg border border-gray-200 overflow-hidden bg-white shadow-sm self-start sm:self-auto">
-							<button 
-								className={`px-5 py-2.5 text-sm font-medium transition-all ${
-									tab === 'leaf' 
-										? 'bg-[var(--primary)] text-white shadow-sm' 
+					<div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+						<div>
+							<h2 className="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight">Validation</h2>
+							<p className="text-sm text-gray-500 mt-0.5">Review and validate farmer scan submissions</p>
+						</div>
+						<div className="inline-flex rounded-xl border border-gray-200 overflow-hidden bg-white shadow-sm self-start sm:self-auto">
+							<button
+								className={`px-5 py-2.5 text-sm font-medium transition-all flex items-center gap-2 ${
+									tab === 'leaf'
+										? 'bg-[#388E3C] text-white shadow-sm'
 										: 'text-gray-700 hover:bg-gray-50'
-								}`} 
+								}`}
 								onClick={(e: React.MouseEvent<HTMLButtonElement>): void => {
 									e.preventDefault();
 									setTab('leaf');
 								}}
 							>
+								<Image src="/images/leaf-icon.png" alt="Leaf Disease" width={20} height={20} className="h-5 w-5 object-contain" />
 								Leaf Disease
 							</button>
-							<button 
-								className={`px-5 py-2.5 text-sm font-medium transition-all ${
-									tab === 'fruit' 
-										? 'bg-[var(--primary)] text-white shadow-sm' 
+							<button
+								className={`px-5 py-2.5 text-sm font-medium transition-all flex items-center gap-2 ${
+									tab === 'fruit'
+										? 'bg-[#388E3C] text-white shadow-sm'
 										: 'text-gray-700 hover:bg-gray-50'
-								}`} 
+								}`}
 								onClick={(e: React.MouseEvent<HTMLButtonElement>): void => {
 									e.preventDefault();
 									setTab('fruit');
 								}}
 							>
+								<Image src="/images/fruit-icon.png" alt="Fruit Ripeness" width={20} height={20} className="h-5 w-5 object-contain" />
 								Fruit Ripeness
 							</button>
 						</div>
 					</div>
 
 					{/* Date Range Filter */}
-					<div className="flex flex-wrap items-center gap-3">
-						<label className="text-sm font-medium text-gray-700 whitespace-nowrap">
-							Filter by Date:
-						</label>
-						<div className="inline-flex rounded-lg border border-gray-200 overflow-hidden bg-white shadow-sm">
-							<button 
-								className={`px-4 py-2 text-xs font-medium transition-all ${
-									dateRangeType === 'daily' 
-										? 'bg-[var(--primary)] text-white' 
-										: 'text-gray-700 hover:bg-gray-50'
+					<div className="flex flex-wrap items-center gap-3 bg-white rounded-xl border border-gray-200 p-3 shadow-sm">
+						<div className="flex items-center gap-2 text-sm font-medium text-gray-700">
+							<Calendar className="h-4 w-4 text-gray-400" />
+							<span>Filter by Date</span>
+						</div>
+						<div className="inline-flex rounded-lg border border-gray-200 overflow-hidden bg-gray-50">
+							<button
+								className={`px-3.5 py-1.5 text-xs font-medium transition-all ${
+									dateRangeType === 'daily'
+										? 'bg-[#388E3C] text-white'
+										: 'text-gray-600 hover:bg-white'
 								}`}
 								onClick={() => {
 									setDateRangeType('daily');
@@ -924,11 +935,11 @@ export default function ValidatePage() {
 							>
 								Daily
 							</button>
-							<button 
-								className={`px-4 py-2 text-xs font-medium transition-all ${
-									dateRangeType === 'weekly' 
-										? 'bg-[var(--primary)] text-white' 
-										: 'text-gray-700 hover:bg-gray-50'
+							<button
+								className={`px-3.5 py-1.5 text-xs font-medium transition-all ${
+									dateRangeType === 'weekly'
+										? 'bg-[#388E3C] text-white'
+										: 'text-gray-600 hover:bg-white'
 								}`}
 								onClick={() => {
 									setDateRangeType('weekly');
@@ -938,11 +949,11 @@ export default function ValidatePage() {
 							>
 								Weekly
 							</button>
-							<button 
-								className={`px-4 py-2 text-xs font-medium transition-all ${
-									dateRangeType === 'monthly' 
-										? 'bg-[var(--primary)] text-white' 
-										: 'text-gray-700 hover:bg-gray-50'
+							<button
+								className={`px-3.5 py-1.5 text-xs font-medium transition-all ${
+									dateRangeType === 'monthly'
+										? 'bg-[#388E3C] text-white'
+										: 'text-gray-600 hover:bg-white'
 								}`}
 								onClick={() => {
 									setDateRangeType('monthly');
@@ -952,11 +963,11 @@ export default function ValidatePage() {
 							>
 								Monthly
 							</button>
-							<button 
-								className={`px-4 py-2 text-xs font-medium transition-all ${
-									dateRangeType === 'custom' 
-										? 'bg-[var(--primary)] text-white' 
-										: 'text-gray-700 hover:bg-gray-50'
+							<button
+								className={`px-3.5 py-1.5 text-xs font-medium transition-all ${
+									dateRangeType === 'custom'
+										? 'bg-[#388E3C] text-white'
+										: 'text-gray-600 hover:bg-white'
 								}`}
 								onClick={() => {
 									setDateRangeType('custom');
@@ -974,35 +985,36 @@ export default function ValidatePage() {
 						</div>
 						{dateRangeType === 'custom' && (
 							<div className="flex items-center gap-2">
-								<input 
-									type="date" 
+								<input
+									type="date"
 									value={startDate}
 									onChange={(e) => setStartDate(e.target.value)}
 									max={endDate || undefined}
-									className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent"
+									className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-transparent"
 								/>
-								<span className="text-sm text-gray-600">to</span>
-								<input 
-									type="date" 
+								<span className="text-sm text-gray-500">to</span>
+								<input
+									type="date"
 									value={endDate}
 									onChange={(e) => setEndDate(e.target.value)}
 									min={startDate || undefined}
 									max={new Date().toISOString().split('T')[0]}
-									className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent"
+									className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-transparent"
 								/>
 							</div>
 						)}
 						{dateRangeType !== 'none' && (
-							<Button 
-								variant="ghost" 
+							<Button
+								variant="ghost"
 								size="sm"
 								onClick={() => {
 									setDateRangeType('none');
 									setStartDate("");
 									setEndDate("");
 								}}
-								className="text-gray-600 hover:text-gray-900"
+								className="text-gray-500 hover:text-gray-900 h-8"
 							>
+								<X className="h-3.5 w-3.5 mr-1" />
 								Clear
 							</Button>
 						)}
@@ -1010,137 +1022,148 @@ export default function ValidatePage() {
 
 					{/* Cards */}
 					{error ? (
-						<div className="flex items-center justify-center py-8">
-							<div className="text-center">
-								<AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+						<Card className="border border-red-100 shadow-sm">
+							<CardContent className="flex flex-col items-center justify-center py-12">
+								<AlertCircle className="h-10 w-10 text-red-400 mb-3" />
 								<p className="text-red-600 font-medium">{error}</p>
-								<Button 
-									variant="outline" 
+								<Button
+									variant="outline"
+									size="sm"
 									onClick={(e: React.MouseEvent<HTMLButtonElement>): void => {
 										e.preventDefault();
 										refreshData(true);
 									}}
-									className="mt-4"
+									className="mt-3"
 								>
 									Try Again
 								</Button>
-							</div>
-						</div>
+							</CardContent>
+						</Card>
 					) : (loading && !forceRender) ? (
-						<div className="flex items-center justify-center py-8">
-							<div className="text-center">
-								<Loader2 className="h-8 w-8 animate-spin text-gray-500 mx-auto mb-4" />
-								<p className="text-gray-600">Loading scans...</p>
-							</div>
-						</div>
+						<Card className="border border-gray-100 shadow-sm">
+							<CardContent className="flex flex-col items-center justify-center py-12">
+								<Loader2 className="h-8 w-8 animate-spin text-[#388E3C] mb-3" />
+								<p className="text-gray-600 text-sm">Loading pending scans...</p>
+							</CardContent>
+						</Card>
 					) : filtered.length === 0 ? (
-						<div className="flex items-center justify-center py-8">
-							<div className="text-center">
-								<p className="text-gray-500 font-medium">No pending scans found.</p>
-								<p className="text-gray-400 text-sm mt-1">New scans will appear here when farmers submit them.</p>
-							</div>
-						</div>
+						<Card className="border border-gray-100 shadow-sm">
+							<CardContent className="flex flex-col items-center justify-center py-12 text-center">
+								<ClipboardCheck className="h-10 w-10 text-gray-300 mb-3" />
+								<p className="text-gray-500 font-medium text-sm">No pending scans found</p>
+								<p className="text-gray-400 text-xs mt-1">New scans will appear here when farmers submit them.</p>
+							</CardContent>
+						</Card>
 					) : (
-						<>
-						<div className="overflow-x-auto">
-							<Table>
-								<Thead>
-									<Tr>
-										<Th className="w-20">Image</Th>
-										<Th>Farmer Name</Th>
-										<Th>Scan Type</Th>
-										<Th>Status</Th>
-										<Th>Date Scanned</Th>
-										<Th className="text-right">Action</Th>
-									</Tr>
-								</Thead>
-								<Tbody>
-									{displayedRecords.map((scan: Scan) => {
-										const cropType = scan.scan_type === 'leaf_disease' ? 'Leaf Disease' : 'Fruit Ripeness';
-										const farmerName = scan.farmer_profile?.full_name || scan.farmer_profile?.username || 'Unknown Farmer';
-										
-										// Use scan_uuid as key if available, otherwise combine scan_type and id for uniqueness
-										const uniqueKey = scan.scan_uuid || `${scan.scan_type}-${scan.id}`;
-										
-										return (
-											<Tr 
-												key={uniqueKey}
-												onClick={(): void => setDetailId(scan.id.toString())}
-												className="cursor-pointer hover:bg-gray-50 transition-colors duration-150"
-											>
-											<Td>
-												<div className="w-16 h-16 rounded-lg overflow-hidden border border-gray-200 bg-gray-50 flex-shrink-0">
-													{(() => {
-														const imageUrl = getScanImageUrlWithFallback(scan);
-														const imageKey = scan.scan_uuid || `scan-thumb-${scan.id}`;
-														const thumbErrorKey = `thumb-error-${scan.id}-${scan.scan_uuid || 'unknown'}`;
-														
-														if (!imageUrl) {
+						<Card className="border border-gray-100 shadow-sm overflow-hidden">
+							<div className="overflow-x-auto">
+								<Table>
+									<Thead>
+										<Tr className="bg-gray-50/80 border-b border-gray-100">
+											<Th className="w-20 text-xs font-semibold text-gray-500 uppercase tracking-wider py-3">Image</Th>
+											<Th className="text-xs font-semibold text-gray-500 uppercase tracking-wider py-3">Farmer</Th>
+											<Th className="text-xs font-semibold text-gray-500 uppercase tracking-wider py-3">Type</Th>
+											<Th className="text-xs font-semibold text-gray-500 uppercase tracking-wider py-3">Status</Th>
+											<Th className="text-xs font-semibold text-gray-500 uppercase tracking-wider py-3">Date</Th>
+											<Th className="text-right text-xs font-semibold text-gray-500 uppercase tracking-wider py-3">Action</Th>
+										</Tr>
+									</Thead>
+									<Tbody>
+										{displayedRecords.map((scan: Scan) => {
+											const cropType = scan.scan_type === 'leaf_disease' ? 'Leaf Disease' : 'Fruit Ripeness';
+											const farmerName = scan.farmer_profile?.full_name || scan.farmer_profile?.username || 'Unknown Farmer';
+											const uniqueKey = scan.scan_uuid || `${scan.scan_type}-${scan.id}`;
+
+											const getStatusBadge = (status: string) => {
+												switch (status) {
+													case 'Pending Validation':
+														return 'bg-amber-50 text-amber-700 border-amber-200';
+													case 'Validated':
+														return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+													case 'Corrected':
+														return 'bg-blue-50 text-blue-700 border-blue-200';
+													default:
+														return 'bg-gray-50 text-gray-600 border-gray-200';
+												}
+											};
+
+											return (
+												<Tr
+													key={uniqueKey}
+													onClick={(): void => setDetailId(scan.id.toString())}
+													className="cursor-pointer hover:bg-gray-50/60 transition-colors duration-150 border-b border-gray-50 last:border-b-0"
+												>
+												<Td className="py-3">
+													<div className="w-12 h-12 rounded-lg overflow-hidden border border-gray-200 bg-gray-50 flex-shrink-0">
+														{(() => {
+															const imageUrl = getScanImageUrlWithFallback(scan);
+															const imageKey = scan.scan_uuid || `scan-thumb-${scan.id}`;
+															const thumbErrorKey = `thumb-error-${scan.id}-${scan.scan_uuid || 'unknown'}`;
+
+															if (!imageUrl) {
+																return (
+																	<div className="w-full h-full flex items-center justify-center bg-gray-100">
+																		<AlertCircle className="w-5 h-5 text-gray-300" />
+																	</div>
+																);
+															}
+
 															return (
-																<div className="w-full h-full flex items-center justify-center bg-gray-100">
-																	<AlertCircle className="w-6 h-6 text-gray-400" />
-																</div>
+																<Image
+																	key={imageKey}
+																	src={imageUrl}
+																	alt={`Scan preview`}
+																	width={48}
+																	height={48}
+																	className="w-full h-full object-cover"
+																	loading="lazy"
+																	priority={false}
+																	unoptimized={true}
+																	onError={(e: React.SyntheticEvent<HTMLImageElement, Event>): void => {
+																		throttledErrorLog(thumbErrorKey, `[Validate Page] Thumbnail not available:`, {
+																			scan_id: scan.id,
+																			scan_uuid: scan.scan_uuid || 'N/A'
+																		});
+																		e.currentTarget.style.display = 'none';
+																	}}
+																/>
 															);
-														}
-														
-														return (
-															<Image 
-																key={imageKey}
-																src={imageUrl} 
-																alt={`Scan preview - ${scan.scan_type || 'unknown'}`}
-																width={64}
-																height={64}
-																className="w-full h-full object-cover"
-																loading="lazy"
-																priority={false}
-																unoptimized={true}
-																onError={(e: React.SyntheticEvent<HTMLImageElement, Event>): void => {
-																	// Silently handle image loading errors - log once per unique image
-																	throttledErrorLog(thumbErrorKey, `[Validate Page] Thumbnail not available:`, {
-																		scan_id: scan.id,
-																		scan_uuid: scan.scan_uuid || 'N/A'
-																	});
-																	// Hide broken image - gray background will show through
-																	e.currentTarget.style.display = 'none';
-																}}
-															/>
-														);
-													})()}
-												</div>
-											</Td>
-												<Td>
-													<div className="flex items-center gap-2">
+														})()}
+													</div>
+												</Td>
+												<Td className="py-3">
+													<div className="flex items-center gap-2.5">
 														{scan.farmer_profile?.profile_picture ? (
-															<Image 
-																src={scan.farmer_profile.profile_picture} 
-																alt="Profile" 
-																width={32}
-																height={32}
-																className="w-8 h-8 rounded-full object-cover flex-shrink-0"
+															<Image
+																src={scan.farmer_profile.profile_picture}
+																alt="Profile"
+																width={28}
+																height={28}
+																className="w-7 h-7 rounded-full object-cover flex-shrink-0 border border-gray-100"
 																onError={(e: React.SyntheticEvent<HTMLImageElement, Event>): void => {
 																	e.currentTarget.style.display = 'none';
 																}}
 															/>
 														) : (
-															<div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-xs font-medium text-gray-600 flex-shrink-0">
+															<div className="w-7 h-7 rounded-full bg-emerald-50 flex items-center justify-center text-xs font-semibold text-[#388E3C] flex-shrink-0 border border-emerald-100">
 																{farmerName.charAt(0).toUpperCase()}
 															</div>
 														)}
-														<span className="font-medium text-gray-900 truncate">{farmerName}</span>
+														<span className="font-medium text-sm text-gray-900 truncate max-w-[120px] sm:max-w-[160px]">{farmerName}</span>
 													</div>
 												</Td>
-												<Td>
-													<span className="text-sm text-gray-700">{cropType}</span>
+												<Td className="py-3">
+													<span className="text-xs text-gray-600">{cropType}</span>
 												</Td>
-												<Td>
-													<span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+												<Td className="py-3">
+													<span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${getStatusBadge(scan.status)}`}>
 														{scan.status}
 													</span>
 												</Td>
-												<Td>
-													<span className="text-sm text-gray-600">{formatDate(scan.created_at)}</span>
+												<Td className="py-3">
+													<span className="text-xs text-gray-500">{formatDate(scan.created_at)}</span>
 												</Td>
-												<Td className="text-right" onClick={(e: React.MouseEvent<HTMLTableCellElement>): void => e.stopPropagation()}>
+												<Td className="text-right py-3" onClick={(e: React.MouseEvent<HTMLTableCellElement>): void => e.stopPropagation()}>
 													<Button
 														variant="outline"
 														size="sm"
@@ -1149,29 +1172,29 @@ export default function ValidatePage() {
 															e.stopPropagation();
 															setDetailId(scan.id.toString());
 														}}
-														className="flex items-center gap-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 shadow-sm hover:bg-gray-50 hover:text-gray-900 hover:border-gray-400 hover:shadow-md active:bg-gray-100 active:shadow-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2"
+														className="h-8 text-xs font-medium text-[#388E3C] bg-white border-[#388E3C]/20 hover:bg-[#388E3C]/5 hover:border-[#388E3C]/40 hover:text-[#388E3C] transition-all duration-200"
 													>
-														<Eye className="h-4 w-4 flex-shrink-0" />
-														<span className="whitespace-nowrap">View Details</span>
+														<Eye className="h-3.5 w-3.5 mr-1.5" />
+														View
 													</Button>
 												</Td>
 											</Tr>
 										);
 									})}
-								</Tbody>
-							</Table>
-						</div>
-						{/* Pagination Controls */}
-						<div className="mt-4">
-							<Pagination
-								currentPage={currentPage}
-								totalRecords={filtered.length}
-								pageSize={PAGE_SIZE}
-								onPageChange={setCurrentPage}
-								showInfo={true}
-							/>
-						</div>
-						</>
+									</Tbody>
+								</Table>
+							</div>
+							{/* Pagination Controls */}
+							<div className="border-t border-gray-100 px-4 py-3 bg-gray-50/50">
+								<Pagination
+									currentPage={currentPage}
+									totalRecords={filtered.length}
+									pageSize={PAGE_SIZE}
+									onPageChange={setCurrentPage}
+									showInfo={true}
+								/>
+							</div>
+						</Card>
 					)}
 
 					<Dialog open={!!detailId} onOpenChange={(open: boolean): void => {
@@ -1191,7 +1214,7 @@ export default function ValidatePage() {
 							setDetailId(null);
 						}
 					}}>
-						<DialogContent className="!max-w-6xl w-[calc(100%-1rem)] sm:w-[calc(100%-2rem)] max-w-[98vw] sm:max-w-[95vw] p-0 flex flex-col max-h-[95vh] h-[95vh] overflow-hidden bg-white rounded-xl shadow-2xl">
+						<DialogContent className="!max-w-5xl w-[calc(100%-1rem)] sm:w-[calc(100%-2rem)] max-w-[98vw] sm:max-w-[92vw] p-0 flex flex-col max-h-[92vh] h-auto overflow-hidden bg-white rounded-2xl shadow-2xl">
 							{detailId && (() => {
 								const selectedScan = scans.find((scan: Scan) => scan.id.toString() === detailId);
 								if (!selectedScan) {
@@ -1200,8 +1223,8 @@ export default function ValidatePage() {
 											<AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
 											<p className="text-base font-medium text-gray-900 mb-2">Scan not found</p>
 											<p className="text-sm text-gray-500">The scan you&apos;re looking for may have been removed or doesn&apos;t exist.</p>
-											<Button 
-												variant="outline" 
+											<Button
+												variant="outline"
 												onClick={(e: React.MouseEvent<HTMLButtonElement>): void => {
 													e.preventDefault();
 													setDetailId(null);
@@ -1213,442 +1236,342 @@ export default function ValidatePage() {
 										</div>
 									);
 								}
-								
+
 								const scanDetails = parseScanDetails(selectedScan);
 								const cropType = selectedScan.scan_type === 'leaf_disease' ? 'Leaf Disease' : 'Fruit Ripeness';
 								const farmerName = selectedScan.farmer_profile?.full_name || selectedScan.farmer_profile?.username || 'Unknown Farmer';
 								const farmerInitial = farmerName.charAt(0).toUpperCase();
-								
+								const scanIdShort = selectedScan.scan_uuid ? `#${selectedScan.scan_uuid.split('-')[0].toUpperCase()}` : `#${selectedScan.id}`;
+								const expertValue = decision[detailId!] ?? '';
+								const aiPrediction = getAiPrediction(selectedScan) || 'N/A';
+								const isMatch = expertValue && normalizeValue(expertValue) === normalizeValue(aiPrediction);
+								const confidenceColor = scanDetails.confidencePercentage !== null
+									? scanDetails.confidencePercentage >= 80 ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+									: scanDetails.confidencePercentage >= 60 ? 'bg-amber-50 text-amber-700 border-amber-200'
+									: 'bg-red-50 text-red-700 border-red-200'
+									: 'bg-gray-50 text-gray-600 border-gray-200';
+
 								return (
 									<>
-										{/* Modal Header - Fixed at top */}
-										<div className="flex items-center justify-between px-4 sm:px-6 py-4 sm:py-5 border-b border-gray-200 bg-gradient-to-r from-white to-gray-50 flex-shrink-0 z-10">
+										{/* Modal Header */}
+										<div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] flex-shrink-0">
 											<DialogHeader className="p-0">
-												<DialogTitle className="text-lg sm:text-xl font-bold text-gray-900">Scan Validation Details</DialogTitle>
-												<p className="text-xs sm:text-sm text-gray-500 mt-1">Review and validate the scan information</p>
+												<DialogTitle className="text-lg sm:text-xl font-bold text-white">Scan Validation Details</DialogTitle>
+												<p className="text-xs sm:text-sm text-white/80 mt-0.5">Review the AI prediction and provide your expert validation</p>
 											</DialogHeader>
-											<button 
-												aria-label="Close" 
+											<button
+												aria-label="Close"
 												onClick={(e: React.MouseEvent<HTMLButtonElement>): void => {
 													e.preventDefault();
 													setDetailId(null);
-												}} 
-												className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-900 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-gray-300"
+												}}
+												className="rounded-lg p-2 bg-white/20 hover:bg-white/30 text-white transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-white/50"
 											>
 												<X className="h-5 w-5" />
 											</button>
 										</div>
 
-										{/* Scrollable Content - Main scrollable area */}
-										<div 
-											className="px-3 sm:px-6 py-4 sm:py-6 overflow-y-auto overflow-x-hidden bg-gray-50 flex-1 min-h-0 scrollable-details-content" 
-											style={{ 
-												maxHeight: 'calc(95vh - 200px)',
-												scrollBehavior: 'smooth',
-												WebkitOverflowScrolling: 'touch'
-											}}
-										>
-											<div className="space-y-6">
-												{/* Farmer Info Card */}
-												<Card className="shadow-md border border-gray-200 bg-white overflow-hidden">
-													<CardHeader className="pb-4 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-white">
-														<div className="flex items-center gap-4">
-															{selectedScan.farmer_profile?.profile_picture ? (
-																<Image 
-																	src={selectedScan.farmer_profile.profile_picture} 
-																	alt="Profile" 
-																	width={56}
-																	height={56}
-																	className="w-14 h-14 rounded-full object-cover border-2 border-gray-300 shadow-sm"
-																	onError={(e: React.SyntheticEvent<HTMLImageElement, Event>): void => {
-																		e.currentTarget.style.display = 'none';
-																	}}
-																/>
-															) : (
-																<div className="w-14 h-14 rounded-full bg-gradient-to-br from-gray-200 to-gray-300 flex items-center justify-center text-lg font-bold text-gray-600 border-2 border-gray-300 shadow-sm">
-																	{farmerInitial}
+										{/* Scrollable Body */}
+										<div className="flex-1 overflow-y-auto bg-gray-50/50">
+											{/* Metadata Summary Strip */}
+											<div className="px-5 sm:px-6 py-3 bg-white border-b border-gray-100">
+												<div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+													<div className="flex items-center gap-1.5">
+														<User className="h-3.5 w-3.5 text-gray-400" />
+														<span className="text-xs text-gray-600 font-medium">{farmerName}</span>
+													</div>
+													<div className="flex items-center gap-1.5">
+														<Calendar className="h-3.5 w-3.5 text-gray-400" />
+														<span className="text-xs text-gray-500">{formatDate(selectedScan.created_at)}</span>
+													</div>
+													<div className="flex items-center gap-1.5">
+														<ScanLine className="h-3.5 w-3.5 text-gray-400" />
+														<span className="text-xs text-gray-500">{cropType}</span>
+													</div>
+													<div className="flex items-center gap-1.5">
+														<span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border ${selectedScan.status === 'Pending Validation' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`} >
+															{selectedScan.status}
+														</span>
+													</div>
+													<span className="text-[10px] text-gray-400 font-mono">{scanIdShort}</span>
+												</div>
+											</div>
+
+											{/* Main Content */}
+											<div className="px-5 sm:px-6 py-5 space-y-5">
+												<div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
+													{/* Left Column - Image */}
+													<div className="lg:col-span-3">
+														<Card className="border border-gray-100 shadow-sm h-full">
+															<div className="p-4">
+																<div className="flex items-center justify-between mb-3">
+																	<span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Scan Image</span>
+																	<div className="flex items-center gap-1.5">
+																		<button
+																			onClick={() => {
+																				const allUrls = getAllPossibleImageUrls(selectedScan);
+																				if (allUrls.length > 0) window.open(allUrls[0], '_blank');
+																			}}
+																			className="p-1.5 rounded-md text-gray-400 hover:text-[#388E3C] hover:bg-emerald-50 transition-colors"
+																			title="Open full image"
+																		>
+																			<ExternalLink className="h-3.5 w-3.5" />
+																		</button>
+																	</div>
 																</div>
-															)}
-															<div className="flex-1 min-w-0">
-																<CardTitle className="text-lg font-bold text-gray-900 truncate">
-																	{farmerName}
-																</CardTitle>
-																<div className="flex items-center gap-2 mt-1">
-																	<p className="text-sm text-gray-600">{formatDate(selectedScan.created_at)}</p>
-																	<span className="text-gray-300">•</span>
-																	<span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800 border border-yellow-200">
-																		{selectedScan.status}
-																	</span>
-																</div>
-															</div>
-														</div>
-													</CardHeader>
-													<CardContent className="pt-6">
-														{/* Scan Image */}
-														<div className="space-y-3">
-															<label className="block text-sm font-medium text-gray-700">Scan Image</label>
-															<div className="aspect-video w-full bg-gradient-to-br from-gray-100 to-gray-200 rounded-xl overflow-hidden border border-gray-300 shadow-inner">
-																{(() => {
-																	// Get all possible image URLs to try multiple extensions
-																	const allUrls = getAllPossibleImageUrls(selectedScan);
-																	const attemptKey = selectedScan?.scan_uuid || selectedScan?.id?.toString() || 'unknown';
-																	const attemptIndex = imageUrlAttempts[attemptKey] || 0;
-																	const imageUrl = allUrls.length > 0 && attemptIndex < allUrls.length ? allUrls[attemptIndex] : null;
-																	
-																	// Capture all scan values as strings for error handler closure
-																	const scanUuid = selectedScan?.scan_uuid ? String(selectedScan.scan_uuid) : 'N/A';
-																	const scanType = selectedScan?.scan_type ? String(selectedScan.scan_type) : 'N/A';
-																	const scanId = selectedScan?.id ? String(selectedScan.id) : 'N/A';
-																	const capturedImageUrl = imageUrl ? String(imageUrl) : 'N/A';
-																	const errorKey = `image-error-${scanId}-${scanUuid}`;
-																	
-																	if (!imageUrl || allUrls.length === 0) {
-																		return (
-																			<div className="flex items-center justify-center h-full">
-																				<div className="text-center">
-																					<AlertCircle className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-																					<p className="text-sm text-gray-500">Image not available</p>
-																					{scanUuid !== 'N/A' && (
-																						<p className="text-xs text-gray-400 mt-1">UUID: {scanUuid}</p>
-																					)}
-																					{process.env.NODE_ENV === 'development' && (
-																						<p className="text-xs text-gray-400 mt-1">Bucket: scan-images/{scanType === 'leaf_disease' ? 'leaf_scans' : 'fruit_scans'}</p>
-																					)}
+																<div className="aspect-video w-full bg-gray-100 rounded-xl overflow-hidden border border-gray-200">
+																	{(() => {
+																		const allUrls = getAllPossibleImageUrls(selectedScan);
+																		const attemptKey = selectedScan?.scan_uuid || selectedScan?.id?.toString() || 'unknown';
+																		const attemptIndex = imageUrlAttempts[attemptKey] || 0;
+																		const imageUrl = allUrls.length > 0 && attemptIndex < allUrls.length ? allUrls[attemptIndex] : null;
+																		const scanUuid = selectedScan?.scan_uuid ? String(selectedScan.scan_uuid) : 'N/A';
+																		const scanType = selectedScan?.scan_type ? String(selectedScan.scan_type) : 'N/A';
+																		const scanId = selectedScan?.id ? String(selectedScan.id) : 'N/A';
+																		const errorKey = `image-error-${scanId}-${scanUuid}`;
+
+																		if (!imageUrl || allUrls.length === 0) {
+																			return (
+																				<div className="flex flex-col items-center justify-center h-full">
+																					<AlertCircle className="h-8 w-8 text-gray-300 mb-2" />
+																					<p className="text-sm text-gray-400">Image not available</p>
 																				</div>
-																			</div>
-																		);
-																	}
-																	
-																	// Use scan_uuid as key to force re-render when scan changes
-																	const imageKey = `${scanUuid !== 'N/A' ? scanUuid : `scan-${scanId}`}-attempt-${attemptIndex}`;
-																	
-																	return (
-																		<Image 
-																			key={imageKey}
-																			src={imageUrl} 
-																			alt={`Scan preview - ${scanType} - ${scanUuid !== 'N/A' ? scanUuid : scanId}`}
-																			width={800}
-																			height={450}
-																			className="w-full h-full object-contain"
-																			unoptimized={true}
-																			onError={(e: React.SyntheticEvent<HTMLImageElement, Event>): void => {
-																				// Try next URL if available
-																				if (attemptIndex < allUrls.length - 1) {
-																					setImageUrlAttempts((prev: Record<string, number>): Record<string, number> => ({
-																						...prev,
-																						[attemptKey]: attemptIndex + 1
-																					}));
-																					return; // Don't show error yet, try next URL
-																				}
-																				
-																				// All URLs failed - show error
-																				throttledErrorLog(errorKey, '[Validate Page] Image not available:', {
-																					scan_uuid: scanUuid,
-																					scan_type: scanType,
-																					scan_id: scanId,
-																					tried_urls: allUrls,
-																					bucket: `scan-images/${scanType === 'leaf_disease' ? 'leaf_scans' : 'fruit_scans'}`
-																				});
-																				
-																				// Hide the broken image
-																				e.currentTarget.style.display = 'none';
-																				
-																				// Show error placeholder
-																				const parent = e.currentTarget.parentElement;
-																				if (parent && !parent.querySelector('.image-error-placeholder')) {
-																					const placeholder = document.createElement('div');
-																					placeholder.className = 'image-error-placeholder flex flex-col items-center justify-center h-full p-4 bg-gray-100';
-																					const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-																					svg.setAttribute('class', 'h-8 w-8 text-gray-400 mb-2');
-																					svg.setAttribute('fill', 'none');
-																					svg.setAttribute('viewBox', '0 0 24 24');
-																					svg.setAttribute('stroke', 'currentColor');
-																					const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-																					path.setAttribute('stroke-linecap', 'round');
-																					path.setAttribute('stroke-linejoin', 'round');
-																					path.setAttribute('stroke-width', '2');
-																					path.setAttribute('d', 'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z');
-																					svg.appendChild(path);
-																					
-																					const p1 = document.createElement('p');
-																					p1.className = 'text-sm text-gray-500 text-center';
-																					p1.textContent = 'Image not available';
-																					
-																					const p2 = document.createElement('p');
-																					p2.className = 'text-xs text-gray-400 text-center mt-1';
-																					p2.textContent = `Bucket: scan-images/${scanType === 'leaf_disease' ? 'leaf_scans' : 'fruit_scans'}`;
-																					
-																					placeholder.appendChild(svg);
-																					placeholder.appendChild(p1);
-																					placeholder.appendChild(p2);
-																					
-																					if (scanUuid !== 'N/A') {
-																						const p3 = document.createElement('p');
-																						p3.className = 'text-xs text-gray-400 text-center mt-1';
-																						p3.textContent = `UUID: ${scanUuid}`;
-																						placeholder.appendChild(p3);
-																					}
-																					
-																					parent.appendChild(placeholder);
-																				}
-																			}}
-																			onLoad={(): void => {
-																				// Remove error state and reset attempts if image loads successfully
-																				errorThrottle.delete(errorKey);
-																				setImageUrlAttempts((prev: Record<string, number>): Record<string, number> => {
-																					const next: Record<string, number> = { ...prev };
-																					delete next[attemptKey];
-																					return next;
-																				});
-																				
-																				if (process.env.NODE_ENV === 'development') {
-																					console.log('[Validate Page] Image loaded successfully:', {
-																						url: capturedImageUrl,
-																						scan_uuid: scanUuid,
-																						scan_type: scanType,
-																						attempt: attemptIndex + 1
-																					});
-																				}
-																			}}
-																		/>
-																	);
-																})()}
+																			);
+																		}
+
+																		const imageKey = `${scanUuid !== 'N/A' ? scanUuid : `scan-${scanId}`}-attempt-${attemptIndex}`;
+
+																		return (
+																			<Image
+																				key={imageKey}
+																				src={imageUrl}
+																				alt={`Scan preview`}
+																				width={700}
+																					height={400}
+																					className="w-full h-full object-contain"
+																					unoptimized={true}
+																					onError={(e: React.SyntheticEvent<HTMLImageElement, Event>): void => {
+																						if (attemptIndex < allUrls.length - 1) {
+																							setImageUrlAttempts((prev: Record<string, number>): Record<string, number> => ({
+																								...prev,
+																							[attemptKey]: attemptIndex + 1
+																							}));
+																							return;
+																						}
+																						throttledErrorLog(errorKey, '[Validate Page] Image not available:', {
+																							scan_uuid: scanUuid,
+																							scan_type: scanType,
+																							scan_id: scanId
+																						});
+																						e.currentTarget.style.display = 'none';
+																					}}
+																					onLoad={(): void => {
+																							errorThrottle.delete(errorKey);
+																							setImageUrlAttempts((prev: Record<string, number>): Record<string, number> => {
+																								const next: Record<string, number> = { ...prev };
+																								delete next[attemptKey];
+																								return next;
+																							});
+																						}}
+																				/>
+																			);
+																	})()}
+																</div>
 															</div>
-														</div>
-													</CardContent>
-												</Card>
+														</Card>
 
-												{/* AI Analysis Overview */}
-												<Card className="shadow-md border border-gray-200 bg-white">
-													<CardHeader className="pb-4 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-white">
-														<CardTitle className="text-lg font-semibold text-gray-900">AI Analysis Overview</CardTitle>
-													</CardHeader>
-													<CardContent className="pt-6 space-y-4">
-														{/* Scan Type */}
-														<div className="space-y-2">
-															<label className="block text-sm font-medium text-gray-700">Scan Type</label>
-															<p className="text-base text-gray-900 bg-gray-50 px-4 py-2.5 rounded-lg border border-gray-200">{cropType}</p>
-														</div>
-													</CardContent>
-												</Card>
+														{/* Solution / Recommendation */}
+														{scanDetails.solution && (
+															<Card className="border border-gray-100 shadow-sm mt-4">
+																<div className="p-4">
+																	<span className="text-xs font-semibold text-gray-500 uppercase tracking-wider block mb-2">
+																		{selectedScan.scan_type === 'leaf_disease' ? 'Recommended Solution' : 'Harvest Recommendation'}
+																	</span>
+																	{(() => {
+																		const items = parseTextToListItems(scanDetails.solution);
+																		return items.length > 1 ? (
+																			<ul className="space-y-1.5">
+																				{items.map((item, index) => (
+																					<li key={index} className="flex items-start gap-2 text-sm text-gray-700">
+																						<CheckCircle2 className="h-3.5 w-3.5 text-[#388E3C] mt-0.5 flex-shrink-0" />
+																						<span className="leading-relaxed">{item}</span>
+																					</li>
+																					))}
+																			</ul>
+																		) : (
+																				<p className="text-sm text-gray-700 leading-relaxed">{items[0] || scanDetails.solution}</p>
+																			);
+																		})()}
+																</div>
+															</Card>
+														)}
+													</div>
 
-{/* Leaf Disease Details or Fruit Ripeness Details - Improved Layout */}
-													<Card className="shadow-md border border-gray-200 bg-white">
-														<CardHeader className="pb-4 border-b border-gray-200 bg-gradient-to-r from-emerald-50/50 to-white">
-															<CardTitle className="text-lg font-semibold text-gray-900">
-																{selectedScan.scan_type === 'leaf_disease' ? 'Leaf Disease Details' : 'Fruit Ripeness Details'}
-															</CardTitle>
-														</CardHeader>
-														<CardContent className="pt-6">
-															{selectedScan.scan_type === 'leaf_disease' ? (
-																<div className="space-y-5">
-																	{/* Disease Detection Row */}
-																	<div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-																		{/* Disease Detected */}
-																		<div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
-																			<label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Disease Detected</label>
-																			<p className="text-base font-medium text-gray-900">{scanDetails.disease}</p>
+													{/* Right Column */}
+													<div className="lg:col-span-2 space-y-4">
+														{/* AI Prediction Card */}
+														<Card className="border border-gray-100 shadow-sm">
+															<div className="p-4">
+																<div className="flex items-center gap-2 mb-3">
+																	<Activity className="h-4 w-4 text-[#388E3C]" />
+																	<span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">AI Prediction</span>
+																</div>
+																<div className="space-y-3">
+																	<div>
+																		<p className="text-xs text-gray-500 mb-0.5">{selectedScan.scan_type === 'leaf_disease' ? 'Detected Disease' : 'Ripeness Stage'}</p>
+																		<p className="text-lg font-bold text-gray-900">{scanDetails.disease}</p>
+																	</div>
+																	<div className="flex items-center gap-2">
+																		<span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${confidenceColor}`}>
+																			Confidence: {scanDetails.confidence}
+																		</span>
+																	</div>
+																	{scanDetails.confidencePercentage !== null && (
+																		<div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+																			<div
+																				className={`h-full rounded-full ${
+																				scanDetails.confidencePercentage >= 80 ? 'bg-emerald-500' :
+																				scanDetails.confidencePercentage >= 60 ? 'bg-amber-500' :
+																				'bg-red-500'
+																				}`}
+																				style={{ width: `${Math.min(scanDetails.confidencePercentage, 100)}%` }}
+																			/>
 																		</div>
-																		{/* AI Confidence Level - Restored */}
-																		<div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
-																			<label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">AI Confidence Level</label>
-																			<div className="flex items-center gap-2">
-																				<span className="text-base font-medium text-gray-900">{scanDetails.confidence}</span>
-																				{scanDetails.confidencePercentage !== null && (
-																					<div className="flex-1 max-w-[120px]">
-																						<div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-																							<div 
-																								className={`h-full rounded-full transition-all duration-300 ${
-																									scanDetails.confidencePercentage >= 80 ? 'bg-emerald-500' :
-																									scanDetails.confidencePercentage >= 60 ? 'bg-yellow-500' :
-																									'bg-red-500'
-																								}`}
-																								style={{ width: `${Math.min(scanDetails.confidencePercentage, 100)}%` }}
-																							/>
-																						</div>
-																					</div>
-																				)}
-																			</div>
-																		</div>
+																	)}
+																</div>
+															</div>
+														</Card>
+
+														{/* Expert Validation Form */}
+														<Card className="border border-gray-100 shadow-sm">
+															<div className="p-4">
+																<div className="flex items-center gap-2 mb-3">
+																	<ShieldCheck className="h-4 w-4 text-[#388E3C]" />
+																	<span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Expert Validation</span>
+																</div>
+																<div className="space-y-4">
+																	<div>
+																		<label className="block text-xs font-medium text-gray-700 mb-1.5">
+																		{selectedScan.scan_type === 'leaf_disease' ? 'Diagnosis' : 'Ripeness Stage'}
+																		<span className="text-red-500 ml-0.5">*</span>
+																	</label>
+																	{selectedScan.scan_type === 'leaf_disease' ? (
+																		<select
+																			value={decision[detailId!] ?? ''}
+																			onChange={(e: React.ChangeEvent<HTMLSelectElement>): void => setDecision({...decision, [detailId!]: e.target.value})}
+																			className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-[#388E3C] bg-white transition-all"
+																		>
+																			<option value="">Select diagnosis</option>
+																			<option>Healthy</option>
+																			<option>Fusarium Wilt</option>
+																			<option>Downy Mildew</option>
+																			<option>Yellow Mosaic Virus</option>
+																			<option>Cercospora</option>
+																			<option>Other</option>
+																		</select>
+																	) : (
+																		<select
+																			value={decision[detailId!] ?? ''}
+																			onChange={(e: React.ChangeEvent<HTMLSelectElement>): void => setDecision({...decision, [detailId!]: e.target.value})}
+																			className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-[#388E3C] bg-white transition-all"
+																		>
+																			<option value="">Select ripeness stage</option>
+																			<option>Immature</option>
+																			<option>Mature</option>
+																			<option>Overmature</option>
+																			<option>Overripe</option>
+																		</select>
+																	)}
 																	</div>
 
-																	{/* Solution Section - Improved with bullet list */}
-																	<div className="bg-emerald-50/50 border border-emerald-200 rounded-lg px-4 py-4">
-																		<label className="block text-xs font-semibold text-emerald-700 uppercase tracking-wide mb-3">Solution</label>
-																		{scanDetails.solution ? (
-																			(() => {
-																				const items = parseTextToListItems(scanDetails.solution);
-																				return items.length > 1 ? (
-																					<ul className="space-y-2">
-																						{items.map((item, index) => (
-																							<li key={index} className="flex items-start gap-2 text-sm text-gray-800">
-																								<span className="flex-shrink-0 w-1.5 h-1.5 mt-2 rounded-full bg-emerald-500"></span>
-																								<span className="leading-relaxed">{item}</span>
-																							</li>
-																						))}
-																					</ul>
-																				) : (
-																					<p className="text-sm text-gray-800 leading-relaxed">{items[0] || scanDetails.solution}</p>
-																				);
-																			})()
-																		) : (
-																			<p className="text-sm text-gray-500 italic">No solution available</p>
-																		)}
-																	</div>
+																	{selectedScan.scan_type === 'leaf_disease' && (
+																		<div>
+																			<label className="block text-xs font-medium text-gray-700 mb-1.5">Severity</label>
+																		<div className="flex gap-2">
+																			{(['Mild', 'Moderate', 'Severe'] as const).map((level) => (
+																				<button
+																					key={level}
+																					onClick={() => setSeverity({ ...severity, [detailId!]: level })}
+																					className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium border transition-all ${
+																					severity[detailId!] === level
+																						? 'bg-[#388E3C] text-white border-[#388E3C]'
+																						: 'bg-white text-gray-600 border-gray-200 hover:border-[#388E3C]/40'
+																					}`}
+																				>
+																					{level}
+																				</button>
+																				))}
+																		</div>
+																		</div>
+																	)}
 
-																	{/* Recommended Products Section - Improved with bullet list */}
-																	<div className="bg-blue-50/50 border border-blue-200 rounded-lg px-4 py-4">
-																		<label className="block text-xs font-semibold text-blue-700 uppercase tracking-wide mb-3">Recommended Products</label>
-																		{scanDetails.recommendedProducts ? (
-																			(() => {
-																				const items = parseTextToListItems(scanDetails.recommendedProducts);
-																				return items.length > 1 ? (
-																					<ul className="space-y-2">
-																						{items.map((item, index) => (
-																							<li key={index} className="flex items-start gap-2 text-sm text-gray-800">
-																								<span className="flex-shrink-0 w-5 h-5 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold flex items-center justify-center">{index + 1}</span>
-																								<span className="leading-relaxed">{item}</span>
-																							</li>
-																						))}
-																					</ul>
-																				) : (
-																					<p className="text-sm text-gray-800 leading-relaxed">{items[0] || scanDetails.recommendedProducts}</p>
-																				);
-																			})()
-																		) : (
-																			<p className="text-sm text-gray-500 italic">No products recommended</p>
-																		)}
+																	<div>
+																		<label className="block text-xs font-medium text-gray-700 mb-1.5">Expert Notes <span className="text-gray-400 font-normal">(Optional)</span></label>
+																		<textarea
+																			value={notes[detailId!] ?? ''}
+																			onChange={(e: React.ChangeEvent<HTMLTextAreaElement>): void => setNotes({...notes, [detailId!]: e.target.value})}
+																			placeholder="Add observations, recommendations, or additional comments..."
+																			className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-[#388E3C] resize-none transition-all"
+																			rows={3}
+																		/>
 																	</div>
 																</div>
-															) : (
-																/* Fruit Ripeness Details - Improved Layout */
-																<div className="space-y-5">
-																	{/* Ripeness Detection Row */}
-																	<div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-																		{/* Ripeness Stage */}
-																		<div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
-																			<label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Ripeness Stage</label>
-																			<p className="text-base font-medium text-gray-900">{scanDetails.disease}</p>
+															</div>
+														</Card>
+
+														{/* AI vs Expert Summary */}
+														{expertValue && (
+															<Card className={`border shadow-sm ${isMatch ? 'border-emerald-100 bg-emerald-50/30' : 'border-amber-100 bg-amber-50/30'}`}>
+																<div className="p-4">
+																	<span className="text-xs font-semibold text-gray-500 uppercase tracking-wider block mb-3">AI vs Expert Summary</span>
+																	<div className="grid grid-cols-2 gap-3">
+																		<div>
+																			<p className="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">AI Prediction</p>
+																			<p className="text-sm font-semibold text-gray-900">{aiPrediction}</p>
 																		</div>
-																		{/* AI Confidence Level - Restored */}
-																		<div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
-																			<label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">AI Confidence Level</label>
-																			<div className="flex items-center gap-2">
-																				<span className="text-base font-medium text-gray-900">{scanDetails.confidence}</span>
-																				{scanDetails.confidencePercentage !== null && (
-																					<div className="flex-1 max-w-[120px]">
-																						<div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-																							<div 
-																								className={`h-full rounded-full transition-all duration-300 ${
-																									scanDetails.confidencePercentage >= 80 ? 'bg-emerald-500' :
-																									scanDetails.confidencePercentage >= 60 ? 'bg-yellow-500' :
-																									'bg-red-500'
-																								}`}
-																								style={{ width: `${Math.min(scanDetails.confidencePercentage, 100)}%` }}
-																							/>
-																						</div>
-																					</div>
-																				)}
-																			</div>
+																		<div>
+																			<p className="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">Expert Validation</p>
+																			<p className="text-sm font-semibold text-gray-900">{expertValue}</p>
 																		</div>
 																	</div>
-
-																	{/* Harvest Recommendation Section - Improved with bullet list */}
-																	<div className="bg-amber-50/50 border border-amber-200 rounded-lg px-4 py-4">
-																		<label className="block text-xs font-semibold text-amber-700 uppercase tracking-wide mb-3">Harvest Recommendation</label>
-																		{scanDetails.solution ? (
-																			(() => {
-																				const items = parseTextToListItems(scanDetails.solution);
-																				return items.length > 1 ? (
-																					<ul className="space-y-2">
-																						{items.map((item, index) => (
-																							<li key={index} className="flex items-start gap-2 text-sm text-gray-800">
-																								<span className="flex-shrink-0 w-1.5 h-1.5 mt-2 rounded-full bg-amber-500"></span>
-																								<span className="leading-relaxed">{item}</span>
-																							</li>
-																						))}
-																					</ul>
-																				) : (
-																					<p className="text-sm text-gray-800 leading-relaxed">{items[0] || scanDetails.solution}</p>
-																				);
-																			})()
-																		) : (
-																			<p className="text-sm text-gray-500 italic">No recommendation available</p>
-																		)}
+																	<div className="mt-3 pt-3 border-t border-gray-100/60">
+																		<span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border ${
+																			isMatch
+																				? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+																				: 'bg-amber-50 text-amber-700 border-amber-200'
+																			}`}>
+																			{isMatch ? (
+																				<>
+																					<CheckCircle2 className="h-3.5 w-3.5" />
+																					Match — AI Confirmed
+																				</>
+																			) : (
+																				<>
+																					<AlertCircle className="h-3.5 w-3.5" />
+																				Modified by Expert
+																				</>
+																			)}
+																		</span>
 																	</div>
 																</div>
-															)}
-													</CardContent>
-												</Card>
-
-												{/* Expert Validation Section */}
-												<Card className="shadow-md border-2 border-gray-300 bg-white">
-													<CardHeader className="pb-4 border-b border-gray-200 bg-gradient-to-r from-emerald-50 to-white">
-														<CardTitle className="text-lg font-semibold text-gray-900">Expert Validation</CardTitle>
-														<p className="text-sm text-gray-600 mt-1">Review and provide your expert assessment</p>
-													</CardHeader>
-													<CardContent className="pt-6 space-y-5">
-														{/* Disease/Maturity Selection */}
-														<div className="space-y-3">
-															<label className="block text-sm font-semibold text-gray-900">
-																{selectedScan.scan_type === 'leaf_disease' ? 'Select Diagnosis' : 'Select Ripeness Stage'}
-																<span className="text-red-500 ml-1">*</span>
-															</label>
-															{selectedScan.scan_type === 'leaf_disease' ? (
-																<select 
-																	value={decision[detailId!] ?? ''} 
-																	onChange={(e: React.ChangeEvent<HTMLSelectElement>): void => setDecision({...decision, [detailId!]: e.target.value})} 
-																	className="w-full rounded-lg border-2 border-gray-300 px-4 py-3 text-base font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white shadow-sm transition-all"
-																>
-																	<option value="">Select diagnosis</option>
-																	<option>Healthy</option>
-																	<option>Fusarium Wilt</option>
-																	<option>Downy Mildew</option>
-																	<option>Yellow Mosaic Virus</option>
-																	<option>Cercospora</option>
-																	<option>Other</option>
-																</select>
-															) : (
-																<select 
-																	value={decision[detailId!] ?? ''} 
-																	onChange={(e: React.ChangeEvent<HTMLSelectElement>): void => setDecision({...decision, [detailId!]: e.target.value})} 
-																	className="w-full rounded-lg border-2 border-gray-300 px-4 py-3 text-base font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white shadow-sm transition-all"
-																>
-																	<option value="">Select ripeness stage</option>
-																	<option>Immature</option>
-																	<option>Mature</option>
-																	<option>Overmature</option>
-																	<option>Overripe</option>
-																</select>
-															)}
-														</div>
-
-														{/* Notes */}
-														<div className="space-y-3">
-															<label className="block text-sm font-semibold text-gray-900">Expert Notes (Optional)</label>
-															<textarea 
-																value={notes[detailId!] ?? ''} 
-																onChange={(e: React.ChangeEvent<HTMLTextAreaElement>): void => setNotes({...notes, [detailId!]: e.target.value})} 
-																placeholder="Add your expert analysis, observations, or additional comments..." 
-																className="w-full rounded-lg border-2 border-gray-300 px-4 py-3 text-base text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 resize-none shadow-sm transition-all"
-																rows={4}
-															/>
-														</div>
-													</CardContent>
-												</Card>
+															</Card>
+														)}
+													</div>
+												</div>
 											</div>
 										</div>
 
 										{/* Modal Footer */}
-										<div className="bg-white border-t-2 border-gray-200 px-3 sm:px-6 py-3 sm:py-4 flex-shrink-0 shadow-lg z-10">
+										<div className="bg-white border-t border-gray-100 px-5 sm:px-6 py-3.5 flex-shrink-0">
 											<DialogFooter className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 sm:gap-3">
-												<Button 
-													variant="outline" 
+												<Button
+													variant="outline"
+													size="sm"
 													onClick={(e: React.MouseEvent<HTMLButtonElement>): void => {
 														e.preventDefault();
 														setDetailId(null);
 													}}
-													className="text-base font-medium text-gray-700 border-2 border-gray-300 hover:bg-gray-50 hover:border-gray-400 active:bg-gray-100 transition-all duration-200"
+													className="h-9 text-sm font-medium text-gray-600 border-gray-200 hover:bg-gray-50 hover:text-gray-900 transition-all"
 												>
 													Cancel
 												</Button>
@@ -1658,34 +1581,39 @@ export default function ValidatePage() {
 													const isProcessing = processingScanId === scanIdNum;
 
 													if (modified) {
-														// Expert changed the result → show "Modify" button
 														return (
 															<Button
+																size="sm"
 																onClick={(e: React.MouseEvent<HTMLButtonElement>): void => {
 																	e.preventDefault();
 																	onReject(scanIdNum);
 																}}
 																disabled={!hasDecision(scanIdNum) || isProcessing}
-																className="text-base font-semibold bg-amber-600 text-white hover:bg-amber-700 active:bg-amber-800 disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg transition-all duration-200"
-																title="Submit your modified diagnosis"
+																className="h-9 text-sm font-semibold bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm transition-all"
 															>
-																{isProcessing ? 'Processing...' : 'Modify'}
+																{isProcessing ? 'Processing...' : 'Confirm Correction'}
 															</Button>
 														);
 													}
 
-													// Selection matches AI prediction → show "Confirm" button
 													return (
 														<Button
+															size="sm"
 															onClick={(e: React.MouseEvent<HTMLButtonElement>): void => {
 																e.preventDefault();
 																onConfirm(scanIdNum);
 															}}
 															disabled={isProcessing}
-															className="text-base font-semibold bg-[var(--primary)] text-white hover:bg-[var(--primary-600)] active:bg-[var(--primary-700)] disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg transition-all duration-200"
-															title="Confirm the AI prediction is correct"
+															className="h-9 text-sm font-semibold bg-[#388E3C] text-white hover:bg-[#2F7A33] disabled:opacity-50 disabled:cursor-not-allowed shadow-sm transition-all"
 														>
-															{isProcessing ? 'Processing...' : 'Confirm'}
+															{isProcessing ? (
+																<Loader2 className="h-4 w-4 animate-spin" />
+															) : (
+																<>
+																	<CheckCircle2 className="h-4 w-4 mr-1.5" />
+																	Confirm Validation
+																</>
+															)}
 														</Button>
 													);
 												})()}
@@ -1693,15 +1621,11 @@ export default function ValidatePage() {
 										</div>
 									</>
 								);
-							})()}
-						</DialogContent>
+								})()}
+							</DialogContent>
 					</Dialog>
 				</div>
 			</AppShell>
 		</AuthGuard>
 	);
 }
-
-
-
-

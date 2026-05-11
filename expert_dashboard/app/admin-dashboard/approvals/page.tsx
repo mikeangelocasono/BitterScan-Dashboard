@@ -8,7 +8,7 @@ import toast from "react-hot-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { CheckCircle2, XCircle, UserCheck, Loader2, Filter, AlertCircle } from "lucide-react";
+import { CheckCircle2, XCircle, UserCheck, Loader2, Filter, AlertCircle, Search, X, ArrowUpDown, Users, ShieldCheck, Calendar, ArrowDownAZ, ArrowDownZA } from "lucide-react";
 import Pagination from "@/components/ui/pagination";
 import { useUser } from "@/components/UserContext";
 import { formatDate } from "@/utils/dateUtils";
@@ -71,6 +71,9 @@ function ApprovalsContent() {
   const [loading, setLoading] = useState(!hasCachedData);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [roleFilter, setRoleFilter] = useState<"all" | "expert" | "farmer">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "approved" | "rejected">("all");
+  const [sortOption, setSortOption] = useState<"newest" | "oldest" | "name-asc" | "name-desc">("newest");
+  const [searchQuery, setSearchQuery] = useState("");
   const guardNotifiedRef = useRef(false);
   const isFetchingRef = useRef(false);
   const hasCachedDataRef = useRef(hasCachedData);
@@ -296,10 +299,42 @@ function ApprovalsContent() {
     }
   };
 
-  const filteredPending = useMemo(() => {
-    if (roleFilter === "all") return pendingUsers;
-    return pendingUsers.filter((user) => user.role === roleFilter);
-  }, [pendingUsers, roleFilter]);
+  // Unified search + role filter + sort
+  const filterAndSort = useCallback((users: UserProfile[]) => {
+    let filtered = [...users];
+    // Role filter
+    if (roleFilter !== "all") {
+      filtered = filtered.filter((u) => u.role === roleFilter);
+    }
+    // Search
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      filtered = filtered.filter((u) =>
+        (u.full_name || "").toLowerCase().includes(q) ||
+        (u.email || "").toLowerCase().includes(q) ||
+        (u.username || "").toLowerCase().includes(q)
+      );
+    }
+    // Sort
+    filtered.sort((a, b) => {
+      if (sortOption === "newest") {
+        return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+      }
+      if (sortOption === "oldest") {
+        return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
+      }
+      const nameA = (a.full_name || a.username || "").toLowerCase();
+      const nameB = (b.full_name || b.username || "").toLowerCase();
+      if (sortOption === "name-asc") return nameA.localeCompare(nameB);
+      if (sortOption === "name-desc") return nameB.localeCompare(nameA);
+      return 0;
+    });
+    return filtered;
+  }, [roleFilter, searchQuery, sortOption]);
+
+  const filteredPending = useMemo(() => filterAndSort(pendingUsers), [filterAndSort, pendingUsers]);
+  const filteredApproved = useMemo(() => filterAndSort(approvedUsers), [filterAndSort, approvedUsers]);
+  const filteredRejected = useMemo(() => filterAndSort(rejectedUsers), [filterAndSort, rejectedUsers]);
 
   // Pagination state for each table
   const [currentPagePending, setCurrentPagePending] = useState(1);
@@ -309,17 +344,15 @@ function ApprovalsContent() {
   // Reset to page 1 when filter or data changes
   useEffect(() => {
     setCurrentPagePending(1);
-  }, [roleFilter, pendingUsers.length]);
+  }, [roleFilter, statusFilter, searchQuery, sortOption, pendingUsers.length]);
 
   useEffect(() => {
-    const totalPages = Math.max(1, Math.ceil(approvedUsers.length / PAGE_SIZE));
-    if (currentPageApproved > totalPages) setCurrentPageApproved(totalPages);
-  }, [approvedUsers.length, currentPageApproved]);
+    setCurrentPageApproved(1);
+  }, [roleFilter, statusFilter, searchQuery, sortOption, approvedUsers.length]);
 
   useEffect(() => {
-    const totalPages = Math.max(1, Math.ceil(rejectedUsers.length / PAGE_SIZE));
-    if (currentPageRejected > totalPages) setCurrentPageRejected(totalPages);
-  }, [rejectedUsers.length, currentPageRejected]);
+    setCurrentPageRejected(1);
+  }, [roleFilter, statusFilter, searchQuery, sortOption, rejectedUsers.length]);
 
   // Paginated records for each table
   const displayedPending = useMemo(() => {
@@ -329,13 +362,13 @@ function ApprovalsContent() {
 
   const displayedApproved = useMemo(() => {
     const startIndex = (currentPageApproved - 1) * PAGE_SIZE;
-    return approvedUsers.slice(startIndex, startIndex + PAGE_SIZE);
-  }, [approvedUsers, currentPageApproved]);
+    return filteredApproved.slice(startIndex, startIndex + PAGE_SIZE);
+  }, [filteredApproved, currentPageApproved]);
 
   const displayedRejected = useMemo(() => {
     const startIndex = (currentPageRejected - 1) * PAGE_SIZE;
-    return rejectedUsers.slice(startIndex, startIndex + PAGE_SIZE);
-  }, [rejectedUsers, currentPageRejected]);
+    return filteredRejected.slice(startIndex, startIndex + PAGE_SIZE);
+  }, [filteredRejected, currentPageRejected]);
 
   // Only show full-page loading during initial session resolution
   if (!sessionReady) {
@@ -369,49 +402,46 @@ function ApprovalsContent() {
   }
 
   return (
-    <div className="space-y-8 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900 tracking-tight mb-1">Account Approval</h1>
-            <p className="text-gray-600 text-sm">Review and approve new experts or farmers.</p>
-          </div>
-          {loading && <Loader2 className="h-5 w-5 animate-spin text-[#388E3C]" />}
-        </div>
+    <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {/* Page Header */}
+      <div>
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 tracking-tight mb-1">Account Approval</h1>
+        <p className="text-gray-500 text-sm">Review, approve, reject, and manage user registration requests.</p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6">
+      {/* Stats */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-5">
         {[{
           title: "Pending Approvals",
           value: pendingUsers.length,
           icon: AlertCircle,
           iconColor: "text-amber-600",
-          bgColor: "bg-amber-50"
+          bgColor: "bg-amber-50",
         }, {
           title: "Approved Users",
           value: approvedUsers.length,
           icon: CheckCircle2,
           iconColor: "text-emerald-600",
-          bgColor: "bg-emerald-50"
+          bgColor: "bg-emerald-50",
         }, {
           title: "Rejected Users",
           value: rejectedUsers.length,
           icon: XCircle,
           iconColor: "text-red-600",
-          bgColor: "bg-red-50"
+          bgColor: "bg-red-50",
         }].map(card => {
           const Icon = card.icon;
           return (
-            <Card key={card.title} className="shadow-sm hover:shadow-md transition-all duration-200">
-              <CardHeader className="pb-2 pt-4">
+            <Card key={card.title} className="shadow-sm hover:shadow-md transition-all duration-200 border border-gray-100">
+              <CardHeader className="pb-1 pt-4 px-5">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-semibold text-gray-700">{card.title}</CardTitle>
+                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{card.title}</span>
                   <div className={`${card.bgColor} p-2 rounded-lg`}>
-                    <Icon className={`h-5 w-5 ${card.iconColor}`} />
+                    <Icon className={`h-4 w-4 ${card.iconColor}`} />
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="pb-4">
+              <CardContent className="pb-4 pt-1 px-5">
                 <p className="text-2xl font-bold text-gray-900">{card.value}</p>
               </CardContent>
             </Card>
@@ -419,209 +449,283 @@ function ApprovalsContent() {
         })}
       </div>
 
-      <Card className="bg-white shadow-lg border border-[#388E3C]/20 hover:shadow-xl transition-all duration-300 rounded-xl overflow-hidden">
-        <CardHeader className="pb-3 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] text-white px-6 pt-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle className="text-xl font-bold text-white" style={{ color: 'white' }}>Pending Approvals ({pendingUsers.length})</CardTitle>
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-white/90 font-medium">Filter:</span>
-            <div className="flex gap-2 bg-white/10 rounded-lg p-1">
-              {[{ label: "All", value: "all" }, { label: "Experts", value: "expert" }, { label: "Farmers", value: "farmer" }].map(option => (
+      {/* Control Bar */}
+      <Card className="shadow-sm border border-gray-200 bg-white rounded-xl overflow-hidden">
+        <CardContent className="p-4 sm:p-5">
+          <div className="flex flex-col lg:flex-row gap-3 items-stretch lg:items-center">
+            {/* Search */}
+            <div className="relative flex-1 min-w-0">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search by name, email, or username..."
+                className="w-full pl-9 pr-9 py-2.5 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#388E3C]/20 focus:border-[#388E3C] transition-all placeholder:text-gray-400"
+              />
+              {searchQuery && (
                 <button
-                  key={option.value}
-                  onClick={() => setRoleFilter(option.value as typeof roleFilter)}
-                  className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all duration-200 ${
-                    roleFilter === option.value 
-                      ? "bg-white text-[#388E3C] shadow-sm" 
-                      : "text-white/80 hover:text-white hover:bg-white/10"
-                  }`}
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                  aria-label="Clear search"
                 >
-                  {option.label}
+                  <X className="h-4 w-4" />
                 </button>
-              ))}
+              )}
+            </div>
+
+            {/* Role Filter */}
+            <div className="flex items-center gap-2 min-w-[140px]">
+              <Filter className="h-4 w-4 text-gray-400 flex-shrink-0" />
+              <select
+                value={roleFilter}
+                onChange={(e) => setRoleFilter(e.target.value as typeof roleFilter)}
+                className="flex-1 text-sm border border-gray-200 rounded-lg bg-white px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-[#388E3C]/20 focus:border-[#388E3C] transition-all cursor-pointer"
+              >
+                <option value="all">All Roles</option>
+                <option value="expert">Experts</option>
+                <option value="farmer">Farmers</option>
+              </select>
+            </div>
+
+            {/* Status Filter */}
+            <div className="flex items-center gap-2 min-w-[140px]">
+              <ShieldCheck className="h-4 w-4 text-gray-400 flex-shrink-0" />
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+                className="flex-1 text-sm border border-gray-200 rounded-lg bg-white px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-[#388E3C]/20 focus:border-[#388E3C] transition-all cursor-pointer"
+              >
+                <option value="all">All Status</option>
+                <option value="pending">Pending</option>
+                <option value="approved">Approved</option>
+                <option value="rejected">Rejected</option>
+              </select>
+            </div>
+
+            {/* Sort */}
+            <div className="flex items-center gap-2 min-w-[150px]">
+              <ArrowUpDown className="h-4 w-4 text-gray-400 flex-shrink-0" />
+              <select
+                value={sortOption}
+                onChange={(e) => setSortOption(e.target.value as typeof sortOption)}
+                className="flex-1 text-sm border border-gray-200 rounded-lg bg-white px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-[#388E3C]/20 focus:border-[#388E3C] transition-all cursor-pointer"
+              >
+                <option value="newest">Newest First</option>
+                <option value="oldest">Oldest First</option>
+                <option value="name-asc">Name A-Z</option>
+                <option value="name-desc">Name Z-A</option>
+              </select>
             </div>
           </div>
-        </CardHeader>
-        <CardContent className="pt-6 px-6 pb-6">
-          {filteredPending.length === 0 ? (
-            <div className="flex h-[200px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-gray-300 bg-gray-50">
-              <p className="font-medium text-gray-500">No pending approvals</p>
-              <p className="mt-1 text-xs text-gray-400">New user registrations will appear here.</p>
-            </div>
-          ) : (
-            <>
-              <div className="overflow-x-auto">
-                <Table className="rounded-lg border border-gray-200 shadow-sm">
-                  <Thead>
-                    <Tr>
-                      <Th>Name</Th>
-                      <Th>Email</Th>
-                      <Th>Username</Th>
-                      <Th>Role</Th>
-                      <Th>Registered</Th>
-                      <Th>Actions</Th>
-                    </Tr>
-                  </Thead>
-                <Tbody>
-                  {displayedPending.map((user) => (
-                    <Tr key={user.id}>
-                      <Td>{user.full_name}</Td>
-                      <Td>{user.email}</Td>
-                      <Td>{user.username}</Td>
-                      <Td>
-                        <Badge color={user.role === "expert" ? "blue" : "amber"}>{user.role}</Badge>
-                      </Td>
-                      <Td>{user.created_at ? formatDate(user.created_at) : "N/A"}</Td>
-                      <Td>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => approveUser(user.id)}
-                            disabled={processingId === user.id}
-                            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white hover:from-emerald-600 hover:to-emerald-700 hover:shadow-md active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none"
-                          >
-                            {processingId === user.id ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <CheckCircle2 className="h-4 w-4" />
-                            )}
-                            Approve
-                          </button>
-                          <button
-                            onClick={() => rejectUser(user.id)}
-                            disabled={processingId === user.id}
-                            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 bg-gradient-to-r from-red-500 to-red-600 text-white hover:from-red-600 hover:to-red-700 hover:shadow-md active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none"
-                          >
-                            {processingId === user.id ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <XCircle className="h-4 w-4" />
-                            )}
-                            Reject
-                          </button>
-                        </div>
-                      </Td>
-                    </Tr>
-                  ))}
-                </Tbody>
-              </Table>
-            </div>
-            {/* Pagination Controls */}
-            <div className="mt-4">
-              <Pagination
-                currentPage={currentPagePending}
-                totalRecords={filteredPending.length}
-                pageSize={PAGE_SIZE}
-                onPageChange={setCurrentPagePending}
-                showInfo={true}
-              />
-            </div>            </>          )}
         </CardContent>
       </Card>
 
-      <Card className="bg-white shadow-lg border border-[#388E3C]/20 hover:shadow-xl transition-all duration-300 rounded-xl overflow-hidden">
-        <CardHeader className="pb-3 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] text-white px-6 pt-5">
-          <CardTitle className="text-xl font-bold text-white" style={{ color: 'white' }}>Approved Users ({approvedUsers.length})</CardTitle>
-        </CardHeader>
-        <CardContent className="pt-6 px-6 pb-6">
-          {approvedUsers.length === 0 ? (
-            <div className="flex h-[200px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-gray-300 bg-gray-50">
-              <p className="font-medium text-gray-500">No approved users yet</p>
-              <p className="mt-1 text-xs text-gray-400">Approved users will appear here.</p>
-            </div>
-          ) : (
-            <>
-              <div className="overflow-x-auto">
-                <Table className="rounded-lg border border-gray-200 shadow-sm">
-                  <Thead>
-                    <Tr>
-                      <Th>Name</Th>
-                      <Th>Email</Th>
-                      <Th>Username</Th>
-                      <Th>Role</Th>
-                      <Th>Approved</Th>
-                    </Tr>
-                  </Thead>
-                <Tbody>
-                  {displayedApproved.map((user) => (
-                    <Tr key={user.id}>
-                      <Td>{user.full_name}</Td>
-                      <Td>{user.email}</Td>
-                      <Td>{user.username}</Td>
-                      <Td>
-                        <Badge color={user.role === "expert" ? "blue" : "amber"}>{user.role}</Badge>
-                      </Td>
-                      <Td>{user.updated_at ? formatDate(user.updated_at) : "N/A"}</Td>
-                    </Tr>
-                  ))}
-                </Tbody>
-              </Table>
-            </div>
-            {/* Pagination Controls */}
-            <div className="mt-4">
-              <Pagination
-                currentPage={currentPageApproved}
-                totalRecords={approvedUsers.length}
-                pageSize={PAGE_SIZE}
-                onPageChange={setCurrentPageApproved}
-                showInfo={true}
-              />
-            </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
+      {/* Pending Approvals */}
+      {(statusFilter === "all" || statusFilter === "pending") && (
+        <Card className="shadow-sm border border-gray-200 bg-white rounded-xl overflow-hidden">
+          <CardHeader className="px-6 py-5 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] rounded-t-xl">
+            <CardTitle className="text-lg font-bold" style={{ color: '#ffffff' }}>Pending Approvals <span className="ml-2 text-sm font-normal opacity-80">({filteredPending.length})</span></CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            {filteredPending.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-10 px-6 bg-gray-50/50">
+                <Users className="h-8 w-8 text-gray-300 mb-2" />
+                <p className="text-sm font-medium text-gray-500">No pending approvals</p>
+                <p className="text-xs text-gray-400 mt-0.5">New user registrations will appear here.</p>
+              </div>
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <Table className="w-full">
+                    <Thead>
+                      <Tr className="bg-gray-50/80 border-b border-gray-200">
+                        <Th className="whitespace-nowrap text-xs font-semibold text-gray-600 uppercase tracking-wider">User</Th>
+                        <Th className="whitespace-nowrap text-xs font-semibold text-gray-600 uppercase tracking-wider">Email</Th>
+                        <Th className="whitespace-nowrap text-xs font-semibold text-gray-600 uppercase tracking-wider">Role</Th>
+                        <Th className="whitespace-nowrap text-xs font-semibold text-gray-600 uppercase tracking-wider">Registered</Th>
+                        <Th className="whitespace-nowrap text-xs font-semibold text-gray-600 uppercase tracking-wider">Status</Th>
+                        <Th className="whitespace-nowrap text-xs font-semibold text-gray-600 uppercase tracking-wider">Actions</Th>
+                      </Tr>
+                    </Thead>
+                    <Tbody>
+                      {displayedPending.map((user) => (
+                        <Tr key={user.id} className="border-b border-gray-100 hover:bg-gray-50/70 transition-colors">
+                          <Td className="whitespace-nowrap py-3.5 px-6">
+                            <span className="font-medium text-sm text-gray-900">{user.full_name || user.username || "Unknown User"}</span>
+                          </Td>
+                          <Td className="py-3.5 px-6 text-sm text-gray-600">{user.email || "N/A"}</Td>
+                          <Td className="py-3.5 px-6">
+                            <Badge color={user.role === "expert" ? "blue" : "amber"}>{user.role || "Unknown"}</Badge>
+                          </Td>
+                          <Td className="py-3.5 px-6 whitespace-nowrap text-xs text-gray-500">{user.created_at ? formatDate(user.created_at) : "N/A"}</Td>
+                          <Td className="py-3.5 px-6">
+                            <Badge color="amber">Pending</Badge>
+                          </Td>
+                          <Td className="py-3.5 px-6">
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => approveUser(user.id)}
+                                disabled={processingId === user.id}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-emerald-500 rounded-lg hover:bg-emerald-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {processingId === user.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                                Approve
+                              </button>
+                              <button
+                                onClick={() => rejectUser(user.id)}
+                                disabled={processingId === user.id}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {processingId === user.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <XCircle className="h-3.5 w-3.5" />}
+                                Reject
+                              </button>
+                            </div>
+                          </Td>
+                        </Tr>
+                      ))}
+                    </Tbody>
+                  </Table>
+                </div>
+                <div className="px-6 py-4 border-t border-gray-100">
+                  <Pagination
+                    currentPage={currentPagePending}
+                    totalRecords={filteredPending.length}
+                    pageSize={PAGE_SIZE}
+                    onPageChange={setCurrentPagePending}
+                    showInfo={true}
+                  />
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
-      <Card className="bg-white shadow-lg border border-[#388E3C]/20 hover:shadow-xl transition-all duration-300 rounded-xl overflow-hidden">
-        <CardHeader className="pb-3 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] text-white px-6 pt-5">
-          <CardTitle className="text-xl font-bold text-white" style={{ color: 'white' }}>Rejected Users ({rejectedUsers.length})</CardTitle>
-        </CardHeader>
-        <CardContent className="pt-6 px-6 pb-6">
-          {rejectedUsers.length === 0 ? (
-            <div className="flex h-[200px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-gray-300 bg-gray-50">
-              <p className="font-medium text-gray-500">No rejected users</p>
-              <p className="mt-1 text-xs text-gray-400">Rejected users will appear here.</p>
-            </div>
-          ) : (
-            <>
-              <div className="overflow-x-auto">
-                <Table className="rounded-lg border border-gray-200 shadow-sm">
-                  <Thead>
-                    <Tr>
-                      <Th>Name</Th>
-                      <Th>Email</Th>
-                      <Th>Username</Th>
-                      <Th>Role</Th>
-                      <Th>Rejected</Th>
-                    </Tr>
-                  </Thead>
-                <Tbody>
-                  {displayedRejected.map((user) => (
-                    <Tr key={user.id}>
-                      <Td>{user.full_name}</Td>
-                      <Td>{user.email}</Td>
-                      <Td>{user.username}</Td>
-                      <Td>
-                        <Badge color={user.role === "expert" ? "blue" : "amber"}>{user.role}</Badge>
-                      </Td>
-                      <Td>{user.updated_at ? formatDate(user.updated_at) : "N/A"}</Td>
-                    </Tr>
-                  ))}
-                </Tbody>
-              </Table>
-            </div>
-            {/* Pagination Controls */}
-            <div className="mt-4">
-              <Pagination
-                currentPage={currentPageRejected}
-                totalRecords={rejectedUsers.length}
-                pageSize={PAGE_SIZE}
-                onPageChange={setCurrentPageRejected}
-                showInfo={true}
-              />
-            </div>
-            </>
+      {/* Approved & Rejected — Side by Side */}
+      {(statusFilter === "all" || statusFilter === "approved" || statusFilter === "rejected") && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Approved Users */}
+          {(statusFilter === "all" || statusFilter === "approved") && (
+            <Card className="shadow-sm border border-gray-200 bg-white rounded-xl overflow-hidden flex flex-col">
+              <CardHeader className="px-6 py-5 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] rounded-t-xl">
+                <CardTitle className="text-lg font-bold" style={{ color: '#ffffff' }}>Approved Users <span className="ml-2 text-sm font-normal opacity-80">({filteredApproved.length})</span></CardTitle>
+              </CardHeader>
+              <CardContent className="p-0 flex-1">
+                {filteredApproved.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-10 px-6 bg-gray-50/50">
+                    <Users className="h-8 w-8 text-gray-300 mb-2" />
+                    <p className="text-sm font-medium text-gray-500">{searchQuery ? "No matching approved users" : "No approved users yet"}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">{searchQuery ? "Try adjusting your search or filters" : "Approved users will appear here."}</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="overflow-x-auto">
+                      <Table className="w-full">
+                        <Thead>
+                          <Tr className="bg-gray-50/80 border-b border-gray-200">
+                            <Th className="whitespace-nowrap text-xs font-semibold text-gray-600 uppercase tracking-wider">User</Th>
+                            <Th className="whitespace-nowrap text-xs font-semibold text-gray-600 uppercase tracking-wider">Email</Th>
+                            <Th className="whitespace-nowrap text-xs font-semibold text-gray-600 uppercase tracking-wider">Role</Th>
+                            <Th className="whitespace-nowrap text-xs font-semibold text-gray-600 uppercase tracking-wider">Date</Th>
+                            <Th className="whitespace-nowrap text-xs font-semibold text-gray-600 uppercase tracking-wider">Status</Th>
+                          </Tr>
+                        </Thead>
+                        <Tbody>
+                          {displayedApproved.map((user) => (
+                            <Tr key={user.id} className="border-b border-gray-100 hover:bg-gray-50/70 transition-colors">
+                              <Td className="whitespace-nowrap py-3.5 px-6">
+                                <span className="font-medium text-sm text-gray-900">{user.full_name || user.username || "Unknown User"}</span>
+                              </Td>
+                              <Td className="py-3.5 px-6 text-sm text-gray-600">{user.email || "N/A"}</Td>
+                              <Td className="py-3.5 px-6">
+                                <Badge color={user.role === "expert" ? "blue" : "amber"}>{user.role || "Unknown"}</Badge>
+                              </Td>
+                              <Td className="py-3.5 px-6 whitespace-nowrap text-xs text-gray-500">{user.updated_at ? formatDate(user.updated_at) : "N/A"}</Td>
+                              <Td className="py-3.5 px-6">
+                                <Badge color="green">Approved</Badge>
+                              </Td>
+                            </Tr>
+                          ))}
+                        </Tbody>
+                      </Table>
+                    </div>
+                    <div className="px-6 py-4 border-t border-gray-100">
+                      <Pagination
+                        currentPage={currentPageApproved}
+                        totalRecords={filteredApproved.length}
+                        pageSize={PAGE_SIZE}
+                        onPageChange={setCurrentPageApproved}
+                        showInfo={true}
+                      />
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
           )}
-        </CardContent>
-      </Card>
+
+          {/* Rejected Users */}
+          {(statusFilter === "all" || statusFilter === "rejected") && (
+            <Card className="shadow-sm border border-gray-200 bg-white rounded-xl overflow-hidden flex flex-col">
+              <CardHeader className="px-6 py-5 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] rounded-t-xl">
+                <CardTitle className="text-lg font-bold" style={{ color: '#ffffff' }}>Rejected Users <span className="ml-2 text-sm font-normal opacity-80">({filteredRejected.length})</span></CardTitle>
+              </CardHeader>
+              <CardContent className="p-0 flex-1">
+                {filteredRejected.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-10 px-6 bg-gray-50/50">
+                    <Users className="h-8 w-8 text-gray-300 mb-2" />
+                    <p className="text-sm font-medium text-gray-500">{searchQuery ? "No matching rejected users" : "No rejected users"}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">{searchQuery ? "Try adjusting your search or filters" : "Rejected users will appear here."}</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="overflow-x-auto">
+                      <Table className="w-full">
+                        <Thead>
+                          <Tr className="bg-gray-50/80 border-b border-gray-200">
+                            <Th className="whitespace-nowrap text-xs font-semibold text-gray-600 uppercase tracking-wider">User</Th>
+                            <Th className="whitespace-nowrap text-xs font-semibold text-gray-600 uppercase tracking-wider">Email</Th>
+                            <Th className="whitespace-nowrap text-xs font-semibold text-gray-600 uppercase tracking-wider">Role</Th>
+                            <Th className="whitespace-nowrap text-xs font-semibold text-gray-600 uppercase tracking-wider">Date</Th>
+                            <Th className="whitespace-nowrap text-xs font-semibold text-gray-600 uppercase tracking-wider">Status</Th>
+                          </Tr>
+                        </Thead>
+                        <Tbody>
+                          {displayedRejected.map((user) => (
+                            <Tr key={user.id} className="border-b border-gray-100 hover:bg-gray-50/70 transition-colors">
+                              <Td className="whitespace-nowrap py-3.5 px-6">
+                                <span className="font-medium text-sm text-gray-900">{user.full_name || user.username || "Unknown User"}</span>
+                              </Td>
+                              <Td className="py-3.5 px-6 text-sm text-gray-600">{user.email || "N/A"}</Td>
+                              <Td className="py-3.5 px-6">
+                                <Badge color={user.role === "expert" ? "blue" : "amber"}>{user.role || "Unknown"}</Badge>
+                              </Td>
+                              <Td className="py-3.5 px-6 whitespace-nowrap text-xs text-gray-500">{user.updated_at ? formatDate(user.updated_at) : "N/A"}</Td>
+                              <Td className="py-3.5 px-6">
+                                <Badge color="red">Rejected</Badge>
+                              </Td>
+                            </Tr>
+                          ))}
+                        </Tbody>
+                      </Table>
+                    </div>
+                    <div className="px-6 py-4 border-t border-gray-100">
+                      <Pagination
+                        currentPage={currentPageRejected}
+                        totalRecords={filteredRejected.length}
+                        pageSize={PAGE_SIZE}
+                        onPageChange={setCurrentPageRejected}
+                        showInfo={true}
+                      />
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
     </div>
   );
 }

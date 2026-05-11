@@ -181,12 +181,13 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     );
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[Register API] Unexpected error:', error);
     
     // Provide more detailed error message in development
+    const err = error instanceof Error ? error : null;
     const errorDetails = process.env.NODE_ENV === 'development' 
-      ? { details: error?.message || String(error), stack: error?.stack }
+      ? { details: err?.message || String(error), stack: err?.stack }
       : {};
     
     return NextResponse.json(

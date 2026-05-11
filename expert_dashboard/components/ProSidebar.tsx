@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useCallback, useState } from "react";
+import React, { useMemo, useCallback, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LayoutDashboard, ClipboardCheck, BarChart3, User, LogOut, FileText, Menu, ChevronLeft, UserCheck, PieChart, BookOpen } from "lucide-react";
@@ -12,22 +12,30 @@ import { useSidebar } from "./SidebarContext";
 import { useUser } from "./UserContext";
 import Image from "next/image";
 
-// RBAC: Define navigation items with role requirements
-const navItems = [
-	// Expert navigation
-	{ href: "/expert-dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ['expert'] },
-	{ href: "/validate", label: "Validate", icon: ClipboardCheck, roles: ['expert'] },
-	{ href: "/history", label: "History", icon: BarChart3, roles: ['expert'] },
-	{ href: "/manage-disease-info", label: "Manage Disease Info", icon: BookOpen, roles: ['expert'] },
-	{ href: "/profile", label: "Profile", icon: User, roles: ['expert'] },
+// RBAC: Define navigation items with role requirements and section grouping
+interface NavItem {
+	href: string;
+	label: string;
+	icon: React.ComponentType<{ className?: string }>;
+	roles: string[];
+	section: string;
+}
 
-	// Admin navigation
-	{ href: "/admin-dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ['admin'] },
-	{ href: "/admin-dashboard/approvals", label: "Account Approval", icon: UserCheck, roles: ['admin'] },
-	{ href: "/reports", label: "Reports", icon: FileText, roles: ['admin'] },
-	{ href: "/data-visualization", label: "Data Visualization", icon: PieChart, roles: ['admin'] },
-	{ href: "/history", label: "History", icon: BarChart3, roles: ['admin'] },
-	{ href: "/profile", label: "Profile", icon: User, roles: ['admin'] },
+const navItems: NavItem[] = [
+	// Expert navigation - Main
+	{ href: "/expert-dashboard", label: "Overview", icon: LayoutDashboard, roles: ['expert'], section: "Main" },
+	{ href: "/validate", label: "Pending Validation", icon: ClipboardCheck, roles: ['expert'], section: "Reviews" },
+	{ href: "/history", label: "Validation History", icon: BarChart3, roles: ['expert'], section: "Reviews" },
+	{ href: "/manage-disease-info", label: "Disease Library", icon: BookOpen, roles: ['expert'], section: "Management" },
+	{ href: "/profile", label: "My Profile", icon: User, roles: ['expert'], section: "Account" },
+
+	// Admin navigation - Main
+	{ href: "/admin-dashboard", label: "Overview", icon: LayoutDashboard, roles: ['admin'], section: "Main" },
+	{ href: "/admin-dashboard/approvals", label: "Account Approval", icon: UserCheck, roles: ['admin'], section: "User Management" },
+	{ href: "/reports", label: "Reports", icon: FileText, roles: ['admin'], section: "Monitoring" },
+	{ href: "/data-visualization", label: "Data Visualization", icon: PieChart, roles: ['admin'], section: "Monitoring" },
+	{ href: "/history", label: "Validation History", icon: BarChart3, roles: ['admin'], section: "Monitoring" },
+	{ href: "/profile", label: "My Profile", icon: User, roles: ['admin'], section: "Account" },
 ];
 
 export function MobileSidebar({ onClose }: { onClose: () => void }) {
@@ -129,40 +137,63 @@ function SidebarLinks({ onClick, isCollapsed }: { onClick?: () => void; isCollap
 		return navItems.filter(item => item.roles.includes(resolvedRole));
 	}, [resolvedRole]);
 
+	// Group items by section
+	const groupedItems = useMemo(() => {
+		const groups: { section: string; items: NavItem[] }[] = [];
+		const seen = new Set<string>();
+		for (const item of filteredNavItems) {
+			if (!seen.has(item.section)) {
+				seen.add(item.section);
+				groups.push({ section: item.section, items: [] });
+			}
+			groups.find(g => g.section === item.section)?.items.push(item);
+		}
+		return groups;
+	}, [filteredNavItems]);
+
 	const navItemElements = useMemo(() => {
-		return filteredNavItems.map(({ href, label, icon: Icon }) => {
-			// Exact match for routes to prevent /admin-dashboard from matching /admin-dashboard/approvals
-			const active = pathname === href;
-			return (
-				<Link
-					key={href}
-					href={href}
-					prefetch={true}
-					className={clsx(
-						// Fixed layout - only transition colors and shadows, never dimensions
-						"flex items-center rounded-lg transition-[background-color,box-shadow,color] duration-200",
-						isCollapsed ? "justify-center px-3 py-3" : "gap-3 px-4 py-3",
-						active 
-							? "bg-gradient-to-r from-[#388E3C] to-[#2F7A33] text-white shadow-md hover:shadow-lg" 
-							: "text-[var(--foreground)] hover:bg-gray-100 focus:bg-gray-100 focus:outline-none"
-					)}
-					aria-current={active ? "page" : undefined}
-					onClick={onClick}
-					title={isCollapsed ? label : undefined}
-				>
-					<Icon className={clsx("h-5 w-5 flex-shrink-0 transition-colors duration-200", active ? "text-white" : "text-gray-500")} />
-					{!isCollapsed && (
-						<span className={clsx("text-sm font-medium whitespace-nowrap", active ? "text-white" : undefined)}>{label}</span>
-					)}
-				</Link>
-			);
-		});
-	}, [pathname, isCollapsed, onClick, filteredNavItems]);
+		return groupedItems.map((group, groupIdx) => (
+			<div key={group.section} className={clsx(groupIdx > 0 && "mt-4 pt-3 border-t border-[var(--color-border)]")}>
+				{!isCollapsed && group.section !== "Main" && (
+					<p className="px-4 mb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+						{group.section}
+					</p>
+				)}
+				<div className="space-y-0.5">
+					{group.items.map(({ href, label, icon: Icon }) => {
+						const active = pathname === href;
+						return (
+							<Link
+								key={href}
+								href={href}
+								prefetch={true}
+								className={clsx(
+									"flex items-center rounded-lg transition-[background-color,box-shadow,color] duration-200",
+									isCollapsed ? "justify-center px-3 py-3" : "gap-3 px-4 py-2.5",
+									active 
+										? "bg-gradient-to-r from-[#388E3C] to-[#2F7A33] text-white shadow-md hover:shadow-lg" 
+										: "text-[var(--foreground)] hover:bg-gray-100 focus:bg-gray-100 focus:outline-none"
+								)}
+								aria-current={active ? "page" : undefined}
+								onClick={onClick}
+								title={isCollapsed ? label : undefined}
+							>
+								<Icon className={clsx("h-5 w-5 flex-shrink-0 transition-colors duration-200", active ? "text-white" : "text-gray-500")} />
+								{!isCollapsed && (
+									<span className={clsx("text-sm font-medium whitespace-nowrap", active ? "text-white" : undefined)}>{label}</span>
+								)}
+							</Link>
+						);
+					})}
+				</div>
+			</div>
+		));
+	}, [pathname, isCollapsed, onClick, groupedItems]);
 
 	return (
 		<nav className="space-y-1">
 			{navItemElements}
-			<div className="border-t border-[var(--color-border)] pt-3 mt-3">
+			<div className="border-t border-[var(--color-border)] pt-3 mt-4">
 				<button
 					onClick={confirmLogout}
 					className={clsx(

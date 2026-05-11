@@ -16,21 +16,32 @@ import { createClient } from '@supabase/supabase-js'
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
 
+/**
+ * Whether the Supabase client has valid credentials.
+ * When false, all network-dependent operations (auth listeners, realtime, data fetches)
+ * should be skipped to avoid noisy "Failed to fetch" errors.
+ */
+export const isConfigured = !!(supabaseUrl && supabaseAnonKey);
+
+// Log once at startup so the developer knows what to do
+if (!isConfigured && typeof window !== 'undefined') {
+	console.error(
+		'[Supabase] NEXT_PUBLIC_SUPABASE_URL and/or NEXT_PUBLIC_SUPABASE_ANON_KEY are missing.\n' +
+		'Copy .env.local.example to .env.local and fill in your Supabase credentials, then restart the dev server.'
+	);
+}
+
 // Create Supabase client with proper configuration
 // Use singleton pattern to ensure only one client instance
 // During build time, if env vars are missing, create a mock client to allow build to complete
 export const supabase = (() => {
 	// Only create client if we have valid credentials
-	if (!supabaseUrl || !supabaseAnonKey) {
-		// During build time, log warning but don't throw to allow build to complete
-		// The mock client will be created and runtime validation will catch the issue
-		if (typeof window === 'undefined' && process.env.NODE_ENV !== 'production') {
-			console.warn('[Supabase] Missing environment variables during build. Build will continue but app will require env vars at runtime.');
-		}
-		// Return a mock client that will throw clear errors at runtime
+	if (!isConfigured) {
+		// Return a minimal mock client — persistSession/autoRefreshToken disabled
+		// to prevent any background network requests to the placeholder URL
 		return createClient(
-			'https://invalid.supabase.co',
-			'invalid-key',
+			'https://placeholder.supabase.co',
+			'placeholder-key',
 			{
 				auth: {
 					persistSession: false,
@@ -42,8 +53,8 @@ export const supabase = (() => {
 	}
 	
 	return createClient(
-		supabaseUrl,
-		supabaseAnonKey,
+		supabaseUrl!,
+		supabaseAnonKey!,
 		{
 			auth: {
 				persistSession: true,

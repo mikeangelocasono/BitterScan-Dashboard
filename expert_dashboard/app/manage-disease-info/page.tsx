@@ -4,14 +4,13 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import AuthGuard from "@/components/AuthGuard";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { supabase } from "@/components/supabase";
 import { useUser } from "@/components/UserContext";
 import { 
-  Loader2, Save, BookOpen, AlertCircle, CheckCircle2, Edit2, X, 
-  FileText, Stethoscope, Pill, ShieldCheck, Leaf, Search, Plus, Eye,
+  Loader2, Save, BookOpen, CheckCircle2, Edit2, X, 
+  FileText, Stethoscope, Pill, ShieldCheck, Leaf, Search, Eye,
   AlertTriangle
 } from "lucide-react";
 import toast from "react-hot-toast";
@@ -199,13 +198,20 @@ function ManageDiseaseInfoContent() {
     return () => clearTimeout(masterTimeout);
   }, [loading]);
 
-  // Filter diseases based on search query
+  // Filter diseases based on search query (name, description, symptoms, treatment)
   const filteredDiseases = useMemo(() => {
     if (!searchQuery.trim()) return diseases;
     const query = searchQuery.toLowerCase();
-    return diseases.filter(disease => 
-      disease.disease_name.toLowerCase().includes(query)
-    );
+    return diseases.filter(disease => {
+      const nameMatch = disease.disease_name.toLowerCase().includes(query);
+      const descEnMatch = (disease.description_en || "").toLowerCase().includes(query);
+      const descBiMatch = (disease.description_bi || "").toLowerCase().includes(query);
+      const symEnMatch = (disease.symptoms_en || "").toLowerCase().includes(query);
+      const symBiMatch = (disease.symptoms_bi || "").toLowerCase().includes(query);
+      const treatEnMatch = (disease.treatment_en || "").toLowerCase().includes(query);
+      const treatBiMatch = (disease.treatment_bi || "").toLowerCase().includes(query);
+      return nameMatch || descEnMatch || descBiMatch || symEnMatch || symBiMatch || treatEnMatch || treatBiMatch;
+    });
   }, [diseases, searchQuery]);
 
   // Open edit dialog - store original for dirty checking
@@ -412,157 +418,135 @@ function ManageDiseaseInfoContent() {
   return (
     <div className="space-y-6 max-w-7xl mx-auto p-4 sm:p-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-        <h2 className="text-xl sm:text-2xl font-semibold text-gray-900">Disease Information</h2>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight">Disease Information</h2>
+          <p className="text-sm text-gray-500 mt-0.5">Manage bilingual disease information, symptoms, and treatment recommendations.</p>
+        </div>
       </div>
 
       {/* Search and Actions Bar */}
-      <Card className="border-gray-200 shadow-sm">
-        <CardContent className="p-6">
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
-              {/* Search Bar */}
-              <div className="relative w-full sm:w-96">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Search diseases..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 border-2 border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-transparent text-sm transition-all duration-200"
-                />
-              </div>
+      <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
+        <div className="relative flex-1 max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search disease name, symptoms, or treatment..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-9 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-transparent transition-all shadow-sm"
+          />
+        </div>
+      </div>
 
-              {/* Add New Disease Button */}
-              <Button
-                onClick={() => toast("Add New Disease feature coming soon")}
-                className="bg-[#16a085] hover:bg-[#138f75] text-white font-medium shadow-md hover:shadow-lg transition-all duration-200 whitespace-nowrap"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Add New Disease
-              </Button>
+      {/* Disease Database Section */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        {/* Green Header */}
+        <div className="px-5 sm:px-6 py-4 bg-gradient-to-r from-[#388E3C] to-[#2F7A33]">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-base font-bold !text-white">Disease Database</h3>
+              <p className="text-xs !text-white/80 mt-0.5">Manage disease information in English and Bisaya.</p>
+            </div>
+            <div className="h-8 w-8 rounded-lg bg-white/20 flex items-center justify-center">
+              <BookOpen className="h-4 w-4 text-white" />
             </div>
           </div>
-        </CardContent>
-      </Card>
+        </div>
 
-      {/* Disease Table */}
-      {filteredDiseases.length === 0 ? (
-        <Card className="border-2 border-dashed border-gray-300">
-          <CardContent className="py-16">
-            <div className="flex flex-col items-center justify-center text-center space-y-4">
-              <div className="h-20 w-20 rounded-full bg-gray-100 flex items-center justify-center">
-                <AlertCircle className="h-10 w-10 text-gray-400" />
-              </div>
-              <div className="space-y-2">
-                <p className="text-lg font-semibold text-gray-700">
-                  {searchQuery ? "No diseases found" : "No Disease Information Available"}
-                </p>
-                <p className="text-sm text-gray-500 max-w-md">
-                  {searchQuery 
-                    ? "Try adjusting your search query" 
-                    : "Disease data will appear here once added to the database. Contact your administrator to add disease information."}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      ) : (
-        <Card className="shadow-sm border border-gray-200 hover:shadow-md transition-all duration-200 overflow-hidden">
-          <CardHeader className="pb-3 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] text-white px-6 pt-5 border-b">
-            <CardTitle className="text-xl font-bold" style={{ color: 'white' }}>Disease Database</CardTitle>
-            <p className="text-sm mt-1" style={{ color: 'rgba(255, 255, 255, 0.9)' }}>Manage disease information in English and Bisaya</p>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="bg-gray-50 border-b border-gray-200">
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                    Disease Name
-                  </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                    Languages
-                  </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                    Last Updated
-                  </th>
-                  <th className="px-6 py-4 text-right text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                    Actions
-                  </th>
+        {/* Table */}
+        {filteredDiseases.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <BookOpen className="h-10 w-10 text-gray-300 mb-3" />
+            <p className="text-gray-500 font-medium text-sm">
+              {searchQuery ? "No matching diseases found" : "No Disease Information Available"}
+            </p>
+            <p className="text-gray-400 text-xs mt-1 max-w-sm">
+              {searchQuery
+                ? "Try adjusting your search query"
+                : "Disease data will appear here once added to the database."}
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-gray-50/80 border-b border-gray-100">
+                  <th className="px-5 py-3 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Disease Name</th>
+                  <th className="px-5 py-3 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Languages</th>
+                  <th className="px-5 py-3 text-right text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredDiseases.map((disease) => (
-                  <tr key={disease.disease_id} className="hover:bg-gray-50 transition-colors duration-150">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">{disease.disease_name}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-700">
-                        English/Bisaya
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-600">
-                        {disease.updated_at 
-                          ? new Date(disease.updated_at).toLocaleDateString('en-US', { 
-                              year: 'numeric', 
-                              month: 'short', 
-                              day: 'numeric' 
-                            })
-                          : 'N/A'}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => openViewDialog(disease)}
-                          className="p-2 text-gray-600 hover:text-[#388E3C] hover:bg-gray-100 rounded-lg transition-all duration-150"
-                          title="View Details"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => openEditDialog(disease)}
-                          className="p-2 text-gray-600 hover:text-[#388E3C] hover:bg-gray-100 rounded-lg transition-all duration-150"
-                          title="Edit"
-                        >
-                          <Edit2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+              <tbody className="divide-y divide-gray-50">
+                {filteredDiseases.map((disease) => {
+                  const biStatus = computeBisayaCompletion(disease);
+                  return (
+                    <tr key={disease.disease_id} className="hover:bg-gray-50/60 transition-colors duration-150">
+                      <td className="px-5 py-3.5 whitespace-nowrap">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center flex-shrink-0">
+                            <Leaf className="h-4 w-4 text-[#388E3C]" />
+                          </div>
+                          <span className="text-sm font-medium text-gray-900">{disease.disease_name}</span>
+                        </div>
+                      </td>
+                      <td className="px-5 py-3.5 whitespace-nowrap">
+                        <span className="text-xs text-gray-600">English/Bisaya</span>
+                      </td>
+                      <td className="px-5 py-3.5 whitespace-nowrap text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => openViewDialog(disease)}
+                            className="p-1.5 text-gray-400 hover:text-[#388E3C] hover:bg-emerald-50 rounded-lg transition-all duration-150"
+                            title="View Details"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => openEditDialog(disease)}
+                            className="p-1.5 text-gray-400 hover:text-[#388E3C] hover:bg-emerald-50 rounded-lg transition-all duration-150"
+                            title="Edit"
+                          >
+                            <Edit2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
-          </CardContent>
-        </Card>
-      )}
+        )}
+      </div>
 
       {/* View Dialog */}
       <Dialog open={isViewDialogOpen} onOpenChange={(open) => {
         if (!open) closeViewDialog();
-      }}>
-        <div className="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-          <DialogHeader className="bg-gradient-to-r from-[#388E3C] to-[#2F7A33] px-6 py-5 border-b-0">
-            <div className="flex items-center justify-between">
-              <DialogTitle className="text-xl font-bold text-white flex items-center gap-3">
-                <BookOpen className="h-6 w-6" />
+      }} maxWidthClass="sm:max-w-3xl md:max-w-3xl">
+        <DialogContent className="w-full p-0 flex flex-col max-h-[90vh] h-auto overflow-hidden bg-white rounded-2xl shadow-2xl border-0">
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] flex-shrink-0">
+            <DialogHeader className="p-0">
+              <DialogTitle className="text-lg sm:text-xl font-bold !text-white flex items-center gap-2.5">
+                <BookOpen className="h-5 w-5" />
                 {viewingDisease?.disease_name}
               </DialogTitle>
-              <button
-                onClick={closeViewDialog}
-                className="text-white/80 hover:text-white transition-colors p-1 rounded-lg hover:bg-white/10"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-          </DialogHeader>
-          <DialogContent className="overflow-y-auto flex-1 p-6">
+              <p className="text-xs !text-white/80 mt-0.5">Bilingual disease information and recommended management guide.</p>
+            </DialogHeader>
+            <button
+              onClick={closeViewDialog}
+              className="rounded-lg p-2 bg-white/20 hover:bg-white/30 text-white transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-white/50"
+              aria-label="Close"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          {/* Body */}
+          <div className="flex-1 overflow-y-auto bg-gray-50/40 px-5 sm:px-6 py-5">
             {viewingDisease && (
-              <div className="space-y-5">
+              <div className="space-y-4">
                 <ViewField
                   label="Description"
                   icon={<FileText className="h-4 w-4" />}
@@ -595,31 +579,50 @@ function ManageDiseaseInfoContent() {
                 />
               </div>
             )}
-          </DialogContent>
-        </div>
+          </div>
+
+          {/* Footer */}
+          <div className="bg-white border-t border-gray-100 px-5 sm:px-6 py-3.5 flex-shrink-0">
+            <DialogFooter className="flex items-center justify-end">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={closeViewDialog}
+                className="h-9 text-sm font-medium text-gray-600 border-gray-200 hover:bg-gray-50 hover:text-gray-900 transition-all"
+              >
+                Close
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
       </Dialog>
 
       {/* Edit Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={(open) => {
         if (!open) attemptCloseEditDialog();
-      }}>
-        <div className="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-          <DialogHeader className="bg-gradient-to-r from-[#388E3C] to-[#2F7A33] px-6 py-5 border-b-0">
-            <div className="flex items-center justify-between">
-              <DialogTitle className="text-xl font-bold text-white flex items-center gap-3">
-                <Edit2 className="h-6 w-6" />
+      }} maxWidthClass="sm:max-w-4xl md:max-w-4xl">
+        <DialogContent className="w-full p-0 flex flex-col max-h-[92vh] h-auto overflow-hidden bg-white rounded-2xl shadow-2xl border-0">
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] flex-shrink-0">
+            <DialogHeader className="p-0">
+              <DialogTitle className="text-lg sm:text-xl font-bold !text-white flex items-center gap-2.5">
+                <Edit2 className="h-5 w-5" />
                 Edit {editingDisease?.disease_name}
               </DialogTitle>
-              <button
-                onClick={attemptCloseEditDialog}
-                className="text-white/80 hover:text-white transition-colors p-1 rounded-lg hover:bg-white/10"
-                title="Close"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-          </DialogHeader>
-          <DialogContent className="overflow-y-auto flex-1 p-6">
+              <p className="text-xs !text-white/80 mt-0.5">Update bilingual disease information, symptoms, and treatment recommendations.</p>
+            </DialogHeader>
+            <button
+              onClick={attemptCloseEditDialog}
+              className="rounded-lg p-2 bg-white/20 hover:bg-white/30 text-white transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-white/50"
+              aria-label="Close"
+              title="Close"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          {/* Body */}
+          <div className="flex-1 overflow-y-auto bg-gray-50/40 px-5 sm:px-6 py-5">
             {editingDisease && (
               <div className="space-y-4">
                 <FieldGroup
@@ -664,76 +667,84 @@ function ManageDiseaseInfoContent() {
                 />
               </div>
             )}
-          </DialogContent>
-          <DialogFooter className="bg-gray-50 px-6 py-4">
-            <Button
-              variant="outline"
-              onClick={attemptCloseEditDialog}
-              disabled={savingId === editingDisease?.disease_id}
-              className="border-gray-300 text-gray-700 hover:bg-gray-100"
-            >
-              <X className="h-4 w-4 mr-2" />
-              Cancel
-            </Button>
-            <Button
-              onClick={(e) => {
-                e.preventDefault();
-                if (editingDisease) {
-                  saveDisease(editingDisease).catch((error) => {
-                    console.error('Error saving disease:', error);
-                    toast.error('An unexpected error occurred');
-                  });
-                }
-              }}
-              disabled={savingId === editingDisease?.disease_id || !hasChanges(originalDisease, editingDisease)}
-              className="bg-[#388E3C] hover:bg-[#2F7A33] text-white disabled:opacity-50"
-            >
-              {savingId === editingDisease?.disease_id ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save className="h-4 w-4 mr-2" />
-                  Save Changes
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </div>
+          </div>
+
+          {/* Sticky Footer */}
+          <div className="bg-white border-t border-gray-100 px-5 sm:px-6 py-3.5 flex-shrink-0">
+            <DialogFooter className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 sm:gap-3">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={attemptCloseEditDialog}
+                disabled={savingId === editingDisease?.disease_id}
+                className="h-9 text-sm font-medium text-gray-600 border-gray-200 hover:bg-gray-50 hover:text-gray-900 transition-all"
+              >
+                <X className="h-3.5 w-3.5 mr-1.5" />
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (editingDisease) {
+                    saveDisease(editingDisease).catch((error) => {
+                      console.error('Error saving disease:', error);
+                      toast.error('An unexpected error occurred');
+                    });
+                  }
+                }}
+                disabled={savingId === editingDisease?.disease_id || !hasChanges(originalDisease, editingDisease)}
+                className="h-9 text-sm font-semibold bg-[#388E3C] text-white hover:bg-[#2F7A33] disabled:opacity-50 disabled:cursor-not-allowed shadow-sm transition-all"
+              >
+                {savingId === editingDisease?.disease_id ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-3.5 w-3.5 mr-1.5" />
+                    Save Changes
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
       </Dialog>
 
       {/* Unsaved Changes Warning Dialog */}
-      <Dialog open={showUnsavedWarning} onOpenChange={setShowUnsavedWarning}>
-        <div className="bg-white rounded-xl max-w-md w-full overflow-hidden">
-          <DialogHeader className="px-6 py-5 border-b">
-            <DialogTitle className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+      <Dialog open={showUnsavedWarning} onOpenChange={setShowUnsavedWarning} maxWidthClass="sm:max-w-sm">
+        <DialogContent className="w-full p-0 flex flex-col overflow-hidden bg-white rounded-xl shadow-2xl border-0">
+          <DialogHeader className="px-5 sm:px-6 py-4 border-b border-gray-100">
+            <DialogTitle className="text-base font-semibold text-gray-900 flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-amber-500" />
               Unsaved Changes
             </DialogTitle>
           </DialogHeader>
-          <DialogContent className="px-6 py-4">
-            <p className="text-gray-600">
+          <div className="px-5 sm:px-6 py-4">
+            <p className="text-sm text-gray-600">
               You have unsaved changes. Are you sure you want to close without saving?
             </p>
-          </DialogContent>
-          <DialogFooter className="bg-gray-50 px-6 py-4">
+          </div>
+          <DialogFooter className="bg-gray-50/60 px-5 sm:px-6 py-3.5 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 sm:gap-3">
             <Button
               variant="outline"
+              size="sm"
               onClick={() => setShowUnsavedWarning(false)}
-              className="border-gray-300 text-gray-700 hover:bg-gray-100"
+              className="h-9 text-sm font-medium text-gray-600 border-gray-200 hover:bg-gray-50 transition-all"
             >
               Keep Editing
             </Button>
             <Button
+              size="sm"
               onClick={forceCloseEditDialog}
-              className="bg-red-500 hover:bg-red-600 text-white"
+              className="h-9 text-sm font-semibold bg-red-500 text-white hover:bg-red-600 shadow-sm transition-all"
             >
               Discard Changes
             </Button>
           </DialogFooter>
-        </div>
+        </DialogContent>
       </Dialog>
     </div>
   );
@@ -758,33 +769,33 @@ function ViewField({
   }
 
   return (
-    <div className="bg-white rounded-lg p-5 border-l-4 border-[#388E3C] shadow-sm">
-      <div className="flex items-center gap-2 mb-4">
-        <div className="h-8 w-8 rounded-full bg-[#388E3C]/10 flex items-center justify-center text-[#388E3C]">
+    <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+      <div className="flex items-center gap-2 mb-3">
+        <div className="h-7 w-7 rounded-lg bg-emerald-50 flex items-center justify-center text-[#388E3C]">
           {icon}
         </div>
-        <h3 className="text-base font-semibold text-gray-800">{label}</h3>
+        <h3 className="text-sm font-semibold text-gray-800">{label}</h3>
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         {/* English */}
         <div>
-          <label className="flex items-center gap-2 text-xs font-semibold text-gray-700 mb-2 uppercase tracking-wide">
-            <span className="h-5 w-5 rounded bg-blue-100 text-blue-700 flex items-center justify-center text-[10px] font-bold">EN</span>
+          <label className="flex items-center gap-1.5 text-[10px] font-semibold text-gray-500 mb-1.5 uppercase tracking-wider">
+            <span className="h-4 w-4 rounded bg-blue-50 text-blue-600 flex items-center justify-center text-[9px] font-bold border border-blue-100">EN</span>
             English
           </label>
-          <div className="px-4 py-3 bg-blue-50 rounded-lg text-sm text-gray-800 min-h-[120px] whitespace-pre-wrap border border-blue-200">
-            {englishValue || <span className="text-gray-400 italic">No information available</span>}
+          <div className="px-3 py-2.5 bg-slate-50 rounded-lg text-sm text-gray-700 whitespace-pre-wrap border border-slate-100 min-h-[80px]">
+            {englishValue || <span className="text-gray-400 italic text-xs">No information available</span>}
           </div>
         </div>
 
         {/* Bisaya */}
         <div>
-          <label className="flex items-center gap-2 text-xs font-semibold text-gray-700 mb-2 uppercase tracking-wide">
-            <span className="h-5 w-5 rounded bg-green-100 text-green-700 flex items-center justify-center text-[10px] font-bold">BS</span>
+          <label className="flex items-center gap-1.5 text-[10px] font-semibold text-gray-500 mb-1.5 uppercase tracking-wider">
+            <span className="h-4 w-4 rounded bg-emerald-50 text-emerald-600 flex items-center justify-center text-[9px] font-bold border border-emerald-100">BS</span>
             Bisaya
           </label>
-          <div className="px-4 py-3 bg-green-50 rounded-lg text-sm text-gray-800 min-h-[120px] whitespace-pre-wrap border border-green-200">
-            {bisayaValue || <span className="text-gray-400 italic">Walay impormasyon</span>}
+          <div className="px-3 py-2.5 bg-emerald-50/40 rounded-lg text-sm text-gray-700 whitespace-pre-wrap border border-emerald-100/60 min-h-[80px]">
+            {bisayaValue || <span className="text-gray-400 italic text-xs">Walay impormasyon</span>}
           </div>
         </div>
       </div>
@@ -792,7 +803,7 @@ function ViewField({
   );
 }
 
-// Reusable field group component with enhanced UI and Copy button
+// Reusable field group component for edit modal
 function FieldGroup({
   label,
   icon,
@@ -809,9 +820,9 @@ function FieldGroup({
   onBisayaChange: (value: string) => void;
 }) {
   return (
-    <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+    <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
       <div className="flex items-center gap-2 mb-3">
-        <div className="h-7 w-7 rounded-full bg-[#388E3C]/10 flex items-center justify-center text-[#388E3C]">
+        <div className="h-7 w-7 rounded-lg bg-emerald-50 flex items-center justify-center text-[#388E3C]">
           {icon}
         </div>
         <h3 className="text-sm font-semibold text-gray-800">{label}</h3>
@@ -819,30 +830,34 @@ function FieldGroup({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         {/* English */}
         <div>
-          <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600 mb-1.5">
-            <span className="h-4 w-4 rounded bg-blue-100 text-blue-700 flex items-center justify-center text-[9px] font-bold">EN</span>
+          <label className="flex items-center gap-1.5 text-[10px] font-semibold text-gray-500 mb-1.5 uppercase tracking-wider">
+            <span className="h-4 w-4 rounded bg-blue-50 text-blue-600 flex items-center justify-center text-[9px] font-bold border border-blue-100">EN</span>
             English
           </label>
           <textarea
             value={englishValue}
             onChange={(e) => onEnglishChange(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-transparent text-sm min-h-[100px] resize-y bg-white"
+            className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-[#388E3C] text-sm text-gray-800 min-h-[100px] resize-y placeholder:text-gray-300 transition-all"
             placeholder={`Enter ${label.toLowerCase()} in English...`}
+            rows={4}
           />
+          <p className="text-[10px] text-gray-400 mt-1 text-right">{englishValue.length} characters</p>
         </div>
 
         {/* Bisaya */}
         <div>
-          <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600 mb-1.5">
-            <span className="h-4 w-4 rounded bg-green-100 text-green-700 flex items-center justify-center text-[9px] font-bold">BS</span>
+          <label className="flex items-center gap-1.5 text-[10px] font-semibold text-gray-500 mb-1.5 uppercase tracking-wider">
+            <span className="h-4 w-4 rounded bg-emerald-50 text-emerald-600 flex items-center justify-center text-[9px] font-bold border border-emerald-100">BS</span>
             Bisaya
           </label>
           <textarea
             value={bisayaValue}
             onChange={(e) => onBisayaChange(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-transparent text-sm min-h-[100px] resize-y bg-white"
+            className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-[#388E3C] text-sm text-gray-800 min-h-[100px] resize-y placeholder:text-gray-300 transition-all"
             placeholder={`Enter ${label.toLowerCase()} in Bisaya...`}
+            rows={4}
           />
+          <p className="text-[10px] text-gray-400 mt-1 text-right">{bisayaValue.length} characters</p>
         </div>
       </div>
     </div>

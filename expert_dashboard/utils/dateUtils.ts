@@ -45,12 +45,21 @@ export function formatScanType(type: string): string {
  */
 export function getStatusColor(status: string): string {
 	switch (status) {
+		case 'Pending':
 		case 'Pending Validation':
 			return 'bg-amber-100 text-amber-700';
 		case 'Validated':
+		case 'Approved':
 			return 'text-[#388E3C]' + ' ' + 'bg-[#E6F3E7]';
 		case 'Corrected':
 			return 'bg-blue-100 text-blue-700';
+		case 'Rejected':
+			return 'bg-red-100 text-red-700';
+		case 'Reviewed':
+		case 'Completed':
+			return 'bg-emerald-100 text-emerald-700';
+		case 'Needs Attention':
+			return 'bg-orange-100 text-orange-700';
 		default:
 			return 'bg-gray-100 text-gray-700';
 	}

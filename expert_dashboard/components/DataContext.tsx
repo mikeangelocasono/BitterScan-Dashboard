@@ -1,7 +1,7 @@
 "use client";
 
 import { ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { supabase, validateSupabaseClient } from "./supabase";
+import { supabase, validateSupabaseClient, isConfigured } from "./supabase";
 import { Scan, ValidationHistory, isSupabaseApiError, UserProfile, isNonAmpalayaScan } from "../types";
 import { useUser } from "./UserContext";
 
@@ -249,7 +249,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 				.order("created_at", { ascending: false });
 
 			// Add 10s timeout to prevent hanging
-			const { data, error } = await withTimeout(fetchPromise, 10000, { data: [], error: null }, 'fetchLeafScans');
+			const { data, error } = await withTimeout(fetchPromise as unknown as Promise<{ data: DatabaseLeafDiseaseScan[] | null; error: unknown }>, 10000, { data: [] as DatabaseLeafDiseaseScan[], error: null }, 'fetchLeafScans');
 
 			if (error && Object.keys(error).length > 0) {
 				const errorMsg = (error as ErrorLogObject).message || (error as ErrorLogObject).details || "Unknown error";
@@ -281,7 +281,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 				.order("created_at", { ascending: false });
 
 			// Add 10s timeout to prevent hanging
-			const { data, error } = await withTimeout(fetchPromise, 10000, { data: [], error: null }, 'fetchFruitScans');
+			const { data, error } = await withTimeout(fetchPromise as unknown as Promise<{ data: DatabaseFruitRipenessScan[] | null; error: unknown }>, 10000, { data: [] as DatabaseFruitRipenessScan[], error: null }, 'fetchFruitScans');
 
 			if (error && Object.keys(error).length > 0) {
 				const errorMsg = (error as ErrorLogObject).message || (error as ErrorLogObject).details || "Unknown error";
@@ -313,7 +313,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 				.order("validated_at", { ascending: false });
 
 			// Add 10s timeout to prevent hanging
-			const { data, error } = await withTimeout(fetchPromise, 10000, { data: [], error: null }, 'fetchValidationHistory');
+			const { data, error } = await withTimeout(fetchPromise as unknown as Promise<{ data: DatabaseValidationHistory[] | null; error: unknown }>, 10000, { data: [] as DatabaseValidationHistory[], error: null }, 'fetchValidationHistory');
 
 			if (error && Object.keys(error).length > 0) {
 				const errorMsg = (error as ErrorLogObject).message || (error as ErrorLogObject).details || "Unknown error";
@@ -471,53 +471,52 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
 				initialFetched.current = true;
 				console.log('[DataContext] Initial data fetch complete. Scans:', allScans.length, 'Validations:', validations.length);
-		} catch (err: unknown) {
-			// Handle refresh token errors
-			if (isSupabaseApiError(err)) {
-				const errorMessage = err.message || "";
-				if (errorMessage.includes('Refresh Token') || errorMessage.includes('refresh_token_not_found') || err.status === 401) {
-					console.warn('Invalid refresh token detected in data fetch, user will be signed out...');
-					// The UserContext will handle the sign-out via auth state change
-					setError("Session expired. Please log in again.");
-					isFetchingRef.current = false;
-					setLoading(false);
-					return;
+			} catch (err: unknown) {
+				// Handle refresh token errors
+				if (isSupabaseApiError(err)) {
+					const errorMessage = err.message || "";
+					if (errorMessage.includes('Refresh Token') || errorMessage.includes('refresh_token_not_found') || err.status === 401) {
+						console.warn('Invalid refresh token detected in data fetch, user will be signed out...');
+						setError("Session expired. Please log in again.");
+						isFetchingRef.current = false;
+						setLoading(false);
+						return;
+					}
+				}
+				
+				// Check for Supabase client initialization errors
+				const errorMessage = err instanceof Error ? err.message : String(err);
+				if (errorMessage.includes('Missing Supabase') || errorMessage.includes('environment variables')) {
+					setError("Supabase configuration error. Please check environment variables.");
+				} else if (errorMessage.includes('fetch') || errorMessage.includes('network')) {
+					setError("Network error. Please check your connection and try again.");
+				} else {
+					setError(`Failed to load data: ${errorMessage}`);
+				}
+				
+				// Log meaningful errors only (avoid logging empty {} errors)
+				if (err && typeof err === 'object' && Object.keys(err as object).length > 0) {
+					const errorObj = err as ErrorLogObject;
+					console.error("Error in fetchData:", {
+						message: errorObj.message || errorMessage || 'Unknown error',
+						details: errorObj.details,
+						code: errorObj.code,
+						hint: errorObj.hint,
+					});
+				} else if (err) {
+					console.error("Error in fetchData:", err);
+				}
+			} finally {
+				isFetchingRef.current = false;
+				setLoading(false);
+				// Clear master loading timeout when fetch completes
+				if (masterLoadingTimeoutRef.current) {
+					clearTimeout(masterLoadingTimeoutRef.current);
+					masterLoadingTimeoutRef.current = null;
 				}
 			}
-			
-			// Check for Supabase client initialization errors
-			const errorMessage = err instanceof Error ? err.message : String(err);
-			if (errorMessage.includes('Missing Supabase') || errorMessage.includes('environment variables')) {
-				setError("Supabase configuration error. Please check environment variables.");
-			} else if (errorMessage.includes('fetch') || errorMessage.includes('network')) {
-				setError("Network error. Please check your connection and try again.");
-			} else {
-				setError(`Failed to load data: ${errorMessage}`);
-			}
-			
-			// Log meaningful errors only (avoid logging empty {} errors)
-			if (err && typeof err === 'object' && Object.keys(err as object).length > 0) {
-				const errorObj = err as ErrorLogObject;
-				console.error("Error in fetchData:", {
-					message: errorObj.message || errorMessage || 'Unknown error',
-					details: errorObj.details,
-					code: errorObj.code,
-					hint: errorObj.hint,
-				});
-			} else if (err) {
-				console.error("Error in fetchData:", err);
-			}
-		} finally {
-			isFetchingRef.current = false;
-			setLoading(false);
-			// Clear master loading timeout when fetch completes
-			if (masterLoadingTimeoutRef.current) {
-				clearTimeout(masterLoadingTimeoutRef.current);
-				masterLoadingTimeoutRef.current = null;
-			}
-		}
 	},
-	[isReady, user, profile, loading]
+	[isReady, user, profile, scans.length, validationHistory.length]
 );
 
 	// Keep ref updated with latest fetchData function
@@ -648,23 +647,24 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
 			// Transform based on scan type
 			if (scanType === 'leaf_disease') {
+				const leafScan = scanData as DatabaseLeafDiseaseScan;
 				return {
-					...scanData,
+					...leafScan,
 					scan_type: 'leaf_disease' as const,
-					ai_prediction: scanData.disease_detected,
-					solution: scanData.solution,
-					recommended_products: scanData.recommendation,
+					disease_detected: leafScan.disease_detected,
+					solution: leafScan.solution,
+					recommendation: leafScan.recommendation,
 					farmer_profile: farmerProfile,
-				};
+				} as Scan;
 			} else {
+				const fruitScan = scanData as DatabaseFruitRipenessScan;
 				return {
-					...scanData,
+					...fruitScan,
 					scan_type: 'fruit_maturity' as const,
-					ai_prediction: scanData.ripeness_stage,
-					solution: scanData.harvest_recommendation,
-					recommended_products: undefined,
+					ripeness_stage: fruitScan.ripeness_stage,
+					harvest_recommendation: fruitScan.harvest_recommendation,
 					farmer_profile: farmerProfile,
-				};
+				} as Scan;
 			}
 		} catch (err: unknown) {
 			console.error("Error fetching scan:", err);
@@ -846,6 +846,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
 			}
 		}
 
+		// Skip realtime setup entirely when Supabase credentials are missing
+		if (!isConfigured) return;
+
 		// User is ready - proceed with subscription setup
 		if (process.env.NODE_ENV === 'development') {
 			console.log('[Realtime] 👤 User is ready, proceeding with subscription setup', {
@@ -937,7 +940,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 		if (!initialFetched.current && !isFetchingRef.current && fetchDataRef.current && userRef.current?.id) {
 			fetchDataRef.current(true);
 		}
-		let fetchTimeoutId: NodeJS.Timeout | null = null;
+		const fetchTimeoutId: NodeJS.Timeout | null = null;
 
 		/**
 		 * REAL-TIME SUBSCRIPTIONS SETUP

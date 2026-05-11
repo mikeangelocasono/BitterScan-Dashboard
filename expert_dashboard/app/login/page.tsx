@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, Suspense } from "react";
@@ -294,13 +295,25 @@ function LoginPageContent() {
   return (
     <div className="min-h-screen bg-white flex">
       {/* Left side - Welcome Text */}
-      <div className="hidden lg:flex lg:w-1/2 items-center justify-center p-8 xl:p-16">
-        <div className="max-w-lg">
-          <h1 className="text-4xl font-bold text-gray-900 mb-6">Welcome to BitterScan</h1>
-          <h2 className="text-xl font-medium text-gray-700 mb-8">
+      <div className="hidden lg:flex lg:w-1/2 flex-col items-center justify-center px-10 py-12 xl:px-16 xl:py-16 bg-gradient-to-br from-gray-50 to-white">
+        <div className="w-full max-w-xl text-center">
+          <div className="mb-8 flex justify-center">
+            <Image
+              src="/logo.png"
+              alt="BitterScan Logo"
+              width={200}
+              height={200}
+              className="h-[200px] w-[200px] object-contain"
+              priority
+            />
+          </div>
+          <h1 className="text-4xl xl:text-[2.6rem] font-bold tracking-tight text-gray-900 leading-tight mb-3">
+            Welcome to BitterScan
+          </h1>
+          <h2 className="text-xl font-medium text-gray-700 mb-5">
             Sign in to your account
           </h2>
-          <p className="text-gray-600 text-lg leading-relaxed text-justify">
+          <p className="max-w-lg mx-auto text-gray-600 text-lg leading-relaxed">
             Access your dashboard to validate and manage content with precision and efficiency.
             Your role will be automatically detected upon login.
           </p>
@@ -311,12 +324,22 @@ function LoginPageContent() {
       <div className="w-full lg:w-1/2 flex items-center justify-center p-4 sm:p-8">
         <div className="w-full max-w-md">
           {/* Mobile Welcome Text */}
-          <div className="lg:hidden mb-6 sm:mb-8 text-center">
-            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-3 sm:mb-4">Welcome to BitterScan</h1>
-            <h2 className="text-base sm:text-lg font-medium text-gray-700 mb-4 sm:mb-6">
+          <div className="lg:hidden mb-6 sm:mb-8 text-center px-1 max-w-sm mx-auto">
+            <div className="flex justify-center mb-4 sm:mb-5">
+              <Image
+                src="/logo.png"
+                alt="BitterScan Logo"
+                width={52}
+                height={52}
+                className="h-[52px] w-[52px] rounded-xl object-contain shadow-sm shadow-[#388E3C]/15"
+                priority
+              />
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-gray-900 mb-2">Welcome to BitterScan</h1>
+            <h2 className="text-base sm:text-lg font-medium text-gray-700 mb-3 sm:mb-4">
               Sign in to your account
             </h2>
-            <p className="text-gray-600 text-sm sm:text-base leading-relaxed text-justify mb-6 sm:mb-8">
+            <p className="text-gray-600 text-sm sm:text-base leading-relaxed mb-6 sm:mb-8">
               Access your dashboard to validate and manage content.
               Your role will be automatically detected upon login.
             </p>

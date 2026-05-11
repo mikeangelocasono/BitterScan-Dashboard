@@ -3,7 +3,7 @@
 import { ReactNode, createContext, useContext, useMemo, useState, useCallback, useEffect, useRef } from "react";
 import { Scan, getAiPrediction, UserProfile } from "../types";
 import { useData } from "./DataContext";
-import { supabase } from "./supabase";
+import { supabase, isConfigured } from "./supabase";
 import { useUser } from "./UserContext";
 
 const READ_SCANS_STORAGE_KEY = "bs:read-scans";
@@ -324,7 +324,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 		// Also exclude 'Non-Ampalaya' scans — they do not require expert validation
 		const pending = scans.filter((scan) => {
 			// Exclude 'Unknown' status scans
-			if (scan.status === 'Unknown') return false;
+			if ((scan.status as string) === 'Unknown') return false;
 			// Only include pending validation scans
 			if (scan.status !== "Pending Validation") return false;
 			// Exclude scans with result = 'Unknown' (disease_detected or ripeness_stage)
@@ -347,6 +347,12 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 	useEffect(() => {
 		let isMounted = true;
 		
+		// Skip when Supabase is not configured to prevent network errors
+		if (!isConfigured) {
+			setUsersLoading(false);
+			return;
+		}
+
 		// Skip fetching pending users if not an admin or still loading user profile
 		if (!isAdmin || userLoading) {
 			setUsersLoading(false);
@@ -404,6 +410,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 					table: 'profiles',
 					filter: 'status=eq.pending'
 				},
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
 				(payload: any) => {
 					if (payload.new && payload.new.id) {
 						setPendingUsers((prev) => {
@@ -424,6 +431,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 					schema: 'public',
 					table: 'profiles'
 				},
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
 				(payload: any) => {
 					if (payload.new && payload.new.id) {
 						// If status changed from pending to approved/rejected, remove from list
@@ -451,6 +459,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 					schema: 'public',
 					table: 'profiles'
 				},
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
 				(payload: any) => {
 					if (payload.old && payload.old.id) {
 						setPendingUsers((prev) => prev.filter(u => u.id !== payload.old.id));

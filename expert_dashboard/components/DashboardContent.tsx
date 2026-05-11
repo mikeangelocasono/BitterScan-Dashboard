@@ -1,274 +1,348 @@
 "use client";
 
-import { useMemo, memo, useState, useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import { useMemo, memo, useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { UsersRound, Camera, CheckCircle2, AlertCircle } from "lucide-react";
-import { Table, Thead, Tbody, Tr, Th, Td } from "./ui/table";
+import { Camera, CheckCircle2, AlertCircle, Clock, Info, ClipboardCheck } from "lucide-react";
+import { Button } from "./ui/button";
 import { useUser } from "./UserContext";
 import { useData } from "./DataContext";
 import { getAiPrediction, isNonAmpalayaScan, type Scan } from "../types";
-import Image from "next/image";
 import { formatDate, formatScanType, getStatusColor } from "../utils/dateUtils";
+import Link from "next/link";
 
 // Memoized loading skeleton component
 const LoadingSkeleton = memo(() => (
-	<div className="min-h-[60vh] flex items-center justify-center">
-		<div className="text-center">
-			<div className="h-10 w-10 border-4 border-[#388E3C] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-			<p className="text-gray-600 text-sm">Loading dashboard...</p>
-		</div>
-	</div>
+  <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+    <div className="animate-pulse space-y-6">
+      <div className="h-8 bg-gray-200 rounded w-64" />
+      <div className="h-4 bg-gray-100 rounded w-48" />
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        {[1, 2, 3, 4].map(i => (
+          <div key={i} className="bg-white rounded-xl border border-gray-200 p-6 space-y-3">
+            <div className="h-4 bg-gray-200 rounded w-24" />
+            <div className="h-8 bg-gray-200 rounded w-16" />
+          </div>
+        ))}
+      </div>
+      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
+        <div className="h-6 bg-gray-200 rounded w-32" />
+        <div className="space-y-3">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="h-12 bg-gray-100 rounded" />
+          ))}
+        </div>
+      </div>
+    </div>
+  </div>
 ));
 LoadingSkeleton.displayName = "LoadingSkeleton";
 
 // Memoized error component
 const ErrorDisplay = memo(({ error }: { error: string }) => (
-	<div className="min-h-[60vh] flex items-center justify-center">
-		<div className="text-center space-y-4">
-			<p className="text-red-600 font-medium">{error}</p>
-		</div>
-	</div>
+  <div className="min-h-[60vh] flex items-center justify-center">
+    <div className="text-center space-y-4 max-w-md px-4">
+      <div className="w-16 h-16 rounded-full bg-red-50 flex items-center justify-center mx-auto">
+        <AlertCircle className="h-8 w-8 text-red-500" />
+      </div>
+      <h2 className="text-lg font-semibold text-gray-900">Failed to Load Dashboard</h2>
+      <p className="text-red-600 text-sm">{error}</p>
+      <Button variant="outline" onClick={() => window.location.reload()} className="mt-2">
+        Retry
+      </Button>
+    </div>
+  </div>
 ));
 ErrorDisplay.displayName = "ErrorDisplay";
 
 // Memoized stat card component
-const StatCard = memo(({ 
-	icon: Icon, 
-	label, 
-	value, 
-	color, 
-	bgColor,
-	index 
-}: { 
-	icon: React.ComponentType<{ className?: string }>;
-	label: string;
-	value: number;
-	color: string;
-	bgColor: string;
-	index: number;
+const StatCard = memo(({
+  icon: Icon,
+  label,
+  value,
+  iconColor,
+  iconBg,
+  index
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: number;
+  iconColor: string;
+  iconBg: string;
+  index: number;
 }) => (
-	<motion.div 
-		initial={{ y: 12, opacity: 0 }} 
-		animate={{ y: 0, opacity: 1 }} 
-		transition={{ delay: index * 0.05, duration: 0.3 }}
-	>
-		<Card className="shadow-sm hover:shadow-md transition-all duration-200 h-full">
-			<CardHeader className="pb-2 pt-4">
-				<CardTitle className="flex items-center justify-between">
-					<span className="text-sm font-semibold text-gray-700">{label}</span>
-					<div className={`p-1.5 rounded-lg ${bgColor}`}>
-						<Icon className={`h-4 w-4 ${color}`} />
-					</div>
-				</CardTitle>
-			</CardHeader>
-			<CardContent className="pb-4 pt-2">
-				<p className="text-2xl font-bold text-gray-900">{value.toLocaleString("en-US")}</p>
-			</CardContent>
-		</Card>
-	</motion.div>
+  <motion.div
+    initial={{ y: 12, opacity: 0 }}
+    animate={{ y: 0, opacity: 1 }}
+    transition={{ delay: index * 0.05, duration: 0.3 }}
+  >
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 flex items-center justify-between hover:shadow-md transition-all duration-200 min-h-[88px]">
+      <div>
+        <p className="text-xs font-medium text-gray-500 mb-1 whitespace-nowrap">{label}</p>
+        <p className="text-xl font-bold text-gray-900">{value.toLocaleString("en-US")}</p>
+      </div>
+      <div className={`h-8 w-8 rounded-lg ${iconBg} flex items-center justify-center flex-shrink-0`}>
+        <Icon className={`h-4 w-4 ${iconColor}`} />
+      </div>
+    </div>
+  </motion.div>
 ));
 StatCard.displayName = "StatCard";
 
+// Tab types
+type TabKey = "all" | "pending" | "validated" | "corrected";
+
 function DashboardContent() {
-	const { user, profile, loading: userLoading, sessionReady } = useUser();
-	const { scans, totalUsers, loading: dataLoading, error } = useData();
-	const [forceRender, setForceRender] = useState(false);
+  const { user, profile, loading: userLoading, sessionReady } = useUser();
+  const { scans, totalUsers, loading: dataLoading, error } = useData();
+  const [forceRender, setForceRender] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabKey>("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [scanTypeFilter, setScanTypeFilter] = useState("all");
+  const [sortField, setSortField] = useState<"date" | "status" | "type">("date");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
-	// Master timeout: force render after 1 second to prevent infinite loading
-	useEffect(() => {
-		const timeout = setTimeout(() => {
-			if (!forceRender) {
-				console.warn('[DashboardContent] Forcing render after timeout');
-				setForceRender(true);
-			}
-		}, 1000);
-		return () => clearTimeout(timeout);
-	}, [forceRender]);
+  // Master timeout: force render after 1 second to prevent infinite loading
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      if (!forceRender) {
+        console.warn('[DashboardContent] Forcing render after timeout');
+        setForceRender(true);
+      }
+    }, 1000);
+    return () => clearTimeout(timeout);
+  }, [forceRender]);
 
-	// Show loading state only during initial session resolution
-	// Once sessionReady=true OR we have scans data OR forceRender, render dashboard
-	// This prevents infinite loading spinner on page refresh
-	const hasData = scans && scans.length >= 0; // scans array exists (even if empty)
-	const isLoading = !forceRender && !sessionReady && (userLoading || (dataLoading && !hasData));
+  // Show loading state only during initial session resolution
+  // Once sessionReady=true OR we have scans data OR forceRender, render dashboard
+  // which manages its own loading skeleton for data fetching
+  const hasData = scans && scans.length >= 0; // scans array exists (even if empty)
+  const isLoading = !forceRender && !sessionReady && (userLoading || (dataLoading && !hasData));
 
-	// Memoize computed values
-	const displayName = useMemo(() => {
-		return profile?.full_name || user?.user_metadata?.full_name || "Expert";
-	}, [profile?.full_name, user?.user_metadata?.full_name]);
+  // Memoize computed values
+  const displayName = useMemo(() => {
+    return profile?.full_name || user?.user_metadata?.full_name || "Expert";
+  }, [profile?.full_name, user?.user_metadata?.full_name]);
 
-	const userRole = useMemo(() => {
-		return profile?.role || user?.user_metadata?.role || "Expert";
-	}, [profile?.role, user?.user_metadata?.role]);
+  const userRole = useMemo(() => {
+    return profile?.role || user?.user_metadata?.role || "Expert";
+  }, [profile?.role, user?.user_metadata?.role]);
 
-	// Filter out Unknown scans from all metrics and display
-	const validScans = useMemo(() => {
-		if (!scans || scans.length === 0) return [];
-		
-		return scans.filter(scan => {
-			if (scan.status === 'Unknown') return false;
-			const result = getAiPrediction(scan);
-			if (result === 'Unknown') return false;
-			// Exclude Non-Ampalaya scans from all dashboard metrics
-			if (isNonAmpalayaScan(scan)) return false;
-			return true;
-		});
-	}, [scans]);
+  // Filter out Unknown scans from all metrics and display
+  const validScans = useMemo(() => {
+    if (!scans || scans.length === 0) return [];
+    
+    return scans.filter(scan => {
+      if ((scan.status as string) === 'Unknown') return false;
+      const result = getAiPrediction(scan);
+      if (result === 'Unknown') return false;
+      // Exclude Non-Ampalaya scans from all dashboard metrics
+      if (isNonAmpalayaScan(scan)) return false;
+      return true;
+    });
+  }, [scans]);
 
-	const { totalScans, validatedScans, pendingValidations, correctedScans, recentScans } = useMemo(() => {
-		// Early return if no valid scans
-		if (!validScans || validScans.length === 0) {
-			return { 
-				totalScans: 0, 
-				validatedScans: 0, 
-				pendingValidations: 0, 
-				correctedScans: 0,
-				recentScans: [] 
-			};
-		}
-		
-		// Get latest values from database (excluding Unknown scans)
-		const total = validScans.length; // Total Scans
-		
-		// Count by explicit status buckets
-		// Non-Ampalaya scans are already excluded from validScans above
-		const pending = validScans.filter(scan => {
-			return scan.status === 'Pending' || scan.status === 'Pending Validation';
-		}).length;
-		const validated = validScans.filter(scan => scan.status === 'Validated').length;
-		const corrected = validScans.filter(scan => scan.status === 'Corrected').length;
-		
-		// Get recent scans sorted by date (most recent first), limit to 5
-		// All Unknown scans are already filtered out above
-		const recent = [...validScans]
-			.sort((a, b) => {
-				// Sort by created_at descending (newest first)
-				const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
-				const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
-				return dateB - dateA;
-			})
-			.slice(0, 5);
-		
-		return { 
-			totalScans: total, 
-			validatedScans: validated, 
-			pendingValidations: pending, 
-			correctedScans: corrected,
-			recentScans: recent 
-		};
-	}, [validScans]);
+  const { totalScans, validatedScans, pendingValidations, correctedScans, diseaseRecords, ripenessRecords } = useMemo(() => {
+    if (!validScans || validScans.length === 0) {
+      return { 
+        totalScans: 0, 
+        validatedScans: 0, 
+        pendingValidations: 0, 
+        correctedScans: 0,
+        diseaseRecords: 0,
+        ripenessRecords: 0,
+      };
+    }
+    
+    const total = validScans.length;
+    const pending = validScans.filter(scan => {
+      return scan.status === 'Pending' || scan.status === 'Pending Validation';
+    }).length;
+    const validated = validScans.filter(scan => scan.status === 'Validated').length;
+    const corrected = validScans.filter(scan => scan.status === 'Corrected').length;
+    const disease = validScans.filter(scan => scan.scan_type === 'leaf_disease').length;
+    const ripeness = validScans.filter(scan => scan.scan_type === 'fruit_maturity').length;
+    
+    return { 
+      totalScans: total, 
+      validatedScans: validated, 
+      pendingValidations: pending, 
+      correctedScans: corrected,
+      diseaseRecords: disease,
+      ripenessRecords: ripeness,
+    };
+  }, [validScans]);
 
+  // Filtered and sorted scans for the table
+  const displayedScans = useMemo(() => {
+    let filtered = [...validScans];
 
-	// Show loading only briefly during initial session resolution
-	// If sessionReady is true, always show content (even with empty data)
-	if (isLoading) {
-		return <LoadingSkeleton />;
-	}
+    // Tab filter
+    if (activeTab === "pending") {
+      filtered = filtered.filter(s => s.status === "Pending" || s.status === "Pending Validation");
+    } else if (activeTab === "validated") {
+      filtered = filtered.filter(s => s.status === "Validated");
+    } else if (activeTab === "corrected") {
+      filtered = filtered.filter(s => s.status === "Corrected");
+    }
 
-	if (error) {
-		return <ErrorDisplay error={error} />;
-	}
+    // Scan type filter
+    if (scanTypeFilter !== "all") {
+      filtered = filtered.filter(s => s.scan_type === scanTypeFilter);
+    }
 
-	return (
-		<div className="space-y-6 sm:space-y-8 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
-			{/* Welcome Section */}
-			<div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-				<div>
-					<h1 className="text-2xl sm:text-3xl font-bold text-gray-900 tracking-tight mb-1">Welcome back, {displayName}!</h1>
-					<p className="text-gray-600 text-xs sm:text-sm">Here&apos;s what&apos;s happening with your {userRole.toLowerCase()} dashboard today.</p>
-				</div>
-			</div>
+    // Search filter
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      filtered = filtered.filter(s => {
+        const farmer = s.farmer_profile?.full_name || s.farmer_profile?.username || "";
+        const prediction = getAiPrediction(s) || "";
+        return farmer.toLowerCase().includes(q) || prediction.toLowerCase().includes(q);
+      });
+    }
 
-			<div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 md:gap-6">
-				{[
-					{ icon: Camera, label: "Total Scans", value: totalScans, color: "text-blue-600", bgColor: "bg-blue-50" },
-					{ icon: AlertCircle, label: "Pending Validation", value: pendingValidations, color: "text-amber-600", bgColor: "bg-amber-50" },
-					{ icon: CheckCircle2, label: "Validated", value: validatedScans, color: "text-emerald-600", bgColor: "bg-emerald-50" },
-					{ icon: AlertCircle, label: "Corrected", value: correctedScans, color: "text-purple-600", bgColor: "bg-purple-50" }
-				].map((s, idx) => (
-					<StatCard key={s.label} icon={s.icon} label={s.label} value={s.value} color={s.color} bgColor={s.bgColor} index={idx} />
-				))}
-			</div>
+    // Sort
+    filtered.sort((a, b) => {
+      let comparison = 0;
+      if (sortField === "date") {
+        const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+        comparison = dateA - dateB;
+      } else if (sortField === "status") {
+        comparison = (a.status || "").localeCompare(b.status || "");
+      } else if (sortField === "type") {
+        comparison = (a.scan_type || "").localeCompare(b.scan_type || "");
+      }
+      return sortDir === "desc" ? -comparison : comparison;
+    });
 
-			{/* Recent Scans Section */}
-			<Card className="shadow-sm border border-gray-200 hover:shadow-md transition-all duration-200 bg-white rounded-lg overflow-hidden">
-				<CardHeader className="pb-3 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] text-white px-6 pt-5 border-b rounded-t-xl">
-					<CardTitle className="text-lg font-bold" style={{ color: 'white' }}>Recent Scans</CardTitle>
-					<p className="text-sm mt-1" style={{ color: 'rgba(255, 255, 255, 0.9)' }}>Latest scan submissions and their validation status</p>
-				</CardHeader>
-				<CardContent className="p-0">
-					{recentScans.length === 0 ? (
-						<div className="flex items-center justify-center py-16">
-							<div className="text-center">
-								<AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-								<p className="text-gray-500 font-medium text-sm">No scans available yet</p>
-								<p className="text-gray-400 text-xs mt-1">Recent scans will appear here</p>
-							</div>
-						</div>
-					) : (
-						<div className="overflow-x-auto">
-							<Table className="w-full">
-								<Thead>
-									<Tr className="bg-gray-50 border-b-2 border-gray-200">
-										<Th className="whitespace-nowrap text-xs font-semibold text-gray-700 uppercase tracking-wider">Farmer</Th>
-										<Th className="whitespace-nowrap text-xs font-semibold text-gray-700 uppercase tracking-wider">Scan Type</Th>
-										<Th className="whitespace-nowrap text-xs font-semibold text-gray-700 uppercase tracking-wider">AI Prediction</Th>
-										<Th className="whitespace-nowrap text-xs font-semibold text-gray-700 uppercase tracking-wider">Status</Th>
-										<Th className="whitespace-nowrap text-xs font-semibold text-gray-700 uppercase tracking-wider">Date & Time</Th>
-									</Tr>
-								</Thead>
-								<Tbody>
-									{recentScans.map((scan) => {
-										// Use scan_uuid as key if available, otherwise combine scan_type and id for uniqueness
-										const uniqueKey = scan.scan_uuid || `${scan.scan_type}-${scan.id}`;
-										
-										return (
-											<Tr key={uniqueKey} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-												<Td className="whitespace-nowrap py-4 px-6">
-													<div className="flex items-center gap-3">
-														{scan.farmer_profile?.profile_picture ? (
-															<Image 
-																src={scan.farmer_profile.profile_picture} 
-																alt="Profile" 
-																width={36}
-																height={36}
-																className="w-9 h-9 rounded-full object-cover ring-2 ring-gray-100"
-																loading="lazy"
-																onError={(e) => {
-																	e.currentTarget.style.display = 'none';
-																}}
-															/>
-														) : (
-															<div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-sm font-semibold text-white ring-2 ring-gray-100">
-																{scan.farmer_profile?.full_name?.charAt(0) || scan.farmer_profile?.username?.charAt(0) || '?'}
-															</div>
-														)}
-														<div className="font-medium text-sm text-gray-900">
-															{scan.farmer_profile?.full_name || scan.farmer_profile?.username || 'Unknown Farmer'}
-														</div>
-													</div>
-												</Td>
-												<Td className="py-4 px-6 text-sm text-gray-700 font-medium">{scan.scan_type ? formatScanType(scan.scan_type) : 'N/A'}</Td>
-												<Td className="py-4 px-6 max-w-xs truncate text-sm text-gray-700">{getAiPrediction(scan) || 'N/A'}</Td>
-												<Td className="py-4 px-6">
-													<span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${getStatusColor(scan.status)}`}>
-														{scan.status}
-													</span>
-												</Td>
-												<Td className="py-4 px-6 whitespace-nowrap text-sm text-gray-500">
-													{scan.created_at ? formatDate(scan.created_at) : 'N/A'}
-												</Td>
-											</Tr>
-										);
-									})}
-								</Tbody>
-							</Table>
-						</div>
-					)}
-				</CardContent>
-			</Card>
-		</div>
-	);
+    return filtered.slice(0, 10); // Show top 10
+  }, [validScans, activeTab, scanTypeFilter, searchQuery, sortField, sortDir]);
+
+  const toggleSort = useCallback((field: "date" | "status" | "type") => {
+    if (sortField === field) {
+      setSortDir(d => d === "desc" ? "asc" : "desc");
+    } else {
+      setSortField(field);
+      setSortDir("desc");
+    }
+  }, [sortField]);
+
+  // Show loading only briefly during initial session resolution
+  // If sessionReady is true, always show content (even with empty data)
+  if (isLoading) {
+    return <LoadingSkeleton />;
+  }
+
+  if (error) {
+    return <ErrorDisplay error={error} />;
+  }
+
+  const tabs: { key: TabKey; label: string; count: number }[] = [
+    { key: "all", label: "All Scans", count: totalScans },
+    { key: "pending", label: "Pending", count: pendingValidations },
+    { key: "validated", label: "Validated", count: validatedScans },
+    { key: "corrected", label: "Corrected", count: correctedScans },
+  ];
+
+  return (
+    <div className="space-y-6 sm:space-y-8 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+      {/* Welcome Section */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 tracking-tight mb-1">Welcome back, {displayName}!</h1>
+          <p className="text-gray-500 text-xs sm:text-sm">Here&apos;s your {userRole.toLowerCase()} dashboard overview for today.</p>
+        </div>
+        <Link href="/validate" className="inline-flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] text-white text-sm font-medium rounded-lg hover:brightness-110 transition-all shadow-sm">
+          <ClipboardCheck className="h-4 w-4" />
+          Pending Validation
+        </Link>
+      </div>
+
+      {/* Stats Grid */}
+      <div className="grid grid-cols-4 gap-3">
+        {[
+          { icon: Camera, label: "Total Scans", value: totalScans, iconColor: "text-blue-500", iconBg: "bg-blue-50" },
+          { icon: Clock, label: "Pending Validation", value: pendingValidations, iconColor: "text-amber-500", iconBg: "bg-amber-50" },
+          { icon: CheckCircle2, label: "Validated", value: validatedScans, iconColor: "text-emerald-500", iconBg: "bg-emerald-50" },
+          { icon: Info, label: "Corrected", value: correctedScans, iconColor: "text-purple-500", iconBg: "bg-purple-50" }
+        ].map((s, idx) => (
+          <StatCard key={s.label} icon={s.icon} label={s.label} value={s.value} iconColor={s.iconColor} iconBg={s.iconBg} index={idx} />
+        ))}
+      </div>
+
+      {/* Recent Scans Section */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        {/* Green Header */}
+        <div className="px-5 sm:px-6 py-4 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] flex items-center justify-between">
+          <div>
+            <h3 className="text-base font-bold !text-white">Recent Scans</h3>
+            <p className="text-xs !text-white/80 mt-0.5">Latest scan submissions and their validation status</p>
+          </div>
+          <Link
+            href="/validate"
+            className="text-xs font-medium text-white/90 hover:text-white bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-lg transition-all duration-200"
+          >
+            View All →
+          </Link>
+        </div>
+
+        {/* Table */}
+        {displayedScans.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <Camera className="h-8 w-8 text-gray-300 mb-2" />
+            <p className="text-gray-500 text-sm font-medium">No scans available yet</p>
+            <p className="text-gray-400 text-xs mt-0.5">Detection submissions will appear here once farmers submit scans.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-gray-50/80 border-b border-gray-100">
+                  <th className="px-5 py-3 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Farmer</th>
+                  <th className="px-5 py-3 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Scan Type</th>
+                  <th className="px-5 py-3 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wider">AI Prediction</th>
+                  <th className="px-5 py-3 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                  <th className="px-5 py-3 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Date & Time</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {displayedScans.map((scan) => {
+                  const uniqueKey = scan.scan_uuid || `${scan.scan_type}-${scan.id}`;
+                  return (
+                    <tr key={uniqueKey} className="hover:bg-gray-50/50 transition-colors">
+                      <td className="px-5 py-3 whitespace-nowrap">
+                        <span className="text-sm font-medium text-gray-900">
+                          {scan.farmer_profile?.full_name || scan.farmer_profile?.username || 'Unknown Farmer'}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3 whitespace-nowrap">
+                        <span className="text-sm text-gray-600">
+                          {scan.scan_type ? formatScanType(scan.scan_type) : 'N/A'}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3 whitespace-nowrap">
+                        <span className="text-sm text-gray-700">{getAiPrediction(scan) || 'N/A'}</span>
+                      </td>
+                      <td className="px-5 py-3 whitespace-nowrap">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-semibold ${getStatusColor(scan.status)}`}>
+                          {scan.status}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3 whitespace-nowrap">
+                        <span className="text-xs text-gray-500">
+                          {scan.created_at ? formatDate(scan.created_at) : 'N/A'}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export default memo(DashboardContent);

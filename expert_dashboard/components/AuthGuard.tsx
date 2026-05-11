@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode, useEffect, useMemo, useRef } from "react";
+import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { useUser } from "./UserContext";
@@ -45,7 +45,9 @@ export default function AuthGuard({ children }: { children: ReactNode }) {
     return (
       profile?.role ||
       user?.user_metadata?.role ||
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (user as any)?.app_metadata?.role ||
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (user as any)?.role ||
       emailRoleHint ||
       null
@@ -208,6 +210,16 @@ export default function AuthGuard({ children }: { children: ReactNode }) {
     redirectHandled.current = false;
   }, [emailRoleHint, isAuthReady, loggingOut, pathname, profile?.status, resolvedRole, resolvedStatus, router, user]);
 
+  // Safety: auto-redirect to login after 8s if role cannot be determined
+  const [profileTimeout, setProfileTimeout] = useState(false);
+  useEffect(() => {
+    if (user && !resolvedRole && !loggingOut && isAuthReady) {
+      const timer = setTimeout(() => setProfileTimeout(true), 8000);
+      return () => clearTimeout(timer);
+    }
+    setProfileTimeout(false);
+  }, [user, resolvedRole, loggingOut, isAuthReady]);
+
   // Show centered logout modal overlay during logout transition
   if (loggingOut) {
     return (
@@ -233,8 +245,15 @@ export default function AuthGuard({ children }: { children: ReactNode }) {
     );
   }
 
-  // User exists but profile/role unresolved: show lightweight loader with retry
-  if (user && !resolvedRole && !profile) {
+  // User exists but role completely unresolvable from ANY source:
+  // profile, user_metadata, app_metadata, email hint.
+  // Only block if we truly cannot determine role at all.
+  if (user && !resolvedRole) {
+    if (profileTimeout) {
+      // Safety net: role could not be determined after 8s
+      router.replace('/login');
+      return null;
+    }
     return (
       <div className="min-h-screen flex items-center justify-center bg-[var(--background)]">
         <div className="text-center">

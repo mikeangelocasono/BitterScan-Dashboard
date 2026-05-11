@@ -31,7 +31,8 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
 					const result = onClick(e);
 					// If onClick returns a Promise, catch any rejections
 					// Check for Promise-like object (has .catch method)
-					if (result != null && typeof result === 'object' && 'catch' in result && typeof (result as any).catch === 'function') {
+					// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				if (result != null && typeof result === 'object' && 'catch' in result && typeof (result as any).catch === 'function') {
 						(result as Promise<unknown>).catch((error) => {
 							console.error('[Button] onClick promise rejected:', error);
 						});
