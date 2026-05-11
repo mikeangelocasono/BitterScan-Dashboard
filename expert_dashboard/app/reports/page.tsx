@@ -358,7 +358,7 @@ function buildSuccessRateTrend(
 
 export default function ReportsPage() {
   const { scans, validationHistory, loading, error, refreshData } = useData();
-  const [range, setRange] = useState<Range>("daily");
+  const [range, setRange] = useState<Range>("monthly");
   const [customStartDate, setCustomStartDate] = useState<string>("");
   const [customEndDate, setCustomEndDate] = useState<string>("");
   const [showCustomPicker, setShowCustomPicker] = useState(false);

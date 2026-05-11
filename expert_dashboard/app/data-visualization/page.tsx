@@ -423,7 +423,7 @@ export default function DataVisualizationPage() {
   }, [forceRender, dataContext]);
   
   // Date filter state
-  const [range, setRange] = useState<string>("today");
+  const [range, setRange] = useState<string>("this_month");
   const [showCustomPicker, setShowCustomPicker] = useState(false);
   const [customStartDate, setCustomStartDate] = useState<string>("");
   const [customEndDate, setCustomEndDate] = useState<string>("");
