@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import {
   BarChart,
   Bar,
+  LineChart,
+  Line,
   PieChart as RechartsPieChart,
   Pie,
   Cell,
@@ -23,7 +25,7 @@ import { useData } from "@/components/DataContext";
 import { supabase } from "@/components/supabase";
 import type { Scan, ValidationHistory } from "@/types";
 import { getAiPrediction, isLeafDiseaseScan, isFruitRipenessScan, isNonAmpalayaScan } from "@/types";
-import { Loader2, TrendingUp, Camera, AlertCircle, Calendar, Clock3, BarChart3, MapPin, Filter, X } from "lucide-react";
+import { Loader2, TrendingUp, Camera, AlertCircle, Calendar, Clock3, BarChart3, MapPin, X, Eye, CheckCircle2, Leaf, Apple } from "lucide-react";
 
 // Real-time Clock Component
 function RealTimeClock() {
@@ -88,15 +90,6 @@ const InteractiveFarmMap = dynamic(
     )
   }
 );
-
-// Recharts Tooltip payload entry type
-type TooltipPayloadEntry = {
-  name: string;
-  value: number;
-  payload?: AppPerformanceDatum | MonthlyMostScannedDatum;
-  color?: string;
-  dataKey?: string;
-};
 
 type AppPerformanceDatum = {
   month: string;
@@ -439,16 +432,17 @@ export default function DataVisualizationPage() {
   const [scanTypeFilter, setScanTypeFilter] = useState<"all" | "leaf_disease" | "fruit_maturity">("all");
   const [diseaseFilter, setDiseaseFilter] = useState<string>("all");
   const [farmFilter, setFarmFilter] = useState<string>("all");
-  const [showFilters, setShowFilters] = useState(false);
   
   // Farm Records state
   const [recordsSearchQuery, setRecordsSearchQuery] = useState<string>("");
   const [recordsCurrentPage, setRecordsCurrentPage] = useState<number>(1);
   const recordsPerPage = 10;
-  // Selected farm for click-to-view disease records
-  const [selectedRecordFarm, setSelectedRecordFarm] = useState<string | null>(null);
-  
+  // Farm Scan Distribution Modal state
+  const [selectedFarmForModal, setSelectedFarmForModal] = useState<any | null>(null);
+  const [isFarmModalOpen, setIsFarmModalOpen] = useState(false);
+
   // Farms data state
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [farmsData, setFarmsData] = useState<any[]>([]);
   const [farmsLoading, setFarmsLoading] = useState(true);
   
@@ -518,19 +512,6 @@ export default function DataVisualizationPage() {
     
     fetchFarms();
   }, []);
-  
-  // Check if data context is available (with forceRender fallback)
-  if (!dataContext && !forceRender) {
-    return (
-      <AuthGuard>
-        <AppShell>
-          <div className="flex items-center justify-center min-h-screen">
-            <Loader2 className="w-8 h-8 animate-spin text-[#388E3C]" />
-          </div>
-        </AppShell>
-      </AuthGuard>
-    );
-  }
   
   const safeScans = useMemo(() => {
     try {
@@ -683,10 +664,10 @@ export default function DataVisualizationPage() {
   }, [safeScans]);
 
   // Calculate total scans count
-  const totalScansCount = useMemo(() => dateFilteredScans.length, [dateFilteredScans]);
+  const _totalScansCount = useMemo(() => dateFilteredScans.length, [dateFilteredScans]);
 
   // Calculate validated scans count
-  const validatedScansCount = useMemo(() => {
+  const _validatedScansCount = useMemo(() => {
     return dateFilteredScans.filter((scan) => scan.status !== "Pending" && scan.status !== "Pending Validation").length;
   }, [dateFilteredScans]);
 
@@ -746,7 +727,7 @@ export default function DataVisualizationPage() {
 
   // Calculate Average Monthly Performance
   // Note: This is monthly-based and should NOT be affected by time filters
-  const averageMonthlyPerformance = useMemo(() => {
+  const _averageMonthlyPerformance = useMemo(() => {
     const performance = buildAppPerformance(safeScans, safeValidationHistory);
     console.log('[DataViz] App Performance data:', performance.length, 'items');
     if (performance.length === 0) return 0;
@@ -757,7 +738,7 @@ export default function DataVisualizationPage() {
   // Build data for all charts with error handling
   // Note: App Performance and Monthly Most Scanned are purely monthly-based
   // and should NOT be affected by time filters
-  const appPerformance = useMemo(() => {
+  const _appPerformance = useMemo(() => {
     try {
       return buildAppPerformance(safeScans, safeValidationHistory);
     } catch (error) {
@@ -840,6 +821,116 @@ export default function DataVisualizationPage() {
     }
   }, [safeValidationHistory, rangeStart, rangeEnd, range]);
 
+  // ── Farm Scan Distribution Modal computed data ──────────────────────
+  const selectedFarmScans = useMemo(() => {
+    if (!selectedFarmForModal) return [];
+    const farmId = selectedFarmForModal.id;
+    return safeScans.filter((scan) => scan.farm_id === farmId);
+  }, [selectedFarmForModal, safeScans]);
+
+  const selectedFarmDiseaseDistribution = useMemo(() => {
+    const counts: Record<string, number> = {
+      Cercospora: 0,
+      "Yellow Mosaic Virus": 0,
+      "Downy Mildew": 0,
+      "Fusarium Wilt": 0,
+      Healthy: 0,
+      Unknown: 0,
+    };
+    selectedFarmScans.filter(isLeafDiseaseScan).forEach((scan) => {
+      const pred = getAiPrediction(scan);
+      if (pred && counts[pred] !== undefined) counts[pred]++;
+      else if (pred) counts["Unknown"]++;
+    });
+    return Object.entries(counts).map(([name, value]) => ({ name, value }));
+  }, [selectedFarmScans]);
+
+  const selectedFarmRipenessDistribution = useMemo(() => {
+    const counts: Record<string, number> = {
+      Immature: 0,
+      Mature: 0,
+      Overmature: 0,
+      Overripe: 0,
+      Unknown: 0,
+    };
+    selectedFarmScans.filter(isFruitRipenessScan).forEach((scan) => {
+      const pred = getAiPrediction(scan);
+      if (pred && counts[pred] !== undefined) counts[pred]++;
+      else if (pred) counts["Unknown"]++;
+    });
+    return Object.entries(counts).map(([name, value]) => ({ name, value }));
+  }, [selectedFarmScans]);
+
+  const _selectedFarmScanTrend = useMemo(() => {
+    const map = new Map<string, number>();
+    selectedFarmScans.forEach((scan) => {
+      if (!scan.created_at) return;
+      try {
+        const d = new Date(scan.created_at);
+        if (isNaN(d.getTime())) return;
+        const key = d.toISOString().split("T")[0];
+        map.set(key, (map.get(key) || 0) + 1);
+      } catch {}
+    });
+    const sorted = Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+    return sorted.map(([date, scans]) => ({
+      date,
+      displayDate: new Date(date).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+      scans,
+    }));
+  }, [selectedFarmScans]);
+
+  const selectedFarmRecentScans = useMemo(() => {
+    return [...selectedFarmScans]
+      .sort((a, b) => {
+        const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return bTime - aTime;
+      })
+      .slice(0, 5);
+  }, [selectedFarmScans]);
+
+  const selectedFarmTotalScans = selectedFarmScans.length;
+  const selectedFarmDiseaseScans = selectedFarmScans.filter(isLeafDiseaseScan).length;
+  const selectedFarmRipenessScans = selectedFarmScans.filter(isFruitRipenessScan).length;
+  const _selectedFarmValidatedScans = selectedFarmScans.filter((s) => s.status === "Validated").length;
+  const _selectedFarmLatestScanDate = selectedFarmRecentScans[0]?.created_at
+    ? new Date(selectedFarmRecentScans[0].created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+    : "N/A";
+
+  const getRiskLevel = (total: number) => {
+    if (total >= 16) return { label: "High", color: "bg-red-100 text-red-700 border-red-200" };
+    if (total >= 6) return { label: "Medium", color: "bg-amber-100 text-amber-700 border-amber-200" };
+    return { label: "Low", color: "bg-green-100 text-green-700 border-green-200" };
+  };
+
+  const handleOpenFarmModal = (farmId: string) => {
+    const farm = farmsData.find((f) => f.id === farmId);
+    if (farm) {
+      setSelectedFarmForModal(farm);
+      setIsFarmModalOpen(true);
+    }
+  };
+
+  const handleCloseFarmModal = () => {
+    setIsFarmModalOpen(false);
+    setTimeout(() => setSelectedFarmForModal(null), 300);
+  };
+
+  // Check if data context is available (with forceRender fallback)
+  // Placed AFTER all hooks to comply with React Rules of Hooks
+  if (!dataContext && !forceRender) {
+    return (
+      <AuthGuard>
+        <AppShell>
+          <div className="flex items-center justify-center min-h-screen">
+            <Loader2 className="w-8 h-8 animate-spin text-[#388E3C]" />
+          </div>
+        </AppShell>
+      </AuthGuard>
+    );
+  }
+
   return (
     <AuthGuard>
       <AppShell>
@@ -848,16 +939,16 @@ export default function DataVisualizationPage() {
             <Loader2 className="w-8 h-8 animate-spin text-[#388E3C]" />
           </div>
         }>
-          <div className="space-y-8 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="space-y-5 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
             {/* Header Section with Title */}
             <div className="space-y-3">
               <div>
                 <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 tracking-tight">Data Visualization</h1>
-                <p className="text-gray-600 text-xs sm:text-sm">Advanced Analytics & Farm Disease Mapping</p>
+                <p className="text-gray-600 text-xs sm:text-sm">Advanced analytics, validation insights, and farm disease mapping</p>
               </div>
-              
+
               {/* Real-time Clock */}
-              <div className="flex items-center justify-between px-3 sm:px-5 py-2.5 sm:py-3 text-xs sm:text-sm bg-gradient-to-r from-[#388E3C] to-[#2F7A33] rounded-lg shadow-md overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2.5 text-sm bg-gradient-to-r from-[#388E3C] to-[#2F7A33] rounded-lg shadow-sm overflow-hidden">
                 <RealTimeClock />
               </div>
             </div>
@@ -939,143 +1030,52 @@ export default function DataVisualizationPage() {
                   </div>
                 )}
               </div>
-              
-              {/* Map Filters Toggle - Right Side */}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowFilters(!showFilters)}
-                className="border-gray-300 hover:bg-gray-50 text-sm font-medium self-start sm:self-center"
-              >
-                <Filter className="h-4 w-4 mr-1.5" />
-                {showFilters ? 'Hide' : 'Show'} Map Filters
-                {(scanTypeFilter !== 'all' || diseaseFilter !== 'all' || farmFilter !== 'all') && (
-                  <span className="ml-2 inline-flex items-center justify-center px-2 py-0.5 text-xs font-bold leading-none text-white bg-[#388E3C] rounded-full">
-                    {[scanTypeFilter !== 'all', diseaseFilter !== 'all', farmFilter !== 'all'].filter(Boolean).length}
-                  </span>
-                )}
-              </Button>
             </div>
 
-            {/* Additional Map Filters (Collapsible) */}
-            {showFilters && (
-              <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-4">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  {/* Scan Type Filter */}
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                      <Camera className="h-4 w-4" />
-                      Scan Type
-                    </label>
-                    <select
-                      value={scanTypeFilter}
-                      onChange={(e) => setScanTypeFilter(e.target.value as "all" | "leaf_disease" | "fruit_maturity")}
-                      className="w-full text-sm border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-transparent transition-colors"
-                    >
-                      <option value="all">All Scans</option>
-                      <option value="leaf_disease">Leaf Disease</option>
-                      <option value="fruit_maturity">Fruit Maturity</option>
-                    </select>
-                  </div>
-
-                  {/* Disease/Ripeness Filter */}
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                      <AlertCircle className="h-4 w-4" />
-                      Disease/Ripeness
-                    </label>
-                    <select
-                      value={diseaseFilter}
-                      onChange={(e) => setDiseaseFilter(e.target.value)}
-                      className="w-full text-sm border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-transparent transition-colors"
-                    >
-                      <option value="all">All Predictions</option>
-                      {uniquePredictions.map(prediction => (
-                        <option key={prediction} value={prediction}>
-                          {prediction}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Farm Filter */}
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                      <MapPin className="h-4 w-4" />
-                      Farm Location
-                    </label>
-                    <select
-                      value={farmFilter}
-                      onChange={(e) => setFarmFilter(e.target.value)}
-                      className="w-full text-sm border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-transparent transition-colors"
-                      disabled={farmsLoading}
-                    >
-                      <option value="all">All Farms</option>
-                      {farmsData.map(farm => (
-                        <option key={farm.id} value={farm.id}>
-                          {farm.farm_name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {/* Clear Filters Button */}
-                {(scanTypeFilter !== 'all' || diseaseFilter !== 'all' || farmFilter !== 'all') && (
-                  <div className="mt-4 pt-4 border-t border-gray-200">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        setScanTypeFilter('all');
-                        setDiseaseFilter('all');
-                        setFarmFilter('all');
-                      }}
-                      className="text-sm text-gray-600 hover:text-gray-900"
-                    >
-                      <X className="h-4 w-4 mr-1.5" />
-                      Clear All Filters
-                    </Button>
-                  </div>
-                )}
-              </div>
-            )}
-
             {/* KPI Cards Section */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
               {[
                 {
                   icon: TrendingUp,
                   label: "AI Accuracy Rate",
                   value: `${aiAccuracyRate}%`,
-                  tone: "text-green-600"
+                  sub: "",
+                  iconBg: "bg-emerald-50",
+                  iconColor: "text-emerald-600",
+                  valueColor: "text-emerald-600",
                 },
                 {
-                  icon: AlertCircle,
+                  icon: Leaf,
                   label: "Most Detected Leaf Disease",
                   value: mostDetectedDisease,
-                  valueClass: "text-xl",
-                  tone: "text-red-600"
+                  sub: "",
+                  iconBg: "bg-red-50",
+                  iconColor: "text-red-600",
+                  valueColor: "text-gray-900",
                 },
                 {
-                  icon: AlertCircle,
+                  icon: Apple,
                   label: "Most Detected Fruit Ripeness",
                   value: mostDetectedRipeness,
-                  valueClass: "text-xl",
-                  tone: "text-green-600"
+                  sub: "",
+                  iconBg: "bg-amber-50",
+                  iconColor: "text-amber-600",
+                  valueColor: "text-gray-900",
                 },
               ].map((metric, idx) => {
                 const Icon = metric.icon;
                 return (
-                  <Card key={idx} className="shadow-sm hover:shadow-md transition-all duration-200">
-                    <CardHeader className="pb-2 pt-4">
-                      <CardTitle className="flex items-center justify-between">
-                        <span className="text-sm font-semibold text-gray-700">{metric.label}</span>
-                        <Icon className={`h-4 w-4 ${metric.tone}`} />
-                      </CardTitle>
+                  <Card key={idx} className="border border-gray-100 shadow-sm hover:shadow-md transition-all duration-200 rounded-xl overflow-hidden">
+                    <CardHeader className="pb-0.5 pt-3 px-3.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider leading-tight">{metric.label}</span>
+                        <div className={`${metric.iconBg} p-1.5 rounded-md`}>
+                          <Icon className={`h-3.5 w-3.5 ${metric.iconColor}`} />
+                        </div>
+                      </div>
                     </CardHeader>
-                    <CardContent className="pb-4">
-                      <p className={`${metric.valueClass || 'text-2xl'} font-bold text-gray-900`}>{metric.value}</p>
+                    <CardContent className="pb-3 pt-0.5 px-3.5">
+                      <p className={`text-lg font-bold ${metric.valueColor}`}>{metric.value}</p>
                     </CardContent>
                   </Card>
                 );
@@ -1104,8 +1104,8 @@ export default function DataVisualizationPage() {
                       });
 
                       return (
-                        <div className="flex-1 w-full flex items-center justify-center" style={{ minHeight: 340 }}>
-                          <ResponsiveContainer key={`validation-perf-${chartKey}`} width="100%" height={340}>
+                        <div className="flex-1 w-full flex items-center justify-center" style={{ minHeight: 280 }}>
+                          <ResponsiveContainer key={`validation-perf-${chartKey}`} width="100%" height={280}>
                             <BarChart 
                               data={sortedData} 
                               margin={{ top: 15, right: 20, left: 25, bottom: 50 }}
@@ -1152,6 +1152,7 @@ export default function DataVisualizationPage() {
                                   if (name === "totalValidations") return [`${val.toLocaleString("en-US")}`, "Total Validations"];
                                   return [`${val}`, name];
                                 }}
+                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                                 labelFormatter={(label: any) => `Month: ${String(label)}`}
                                 cursor={{ fill: "rgba(56, 142, 60, 0.1)" }}
                               />
@@ -1168,7 +1169,8 @@ export default function DataVisualizationPage() {
                         </div>
                       );
                     })() : (
-                      <div className="flex-1 w-full flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 min-h-[320px]">
+                      <div className="flex-1 w-full flex flex-col items-center justify-center min-h-[260px]">
+                        <BarChart3 className="h-10 w-10 text-gray-300 mb-3" />
                         <p className="text-sm font-medium text-gray-500">No validation performance data available yet.</p>
                         <p className="text-xs text-gray-400 mt-1">Validation data will populate this chart automatically.</p>
                       </div>
@@ -1188,7 +1190,7 @@ export default function DataVisualizationPage() {
                   </CardHeader>
                   <CardContent className="pt-4 px-6 pb-4 flex-1 flex flex-col min-h-0">
                     {isPageVisible && (() => {
-                      let level = "Needs Improvement";
+                      let level = "";
                       let color = "#EF4444";
                       if (aiAccuracyRate >= 90) {
                         level = "Excellent";
@@ -1273,7 +1275,7 @@ export default function DataVisualizationPage() {
                             <div className="flex items-center justify-start gap-2">
                               <span className="inline-block w-3 h-3 rounded-full border border-gray-200" style={{ backgroundColor: "#EF4444" }} />
                               <div className="text-xs">
-                                <p className="font-semibold text-gray-900">Needs Improvement</p>
+                                <p className="font-semibold text-gray-900">&lt; 50%</p>
                                 <p className="text-gray-600 text-xs">0%–49%</p>
                               </div>
                             </div>
@@ -1340,8 +1342,8 @@ export default function DataVisualizationPage() {
                     : Math.floor(maxDomain / tickInterval) + 1;
 
                   return (
-                    <div style={{ minHeight: 460 }}>
-                      <ResponsiveContainer key={`monthly-scanned-${chartKey}`} width="100%" height={460}>
+                    <div style={{ minHeight: 340 }}>
+                      <ResponsiveContainer key={`monthly-scanned-${chartKey}`} width="100%" height={340}>
                         <BarChart 
                           data={sortedData} 
                           margin={{ top: 20, right: 20, left: 25, bottom: 55 }}
@@ -1626,7 +1628,7 @@ export default function DataVisualizationPage() {
                     </div>
                   );
                 })() : (
-                  <div className="flex h-[320px] flex-col items-center justify-center">
+                  <div className="flex h-[260px] flex-col items-center justify-center">
                     <div className="text-center">
                       <BarChart3 className="h-10 w-10 text-gray-300 mx-auto mb-3" />
                       <p className="text-sm font-medium text-gray-500">No monthly scan data available yet</p>
@@ -1638,35 +1640,45 @@ export default function DataVisualizationPage() {
             </Card>
           </div>
 
-            {/* Interactive Farm Disease Map - Moved to Bottom */}
-            <div className="mt-6">
-              {typeof window !== 'undefined' && (
-                <InteractiveFarmMap
-                  key={`map-${scanTypeFilter}-${diseaseFilter}-${farmFilter}-${filteredScans.length}`}
-                  scans={filteredScans}
-                  farms={farmsData}
-                  filters={{
-                    scanType: scanTypeFilter,
-                    disease: diseaseFilter,
-                    farm: farmFilter
-                  }}
-                  onFarmSelect={(farmId) => setSelectedRecordFarm(farmId)}
-                />
-              )}
-            </div>
+            {/* Farm Analytics Section — Map + Records side by side (60/40 on desktop) */}
+            <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 lg:gap-5 items-stretch">
+              {/* Interactive Farm Disease Map — 60% */}
+              <div className="lg:col-span-3 min-w-0 flex">
+                {typeof window !== 'undefined' && (
+                  <div className="w-full">
+                    <InteractiveFarmMap
+                      key={`map-${scanTypeFilter}-${diseaseFilter}-${farmFilter}-${filteredScans.length}`}
+                      scans={filteredScans}
+                      farms={farmsData}
+                      filters={{
+                        scanType: scanTypeFilter,
+                        disease: diseaseFilter,
+                        farm: farmFilter
+                      }}
+                      onFarmSelect={(farmId) => farmId && handleOpenFarmModal(farmId)}
+                      showFarmList={false}
+                    />
+                  </div>
+                )}
+              </div>
 
-            {/* Farm Records Panel */}
-            <div className="mt-6">
-              <Card className="shadow-lg border border-[#388E3C]/20 hover:shadow-xl transition-all duration-300 bg-white rounded-xl overflow-hidden">
-                <CardHeader className="pb-3 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] text-white px-6 pt-5">
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                    <div>
-                      <CardTitle className="text-xl font-bold text-white" style={{ color: 'white' }}>
-                        Farm Records
-                      </CardTitle>
-                      <p className="text-sm text-white/90 mt-1" style={{ color: 'white' }}>All registered farms — click to view disease detection records (excludes ripeness data)</p>
+              {/* Farm Records Panel — 40% */}
+              <div className="lg:col-span-2 min-w-0 flex">
+              <Card className="w-full shadow-lg border border-[#388E3C]/20 hover:shadow-xl transition-all duration-300 bg-white rounded-xl overflow-hidden flex flex-col lg:max-h-[640px]">
+                <CardHeader className="pb-3 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] text-white px-5 pt-4 flex-shrink-0">
+                  <div className="flex flex-col gap-3">
+                    <div className="flex items-start gap-2.5">
+                      <div className="h-9 w-9 rounded-lg bg-white/15 backdrop-blur-sm flex items-center justify-center ring-1 ring-white/20 flex-shrink-0">
+                        <BarChart3 className="h-4 w-4 !text-white" />
+                      </div>
+                      <div className="min-w-0">
+                        <CardTitle className="text-base font-bold !text-white leading-tight">
+                          Farm Records
+                        </CardTitle>
+                        <p className="text-[11px] !text-white/85 mt-0.5 leading-snug">Click a farm to view detailed scan distribution and analytics</p>
+                      </div>
                     </div>
-                    <div className="relative w-full sm:w-auto">
+                    <div className="relative">
                       <input
                         type="text"
                         placeholder="Search by farm or disease..."
@@ -1675,7 +1687,7 @@ export default function DataVisualizationPage() {
                           setRecordsSearchQuery(e.target.value);
                           setRecordsCurrentPage(1);
                         }}
-                        className="w-full sm:w-72 pl-9 pr-4 py-2 text-sm bg-white border-0 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-white/50 placeholder:text-gray-400 text-gray-700"
+                        className="w-full pl-9 pr-3 py-1.5 text-sm bg-white border-0 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-white/60 placeholder:text-gray-400 text-gray-700"
                       />
                       <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -1683,12 +1695,13 @@ export default function DataVisualizationPage() {
                     </div>
                   </div>
                 </CardHeader>
-                <CardContent className="pt-4 px-5 pb-4">
+                <CardContent className="pt-3 px-4 pb-4 flex-1 flex flex-col min-h-0">
                   {(() => {
                     // Build farm records: show ALL registered farms, aggregate ONLY DISEASE counts (exclude ripeness)
                     const farmRecordsMap = new Map<string, { farmName: string; diseases: Map<string, number>; totalScans: number; farmAddress?: string }>();
 
                     // Step 1: Initialize ALL registered farms (even those with 0 scans)
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     farmsData.forEach((farm: any) => {
                       farmRecordsMap.set(farm.id, {
                         farmName: farm.farm_name || 'Unnamed Farm',
@@ -1751,100 +1764,70 @@ export default function DataVisualizationPage() {
                     }
 
                     return (
-                      <div className="space-y-4">
-                        {paginatedFarms.map((farm) => {
-                          const isExpanded = selectedRecordFarm === farm.farmId;
-                          return (
-                          <div
-                            key={farm.farmId}
-                            className={`border rounded-lg overflow-hidden transition-all duration-200 ${
-                              isExpanded
-                                ? 'border-[#388E3C] shadow-md ring-1 ring-[#388E3C]/20'
-                                : 'border-gray-200 hover:shadow-sm'
-                            }`}
-                          >
-                            {/* Farm header - clickable to expand/collapse */}
-                            <button
-                              onClick={() => setSelectedRecordFarm(isExpanded ? null : farm.farmId)}
-                              className={`w-full text-left px-4 py-3 flex items-center justify-between border-b transition-colors duration-150 ${
-                                isExpanded
-                                  ? 'bg-[#388E3C]/5 border-[#388E3C]/20'
-                                  : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
-                              }`}
+                      <div className="flex-1 flex flex-col min-h-0">
+                        {/* Scrollable list */}
+                        <div className="flex-1 overflow-y-auto pr-1 -mr-1 space-y-2.5">
+                          {paginatedFarms.map((farm) => (
+                            <div
+                              key={farm.farmId}
+                              className="group border border-gray-200 rounded-xl overflow-hidden bg-white hover:border-[#388E3C]/40 hover:shadow-md transition-all duration-200 cursor-pointer"
+                              onClick={() => handleOpenFarmModal(farm.farmId)}
                             >
-                              <div className="flex items-center gap-2">
-                                <MapPin className={`h-4 w-4 ${isExpanded ? 'text-[#388E3C]' : 'text-gray-400'}`} />
-                                <span className={`font-semibold text-sm ${isExpanded ? 'text-[#388E3C]' : 'text-gray-900'}`}>{farm.farmName}</span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${
-                                  farm.totalScans > 0
-                                    ? 'text-gray-600 bg-white border-gray-200'
-                                    : 'text-gray-400 bg-gray-50 border-gray-100'
-                                }`}>
-                                  {farm.totalScans} disease {farm.totalScans === 1 ? 'scan' : 'scans'}
-                                </span>
-                                <svg
-                                  className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
-                                  fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
-                                >
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                                </svg>
-                              </div>
-                            </button>
-                            {/* Expandable disease detail panel */}
-                            {isExpanded && (
-                              <div className="bg-white">
-                                {farm.diseases.length > 0 ? (
-                                  <table className="w-full">
-                                    <thead>
-                                      <tr className="bg-gray-50/80 border-b border-gray-100">
-                                        <th className="text-left py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Disease</th>
-                                        <th className="text-right py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Scans</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-50">
-                                      {farm.diseases.map((d, idx) => (
-                                        <tr key={`${farm.farmId}-${d.disease}-${idx}`} className="hover:bg-gray-50/50 transition-colors">
-                                          <td className="py-2.5 px-4 text-sm text-gray-700">
-                                            <div className="flex items-center gap-2">
-                                              <span
-                                                className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                                                style={{ backgroundColor: DISEASE_COLORS[d.disease] || '#6B7280' }}
-                                              />
-                                              {d.disease}
-                                            </div>
-                                          </td>
-                                          <td className="py-2.5 px-4 text-sm font-semibold text-gray-900 text-right">{d.count}</td>
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
-                                ) : (
-                                  <div className="px-4 py-6 text-center">
-                                    <p className="text-sm text-gray-400 italic">No disease records found for this farm</p>
-                                    <p className="text-xs text-gray-300 mt-1">Disease detection data will appear once leaf disease scans are recorded</p>
+                              <div className="w-full text-left px-3 py-3 flex items-center justify-between gap-2 bg-white group-hover:bg-[#388E3C]/[0.03] transition-colors duration-150">
+                                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                  <div className="w-8 h-8 rounded-lg bg-[#388E3C]/10 flex items-center justify-center flex-shrink-0">
+                                    <MapPin className="h-4 w-4 text-[#388E3C]" />
                                   </div>
-                                )}
+                                  <div className="min-w-0 flex-1">
+                                    <span className="font-semibold text-sm text-gray-900 block truncate">{farm.farmName}</span>
+                                    {farm.farmAddress && (
+                                      <span className="text-[11px] text-gray-500 block truncate">{farm.farmAddress}</span>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1.5 flex-shrink-0">
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border tabular-nums ${
+                                    farm.totalScans >= 16
+                                      ? 'bg-red-50 text-red-700 border-red-200'
+                                      : farm.totalScans >= 6
+                                        ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                        : farm.totalScans > 0
+                                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                          : 'bg-gray-50 text-gray-500 border-gray-200'
+                                  }`}>
+                                    {farm.totalScans} {farm.totalScans === 1 ? 'scan' : 'scans'}
+                                  </span>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 px-2.5 text-[11px] border-[#388E3C]/30 text-[#388E3C] hover:bg-[#388E3C] hover:text-white hover:border-[#388E3C] transition-colors"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleOpenFarmModal(farm.farmId);
+                                    }}
+                                  >
+                                    <Eye className="h-3 w-3 mr-1" />
+                                    View
+                                  </Button>
+                                </div>
                               </div>
-                            )}
-                          </div>
-                          );
-                        })}
+                            </div>
+                          ))}
+                        </div>
 
-                        {/* Pagination */}
+                        {/* Pagination — pinned at the bottom of the card */}
                         {totalPages > 1 && (
-                          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mt-4 pt-4 border-t border-gray-100">
-                            <p className="text-xs sm:text-sm text-gray-500">
-                              Showing {startIndex + 1} to {Math.min(startIndex + recordsPerPage, totalFarms)} of {totalFarms} farms
+                          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 mt-3 pt-3 border-t border-gray-100 flex-shrink-0">
+                            <p className="text-[11px] text-gray-500">
+                              {startIndex + 1}-{Math.min(startIndex + recordsPerPage, totalFarms)} of {totalFarms} farms
                             </p>
                             <div className="flex items-center gap-1 flex-wrap">
                               <button
                                 onClick={() => setRecordsCurrentPage(prev => Math.max(prev - 1, 1))}
                                 disabled={recordsCurrentPage === 1}
-                                className="px-3 py-1.5 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                className="px-2.5 py-1 text-[11px] font-medium text-gray-600 bg-white border border-gray-200 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                               >
-                                Previous
+                                Prev
                               </button>
                               {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
                                 let pageNum = i + 1;
@@ -1858,10 +1841,10 @@ export default function DataVisualizationPage() {
                                   <button
                                     key={pageNum}
                                     onClick={() => setRecordsCurrentPage(pageNum)}
-                                    className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                                    className={`min-w-[28px] px-2 py-1 text-[11px] font-medium rounded-md transition-colors ${
                                       recordsCurrentPage === pageNum
                                         ? 'bg-[#388E3C] text-white'
-                                        : 'text-gray-600 hover:bg-gray-50'
+                                        : 'text-gray-600 hover:bg-gray-50 border border-gray-200'
                                     }`}
                                   >
                                     {pageNum}
@@ -1871,7 +1854,7 @@ export default function DataVisualizationPage() {
                               <button
                                 onClick={() => setRecordsCurrentPage(prev => Math.min(prev + 1, totalPages))}
                                 disabled={recordsCurrentPage === totalPages}
-                                className="px-3 py-1.5 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                className="px-2.5 py-1 text-[11px] font-medium text-gray-600 bg-white border border-gray-200 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                               >
                                 Next
                               </button>
@@ -1883,7 +1866,272 @@ export default function DataVisualizationPage() {
                   })()}
                 </CardContent>
               </Card>
+              </div>
             </div>
+
+            {/* ── Farm Scan Distribution Modal ─────────────────────────── */}
+            {isFarmModalOpen && selectedFarmForModal && (
+              <div className="fixed inset-0 z-[100] flex items-start justify-center p-4 sm:p-6">
+                {/* Backdrop */}
+                <div
+                  className="absolute inset-0 bg-slate-900/60 backdrop-blur-md transition-opacity"
+                  onClick={handleCloseFarmModal}
+                />
+                {/* Modal */}
+                <div className="relative w-full max-w-5xl bg-slate-50 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] ring-1 ring-black/5">
+                  {/* Modal Header */}
+                  <div className="bg-gradient-to-r from-[#388E3C] via-[#357B36] to-[#2F7A33] px-6 py-5 flex-shrink-0 relative overflow-hidden">
+                    {/* Decorative accents */}
+                    <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-white/10 blur-2xl pointer-events-none" />
+                    <div className="absolute -bottom-10 -left-10 w-32 h-32 rounded-full bg-white/5 blur-2xl pointer-events-none" />
+                    <div className="relative flex items-start justify-between gap-4">
+                      <div className="flex items-start gap-3">
+                        <div className="h-10 w-10 rounded-xl bg-white/15 backdrop-blur-sm flex items-center justify-center ring-1 ring-white/25 flex-shrink-0">
+                          <BarChart3 className="h-5 w-5 !text-white" />
+                        </div>
+                        <div>
+                          <h2 className="text-xl font-bold !text-white tracking-tight">Farm Scan Distribution</h2>
+                          <p className="text-sm !text-white/85 mt-0.5">Detailed scan analytics and detection summary for the selected farm.</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={handleCloseFarmModal}
+                        className="flex-shrink-0 w-8 h-8 rounded-lg bg-white/20 hover:bg-white/30 flex items-center justify-center transition-colors ring-1 ring-white/20"
+                        aria-label="Close modal"
+                      >
+                        <X className="w-4 h-4 !text-white" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Modal Body — scrollable */}
+                  <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                    {/* Selected Farm Hero Card */}
+                    <div className="relative bg-white rounded-2xl shadow-sm ring-1 ring-gray-100 p-5 sm:p-6 overflow-hidden">
+                      <div className="absolute inset-0 bg-gradient-to-br from-[#388E3C]/5 via-transparent to-transparent pointer-events-none" />
+                      <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                        <div className="flex items-start gap-3 min-w-0">
+                          <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-[#388E3C] to-[#2F7A33] flex items-center justify-center flex-shrink-0 shadow-sm">
+                            <MapPin className="h-5 w-5 text-white" />
+                          </div>
+                          <div className="min-w-0">
+                            <h3 className="text-lg sm:text-xl font-bold text-gray-900 truncate">{selectedFarmForModal.farm_name || "Unnamed Farm"}</h3>
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1 text-sm text-gray-500">
+                              {selectedFarmForModal.farm_address && (
+                                <span className="flex items-center gap-1.5">
+                                  <MapPin className="h-3.5 w-3.5 text-gray-400" />
+                                  <span className="truncate">{selectedFarmForModal.farm_address}</span>
+                                </span>
+                              )}
+                              {selectedFarmForModal.farm_latitude != null && selectedFarmForModal.farm_longitude != null && (
+                                <span className="flex items-center gap-1.5 tabular-nums text-xs bg-gray-50 border border-gray-100 rounded-md px-2 py-0.5">
+                                  {selectedFarmForModal.farm_latitude?.toFixed(4)}, {selectedFarmForModal.farm_longitude?.toFixed(4)}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <span className={`text-xs font-semibold px-3 py-1.5 rounded-full border ${getRiskLevel(selectedFarmTotalScans).color}`}>
+                            {getRiskLevel(selectedFarmTotalScans).label} Risk
+                          </span>
+                          <span className="text-xs font-semibold px-3 py-1.5 rounded-full bg-gradient-to-r from-[#388E3C] to-[#2F7A33] text-white shadow-sm">
+                            {selectedFarmTotalScans} {selectedFarmTotalScans === 1 ? 'scan' : 'scans'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Summary Metric Cards */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+                      {[{
+                        icon: Camera,
+                        label: "Total Scans",
+                        value: selectedFarmTotalScans.toLocaleString(),
+                        gradient: "from-blue-500 to-blue-600",
+                        iconBg: "bg-blue-50",
+                        iconColor: "text-blue-600",
+                        accent: "text-blue-600",
+                      }, {
+                        icon: Leaf,
+                        label: "Leaf Disease Scans",
+                        value: selectedFarmDiseaseScans.toLocaleString(),
+                        gradient: "from-rose-500 to-red-600",
+                        iconBg: "bg-rose-50",
+                        iconColor: "text-rose-600",
+                        accent: "text-rose-600",
+                      }, {
+                        icon: Apple,
+                        label: "Fruit Ripeness Scans",
+                        value: selectedFarmRipenessScans.toLocaleString(),
+                        gradient: "from-emerald-500 to-emerald-600",
+                        iconBg: "bg-emerald-50",
+                        iconColor: "text-emerald-600",
+                        accent: "text-emerald-600",
+                      }].map((metric, idx) => {
+                        const Icon = metric.icon;
+                        return (
+                          <div key={idx} className="group relative bg-white rounded-xl ring-1 ring-gray-100 shadow-sm hover:shadow-md hover:ring-gray-200 transition-all duration-200 overflow-hidden">
+                            <div className={`absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r ${metric.gradient}`} />
+                            <div className="p-4">
+                              <div className="flex items-start justify-between">
+                                <div>
+                                  <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">{metric.label}</p>
+                                  <p className={`text-2xl font-bold text-gray-900 mt-1.5 tabular-nums`}>{metric.value}</p>
+                                </div>
+                                <div className={`${metric.iconBg} p-2 rounded-lg flex-shrink-0 group-hover:scale-105 transition-transform`}>
+                                  <Icon className={`h-4 w-4 ${metric.iconColor}`} />
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Disease + Ripeness Charts */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      {/* Disease Distribution */}
+                      <div className="bg-white rounded-xl ring-1 ring-gray-100 shadow-sm overflow-hidden">
+                        <div className="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between">
+                          <div className="flex items-center gap-2.5">
+                            <div className="h-8 w-8 rounded-lg bg-rose-50 flex items-center justify-center">
+                              <Leaf className="h-4 w-4 text-rose-600" />
+                            </div>
+                            <div>
+                              <h4 className="text-sm font-bold text-gray-900">Disease Distribution</h4>
+                              <p className="text-[11px] text-gray-500">Breakdown of detected leaf diseases</p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="p-5">
+                          {selectedFarmDiseaseDistribution.some((d) => d.value > 0) && isPageVisible ? (
+                            <div className="space-y-4">
+                              <div className="flex justify-center" style={{ minHeight: 220 }}>
+                                <ResponsiveContainer width="100%" height={220}>
+                                  <RechartsPieChart>
+                                    <Pie
+                                      data={selectedFarmDiseaseDistribution.filter((d) => d.value > 0)}
+                                      cx="50%"
+                                      cy="50%"
+                                      innerRadius={55}
+                                      outerRadius={80}
+                                      dataKey="value"
+                                      paddingAngle={2}
+                                      animationDuration={800}
+                                    >
+                                      {selectedFarmDiseaseDistribution.filter((d) => d.value > 0).map((entry, index) => (
+                                        <Cell key={`disease-cell-${index}`} fill={DISEASE_COLORS[entry.name] || "#6B7280"} stroke="#ffffff" strokeWidth={3} />
+                                      ))}
+                                    </Pie>
+                                    <Tooltip
+                                      formatter={(value: number | undefined, name: string | undefined) => [`${(value ?? 0)} cases`, name]}
+                                      contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e7eb", borderRadius: "10px", fontSize: "13px", padding: "10px 14px", boxShadow: "0 10px 25px rgba(0,0,0,0.08)" }}
+                                    />
+                                  </RechartsPieChart>
+                                </ResponsiveContainer>
+                              </div>
+                              <div className="space-y-1 pt-3 border-t border-gray-100">
+                                {selectedFarmDiseaseDistribution.map((entry) => {
+                                  const total = selectedFarmDiseaseDistribution.reduce((sum, item) => sum + item.value, 0);
+                                  const pct = total > 0 ? ((entry.value / total) * 100).toFixed(1) : "0.0";
+                                  const color = DISEASE_COLORS[entry.name] || "#6B7280";
+                                  return (
+                                    <div key={entry.name} className={`flex items-center gap-2.5 px-2 py-1.5 rounded-lg transition-colors ${entry.value === 0 ? "opacity-50" : "hover:bg-gray-50"}`}>
+                                      <div className="w-2.5 h-2.5 rounded-full flex-shrink-0 ring-2 ring-white shadow-sm" style={{ backgroundColor: color }} />
+                                      <span className="text-sm text-gray-700 flex-1 truncate">{entry.name}</span>
+                                      <span className="text-sm font-bold text-gray-900 tabular-nums">{entry.value}</span>
+                                      {total > 0 && <span className="text-xs text-gray-500 w-12 text-right tabular-nums">({pct}%)</span>}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex h-[240px] flex-col items-center justify-center text-center">
+                              <div className="h-12 w-12 rounded-full bg-rose-50 flex items-center justify-center mb-3">
+                                <Leaf className="w-6 h-6 text-rose-300" />
+                              </div>
+                              <p className="text-sm font-medium text-gray-600">No disease scan data</p>
+                              <p className="text-xs text-gray-400 mt-1">Leaf disease scans will appear here once recorded.</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Ripeness Distribution */}
+                      <div className="bg-white rounded-xl ring-1 ring-gray-100 shadow-sm overflow-hidden">
+                        <div className="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between">
+                          <div className="flex items-center gap-2.5">
+                            <div className="h-8 w-8 rounded-lg bg-emerald-50 flex items-center justify-center">
+                              <Apple className="h-4 w-4 text-emerald-600" />
+                            </div>
+                            <div>
+                              <h4 className="text-sm font-bold text-gray-900">Ripeness Distribution</h4>
+                              <p className="text-[11px] text-gray-500">Breakdown of fruit maturity stages</p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="p-5">
+                          {selectedFarmRipenessDistribution.some((d) => d.value > 0) && isPageVisible ? (
+                            <div className="space-y-4">
+                              <div className="flex justify-center" style={{ minHeight: 220 }}>
+                                <ResponsiveContainer width="100%" height={220}>
+                                  <RechartsPieChart>
+                                    <Pie
+                                      data={selectedFarmRipenessDistribution.filter((d) => d.value > 0)}
+                                      cx="50%"
+                                      cy="50%"
+                                      innerRadius={55}
+                                      outerRadius={80}
+                                      dataKey="value"
+                                      paddingAngle={2}
+                                      animationDuration={800}
+                                    >
+                                      {selectedFarmRipenessDistribution.filter((d) => d.value > 0).map((entry, index) => (
+                                        <Cell key={`ripeness-cell-${index}`} fill={RIPENESS_COLORS[entry.name] || "#6B7280"} stroke="#ffffff" strokeWidth={3} />
+                                      ))}
+                                    </Pie>
+                                    <Tooltip
+                                      formatter={(value: number | undefined, name: string | undefined) => [`${(value ?? 0)} items`, name]}
+                                      contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e7eb", borderRadius: "10px", fontSize: "13px", padding: "10px 14px", boxShadow: "0 10px 25px rgba(0,0,0,0.08)" }}
+                                    />
+                                  </RechartsPieChart>
+                                </ResponsiveContainer>
+                              </div>
+                              <div className="space-y-1 pt-3 border-t border-gray-100">
+                                {selectedFarmRipenessDistribution.map((entry) => {
+                                  const total = selectedFarmRipenessDistribution.reduce((sum, item) => sum + item.value, 0);
+                                  const pct = total > 0 ? ((entry.value / total) * 100).toFixed(1) : "0.0";
+                                  const color = RIPENESS_COLORS[entry.name] || "#6B7280";
+                                  return (
+                                    <div key={entry.name} className={`flex items-center gap-2.5 px-2 py-1.5 rounded-lg transition-colors ${entry.value === 0 ? "opacity-50" : "hover:bg-gray-50"}`}>
+                                      <div className="w-2.5 h-2.5 rounded-full flex-shrink-0 ring-2 ring-white shadow-sm" style={{ backgroundColor: color }} />
+                                      <span className="text-sm text-gray-700 flex-1 truncate">{entry.name}</span>
+                                      <span className="text-sm font-bold text-gray-900 tabular-nums">{entry.value}</span>
+                                      {total > 0 && <span className="text-xs text-gray-500 w-12 text-right tabular-nums">({pct}%)</span>}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex h-[240px] flex-col items-center justify-center text-center">
+                              <div className="h-12 w-12 rounded-full bg-emerald-50 flex items-center justify-center mb-3">
+                                <Apple className="w-6 h-6 text-emerald-300" />
+                              </div>
+                              <p className="text-sm font-medium text-gray-600">No ripeness scan data</p>
+                              <p className="text-xs text-gray-400 mt-1">Fruit maturity scans will appear here once recorded.</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
         </div>
         </Suspense>
       </AppShell>

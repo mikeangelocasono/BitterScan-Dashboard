@@ -2,17 +2,19 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import AuthGuard from "@/components/AuthGuard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Camera, AlertCircle, CheckCircle2, Clock3, ShieldCheck } from "lucide-react";
+import { Camera, AlertCircle, CheckCircle2, Clock3, ShieldCheck, UserCheck, FileText, BarChart3, Eye, Activity, TrendingUp } from "lucide-react";
 import Image from "next/image";
 import { useUser } from "@/components/UserContext";
 import { useData } from "@/components/DataContext";
 import { formatDate, formatScanType, getStatusColor } from "@/utils/dateUtils";
 import { getAiPrediction, isNonAmpalayaScan, type Scan } from "@/types";
+import EmptyState from "@/components/ui/EmptyState";
 
 export default function AdminDashboardPage() {
   return (
@@ -27,7 +29,7 @@ export default function AdminDashboardPage() {
 function AdminDashboardContent() {
   const router = useRouter();
   const { user, profile, loading: userLoading, sessionReady } = useUser();
-  const { scans, loading: dataLoading, error } = useData();
+  const { scans, totalUsers, validationHistory, loading: dataLoading, error } = useData();
   const guardNotifiedRef = useRef(false);
   const [forceRender, setForceRender] = useState(false);
 
@@ -36,7 +38,6 @@ function AdminDashboardContent() {
   const isAdmin = useMemo(() => effectiveRole === "admin" || adminEmailHint, [effectiveRole, adminEmailHint]);
 
   // Prevent infinite loading: if loading persists after 1s, force render
-  // This handles edge cases where DataContext might not clear loading properly
   useEffect(() => {
     const timeout = setTimeout(() => {
       if ((userLoading || dataLoading) && !forceRender) {
@@ -62,7 +63,6 @@ function AdminDashboardContent() {
       if (status === "Unknown") return false;
       const aiResult = getAiPrediction(scan);
       if (aiResult === "Unknown") return false;
-      // Exclude Non-Ampalaya scans from all admin dashboard metrics
       if (isNonAmpalayaScan(scan)) return false;
       return true;
     });
@@ -79,29 +79,38 @@ function AdminDashboardContent() {
     return { total, pending, validated, corrected };
   }, [validScans]);
 
-  const recentScans = useMemo(() => {
-    return [...validScans]
+  // Latest 5 validations sorted by date descending
+  const latestValidations = useMemo(() => {
+    if (!validationHistory || validationHistory.length === 0) return [];
+    return [...validationHistory]
       .sort((a, b) => {
-        const aDate = a.created_at ? new Date(a.created_at).getTime() : 0;
-        const bDate = b.created_at ? new Date(b.created_at).getTime() : 0;
-        return bDate - aDate;
+        const da = a.validated_at ? new Date(a.validated_at).getTime() : 0;
+        const db = b.validated_at ? new Date(b.validated_at).getTime() : 0;
+        return db - da;
       })
       .slice(0, 5);
-  }, [validScans]);
+  }, [validationHistory]);
+
 
   // Show loading only during initial session resolution
-  // Once sessionReady is true OR we have data OR forceRender, render the dashboard
-  const hasData = scans && scans.length >= 0; // scans array exists
+  const hasData = scans && scans.length >= 0;
   if (!forceRender && !sessionReady && (userLoading || (dataLoading && !hasData))) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-[var(--background)] py-24">
-        <div className="text-center space-y-3">
-          <div className="relative">
-            <div className="h-12 w-12 border-4 border-[#388E3C]/20 border-t-[#388E3C] rounded-full animate-spin mx-auto" />
+      <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+        <div className="animate-pulse space-y-6">
+          <div className="h-8 bg-gray-200 rounded w-52" />
+          <div className="h-4 bg-gray-100 rounded w-40" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+            {[1, 2, 3, 4].map(i => (
+              <div key={i} className="bg-white rounded-xl border border-gray-200 p-6 space-y-3">
+                <div className="h-4 bg-gray-200 rounded w-24" />
+                <div className="h-8 bg-gray-200 rounded w-16" />
+              </div>
+            ))}
           </div>
-          <div>
-            <p className="text-gray-900 font-medium">Loading Dashboard</p>
-            <p className="text-sm text-gray-500 mt-1">Fetching admin data...</p>
+          <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
+            <div className="h-6 bg-gray-200 rounded w-32" />
+            {[1, 2, 3].map(i => (<div key={i} className="h-12 bg-gray-100 rounded" />))}
           </div>
         </div>
       </div>
@@ -129,7 +138,9 @@ function AdminDashboardContent() {
     return (
       <div className="flex items-center justify-center min-h-screen bg-[var(--background)]">
         <div className="text-center space-y-4 max-w-md px-4">
-          <AlertCircle className="h-12 w-12 text-red-500 mx-auto" />
+          <div className="w-16 h-16 rounded-full bg-red-50 flex items-center justify-center mx-auto">
+            <AlertCircle className="h-8 w-8 text-red-500" />
+          </div>
           <h2 className="text-xl font-semibold text-gray-900">Dashboard Error</h2>
           <p className="text-red-600 font-medium text-sm">{error}</p>
           {isConfigError && (
@@ -148,129 +159,219 @@ function AdminDashboardContent() {
 
   return (
     <div className="space-y-6 sm:space-y-8 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+      {/* Header */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 tracking-tight mb-1">Admin Dashboard</h1>
-          <p className="text-gray-600 text-xs sm:text-sm">Monitor platform activity and recent scans</p>
+          <p className="text-gray-500 text-xs sm:text-sm">Monitor platform activity, manage users, and track system performance</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 md:gap-6">
+      {/* Stats Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-5">
         {[{
           label: "Total Scans",
           value: stats.total,
           icon: Camera,
           tone: "text-blue-600",
-          bgTone: "bg-blue-50"
+          bgTone: "bg-blue-50",
         }, {
           label: "Pending Validation",
           value: stats.pending,
           icon: Clock3,
           tone: "text-amber-600",
-          bgTone: "bg-amber-50"
+          bgTone: "bg-amber-50",
         }, {
           label: "Validated",
           value: stats.validated,
           icon: CheckCircle2,
           tone: "text-emerald-600",
-          bgTone: "bg-emerald-50"
+          bgTone: "bg-emerald-50",
         }, {
           label: "Corrected",
           value: stats.corrected,
           icon: AlertCircle,
           tone: "text-purple-600",
-          bgTone: "bg-purple-50"
-        }].map((card) => (
-          <Card key={card.label} className="shadow-sm hover:shadow-md transition-all duration-200">
-            <CardHeader className="pb-2 pt-4">
-              <CardTitle className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-gray-700">{card.label}</span>
-                <div className={`p-1.5 rounded-lg ${card.bgTone}`}>
-                  <card.icon className={`h-4 w-4 ${card.tone}`} />
-                </div>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pb-4">
-              <p className="text-2xl font-bold text-gray-900">{card.value.toLocaleString()}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      <Card className="shadow-sm border border-gray-200 hover:shadow-md transition-all duration-200 bg-white rounded-lg overflow-hidden">
-        <CardHeader className="pb-3 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] text-white px-6 pt-5 border-b rounded-t-xl">
-          <CardTitle className="text-lg font-bold" style={{ color: 'white' }}>Recent Scans</CardTitle>
-          <p className="text-sm mt-1" style={{ color: 'rgba(255, 255, 255, 0.9)' }}>Latest scan submissions and their validation status</p>
-        </CardHeader>
-        <CardContent className="p-0">
-          {recentScans.length === 0 ? (
-            <div className="flex items-center justify-center py-16">
-              <div className="text-center">
-                <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-500 font-medium text-sm">No scans available yet</p>
-                <p className="text-gray-400 text-xs mt-1">Recent scans will appear here</p>
+          bgTone: "bg-purple-50",
+        }].map((card) => {
+          const Icon = card.icon;
+          return (
+            <div key={card.label} className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 flex items-center justify-between hover:shadow-md transition-all duration-200 min-h-[88px]">
+              <div>
+                <p className="text-xs font-medium text-gray-500 mb-1 whitespace-nowrap">{card.label}</p>
+                <p className="text-xl font-bold text-gray-900">{card.value.toLocaleString()}</p>
+              </div>
+              <div className={`h-8 w-8 rounded-lg ${card.bgTone} flex items-center justify-center flex-shrink-0`}>
+                <Icon className={`h-4 w-4 ${card.tone}`} />
               </div>
             </div>
+          );
+        })}
+      </div>
+
+      {/* Validation Status + Latest System Activity (single row on large screens) */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+      {/* Validation Status Overview */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
+        <div className="px-5 sm:px-6 py-4 bg-gradient-to-r from-[#388E3C] to-[#2F7A33]">
+          <h3 className="text-base font-bold !text-white">Validation Status Overview</h3>
+          <p className="text-xs !text-white/80 mt-0.5">Monitor scan review progress and expert validation activity.</p>
+        </div>
+        <div className="p-5 sm:p-6 flex-1">
+          {stats.total === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <BarChart3 className="h-10 w-10 text-gray-300 mb-3" />
+              <h3 className="text-sm font-semibold text-gray-700 mb-1">No validation data yet</h3>
+              <p className="text-xs text-gray-400 max-w-xs">
+                Scan validation data will appear here once experts begin reviewing submissions.
+              </p>
+            </div>
           ) : (
-            <div className="overflow-x-auto">
-              <Table className="w-full">
-                <Thead>
-                  <Tr className="bg-gray-50 border-b-2 border-gray-200">
-                    <Th className="whitespace-nowrap text-xs font-semibold text-gray-700 uppercase tracking-wider">Farmer</Th>
-                    <Th className="whitespace-nowrap text-xs font-semibold text-gray-700 uppercase tracking-wider">Scan Type</Th>
-                    <Th className="whitespace-nowrap text-xs font-semibold text-gray-700 uppercase tracking-wider">AI Prediction</Th>
-                    <Th className="whitespace-nowrap text-xs font-semibold text-gray-700 uppercase tracking-wider">Status</Th>
-                    <Th className="whitespace-nowrap text-xs font-semibold text-gray-700 uppercase tracking-wider">Date & Time</Th>
-                  </Tr>
-                </Thead>
-                <Tbody>
-                  {recentScans.map((scan) => {
-                    const key = scan.scan_uuid || `${scan.scan_type}-${scan.id}`;
-                    return (
-                      <Tr key={key} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                        <Td className="whitespace-nowrap py-4 px-6">
-                          <div className="flex items-center gap-3">
-                            {scan.farmer_profile?.profile_picture ? (
-                              <Image
-                                src={scan.farmer_profile.profile_picture}
-                                alt="Profile"
-                                width={36}
-                                height={36}
-                                className="w-9 h-9 rounded-full object-cover ring-2 ring-gray-100"
-                                loading="lazy"
-                                onError={(e) => {
-                                  e.currentTarget.style.display = "none";
-                                }}
-                              />
-                            ) : (
-                              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-sm font-semibold text-white ring-2 ring-gray-100">
-                                {scan.farmer_profile?.full_name?.charAt(0) || scan.farmer_profile?.username?.charAt(0) || "?"}
-                              </div>
-                            )}
-                            <div className="font-medium text-sm text-gray-900">
-                              {scan.farmer_profile?.full_name || scan.farmer_profile?.username || "Unknown Farmer"}
-                            </div>
-                          </div>
-                        </Td>
-                        <Td className="py-4 px-6 text-sm text-gray-700 font-medium">{scan.scan_type ? formatScanType(scan.scan_type) : "N/A"}</Td>
-                        <Td className="py-4 px-6 max-w-xs truncate text-sm text-gray-700">{getAiPrediction(scan) || "N/A"}</Td>
-                        <Td className="py-4 px-6">
-                          <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${getStatusColor(scan.status)}`}>
-                            {scan.status}
-                          </span>
-                        </Td>
-                        <Td className="py-4 px-6 whitespace-nowrap text-sm text-gray-500">
-                          {scan.created_at ? formatDate(scan.created_at) : "N/A"}
-                        </Td>
-                      </Tr>
-                    );
-                  })}
-                </Tbody>
-              </Table>
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2 gap-6 lg:gap-8 items-center">
+              {/* Left: Donut Chart */}
+              <div className="flex flex-col items-center justify-center">
+                <div className="relative">
+                  <svg viewBox="0 0 160 160" className="w-44 h-44 sm:w-52 sm:h-52">
+                    {/* Background track */}
+                    <circle cx="80" cy="80" r="70" fill="none" stroke="#f3f4f6" strokeWidth="20" />
+                    {/* Pending segment */}
+                    <circle
+                      cx="80" cy="80" r="70" fill="none"
+                      stroke="#F59E0B" strokeWidth="20"
+                      strokeDasharray={`${(stats.pending / stats.total) * 439.82} 439.82`}
+                      strokeDashoffset="0"
+                      strokeLinecap="round"
+                      transform="rotate(-90 80 80)"
+                      className="transition-all duration-700"
+                    />
+                    {/* Validated segment */}
+                    <circle
+                      cx="80" cy="80" r="70" fill="none"
+                      stroke="#10B981" strokeWidth="20"
+                      strokeDasharray={`${(stats.validated / stats.total) * 439.82} 439.82`}
+                      strokeDashoffset={`-${(stats.pending / stats.total) * 439.82}`}
+                      strokeLinecap="round"
+                      transform="rotate(-90 80 80)"
+                      className="transition-all duration-700"
+                    />
+                    {/* Corrected segment */}
+                    <circle
+                      cx="80" cy="80" r="70" fill="none"
+                      stroke="#8B5CF6" strokeWidth="20"
+                      strokeDasharray={`${(stats.corrected / stats.total) * 439.82} 439.82`}
+                      strokeDashoffset={`-${((stats.pending + stats.validated) / stats.total) * 439.82}`}
+                      strokeLinecap="round"
+                      transform="rotate(-90 80 80)"
+                      className="transition-all duration-700"
+                    />
+                  </svg>
+                  {/* Center label */}
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                    <span className="text-xl font-bold text-gray-900">{stats.total.toLocaleString()}</span>
+                    <span className="text-[10px] text-gray-500 uppercase tracking-wider">Total Scans</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right: Breakdown */}
+              <div className="space-y-4">
+                {[
+                  { label: 'Pending Validation', value: stats.pending, color: 'bg-amber-500', textColor: 'text-amber-600', lightBg: 'bg-amber-50' },
+                  { label: 'Validated', value: stats.validated, color: 'bg-emerald-500', textColor: 'text-emerald-600', lightBg: 'bg-emerald-50' },
+                  { label: 'Corrected', value: stats.corrected, color: 'bg-violet-500', textColor: 'text-violet-600', lightBg: 'bg-violet-50' },
+                ].map((item) => {
+                  const pct = stats.total > 0 ? Math.round((item.value / stats.total) * 100) : 0;
+                  return (
+                    <div key={item.label} className="flex items-center gap-3">
+                      <div className={`w-3 h-3 rounded-full ${item.color} flex-shrink-0`} />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-sm font-medium text-gray-700">{item.label}</span>
+                          <span className="text-sm font-bold text-gray-900">{item.value.toLocaleString()}</span>
+                        </div>
+                        <div className="w-full bg-gray-100 rounded-full h-2">
+                          <div className={`${item.color} h-2 rounded-full transition-all duration-500`} style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                      <span className={`text-xs font-semibold ${item.textColor} w-10 text-right`}>{pct}%</span>
+                    </div>
+                  );
+                })}
+
+                {/* Validation Rate */}
+                <div className="mt-4 pt-4 border-t border-gray-100">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="h-8 w-8 rounded-lg bg-[#E6F3E7] flex items-center justify-center">
+                        <TrendingUp className="h-4 w-4 text-[#388E3C]" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-700">Validation Rate</p>
+                        <p className="text-[10px] text-gray-400">
+                          {stats.validated + stats.corrected} of {stats.total} scans reviewed
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-xl font-bold text-[#388E3C]">
+                      {stats.total > 0 ? Math.round(((stats.validated + stats.corrected) / stats.total) * 100) : 0}%
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
+
+      {/* Latest System Activity */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
+        <div className="px-5 sm:px-6 py-4 bg-gradient-to-r from-[#388E3C] to-[#2F7A33]">
+          <h3 className="text-base font-bold !text-white">Latest System Activity</h3>
+          <p className="text-xs !text-white/80 mt-0.5">Recent platform events and user interactions.</p>
+        </div>
+        <div className="p-0 flex-1">
+          {latestValidations.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-center px-6">
+              <Activity className="h-10 w-10 text-gray-300 mb-3" />
+              <h3 className="text-sm font-semibold text-gray-700 mb-1">No recent system activity yet</h3>
+              <p className="text-xs text-gray-400 max-w-xs">
+                Platform activities will appear here once users interact with the system.
+              </p>
+            </div>
+          ) : (
+            <div className="divide-y divide-gray-50">
+              {latestValidations.map((activity) => (
+                <div key={activity.id} className="flex items-start gap-3 px-5 py-3.5 hover:bg-gray-50/50 transition-colors">
+                  <div className={`mt-0.5 h-8 w-8 rounded-lg flex items-center justify-center flex-shrink-0 ${activity.status === 'Validated' ? 'bg-emerald-50' : 'bg-blue-50'}`}>
+                    {activity.status === 'Validated' ? (
+                      <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                    ) : (
+                      <AlertCircle className="h-4 w-4 text-blue-600" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900">
+                      {activity.expert_name || 'Unknown Expert'} {activity.status === 'Validated' ? 'validated' : 'corrected'} a scan
+                    </p>
+                    <p className="text-xs text-gray-500 mt-0.5 truncate">
+                      AI detected: {activity.ai_prediction}
+                    </p>
+                  </div>
+                  <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${activity.status === 'Validated' ? 'bg-emerald-50 text-emerald-700' : 'bg-blue-50 text-blue-700'}`}>
+                      {activity.status}
+                    </span>
+                    <span className="text-[10px] text-gray-400">
+                      {activity.validated_at ? formatDate(activity.validated_at) : 'N/A'}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+      </div>
     </div>
   );
 }

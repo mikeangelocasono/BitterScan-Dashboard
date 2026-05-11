@@ -24,6 +24,7 @@ function LeafletMapWrapper({
   center: { lat: number; lng: number };
   zoom: number;
   farmMapData: FarmMapData[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   leafletIcon: any;
   selectedFarm: string | null;
   setSelectedFarm: (id: string) => void;
@@ -31,7 +32,9 @@ function LeafletMapWrapper({
   getRipenessColor: (stage: string) => string;
 }) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mapInstanceRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const markersRef = useRef<any[]>([]);
 
   useEffect(() => {
@@ -47,7 +50,9 @@ function LeafletMapWrapper({
 
       // Clear the container's leaflet ID to prevent "already initialized" error
       const container = mapContainerRef.current;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       if (container && (container as any)._leaflet_id) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         delete (container as any)._leaflet_id;
       }
 
@@ -210,6 +215,8 @@ type InteractiveFarmMapProps = {
     farm?: string;
   };
   showAllFarms?: boolean;
+  /** Hide the farm list below the map (useful when farm list is shown elsewhere) */
+  showFarmList?: boolean;
   /** Callback when a farm is selected (clicked on map or farm list) */
   onFarmSelect?: (farmId: string | null) => void;
   /** Externally controlled disease checkbox filters */
@@ -223,11 +230,13 @@ export default function InteractiveFarmMap({
   farms = [],
   filters = {},
   showAllFarms = true,
+  showFarmList = true,
   onFarmSelect,
   diseaseFilters: externalDiseaseFilters,
   onDiseaseFiltersChange,
 }: InteractiveFarmMapProps) {
   const [isClient, setIsClient] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [leafletIcon, setLeafletIcon] = useState<any>(null);
   const [selectedFarm, setSelectedFarm] = useState<string | null>(null);
   // Internal disease filter state (used when no external control is provided)
@@ -509,9 +518,9 @@ export default function InteractiveFarmMap({
     <Card className="shadow-lg border border-[#388E3C]/20 hover:shadow-xl transition-all duration-300 bg-white rounded-xl overflow-hidden">
       {/* ── Title bar with inline disease filter controls ──────────────── */}
       <CardHeader className="pb-3 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] text-white px-6 pt-5">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+        <div className="flex flex-col 2xl:flex-row 2xl:items-center 2xl:justify-between gap-3">
           {/* Title + subtitle */}
-          <div className="flex-shrink-0">
+          <div className="min-w-0">
             <CardTitle className="text-xl font-bold text-white" style={{ color: 'white' }}>
               Farm Disease Map
             </CardTitle>
@@ -519,25 +528,27 @@ export default function InteractiveFarmMap({
           </div>
 
           {/* Disease filter dropdown — professional select-style control */}
-          <div className="relative" ref={filterDropdownRef}>
+          <div className="relative w-full sm:w-auto 2xl:flex-shrink-0" ref={filterDropdownRef}>
             <button
               onClick={() => setShowFilterPanel(!showFilterPanel)}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150 bg-white/15 hover:bg-white/25 text-white border border-white/25 backdrop-blur-sm min-w-[180px] justify-between"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150 bg-white/15 hover:bg-white/25 text-white border border-white/25 backdrop-blur-sm w-full sm:w-auto sm:min-w-[180px] justify-between"
             >
-              <span className="flex items-center gap-2">
-                <Filter className="h-4 w-4" />
-                {activeDiseaseFilters.length === 0
-                  ? 'All Diseases'
-                  : activeDiseaseFilters.length === 1
-                    ? activeDiseaseFilters[0]
-                    : `${activeDiseaseFilters.length} selected`}
+              <span className="flex items-center gap-2 truncate">
+                <Filter className="h-4 w-4 flex-shrink-0" />
+                <span className="truncate">
+                  {activeDiseaseFilters.length === 0
+                    ? 'All Diseases'
+                    : activeDiseaseFilters.length === 1
+                      ? activeDiseaseFilters[0]
+                      : `${activeDiseaseFilters.length} selected`}
+                </span>
               </span>
-              <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${showFilterPanel ? 'rotate-180' : ''}`} />
+              <ChevronDown className={`h-4 w-4 flex-shrink-0 transition-transform duration-200 ${showFilterPanel ? 'rotate-180' : ''}`} />
             </button>
 
             {/* Dropdown panel */}
             {showFilterPanel && (
-              <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-xl border border-gray-200 z-50 overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150">
+              <div className="absolute left-0 right-0 sm:left-auto sm:right-0 mt-2 sm:w-64 bg-white rounded-lg shadow-xl border border-gray-200 z-50 overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150">
                 {/* Dropdown header */}
                 <div className="flex items-center justify-between px-4 py-2.5 bg-gray-50 border-b border-gray-200">
                   <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Filter by Disease</span>
@@ -700,66 +711,68 @@ export default function InteractiveFarmMap({
         </div>
 
         {/* Farm List Below Map */}
-        <div className="mt-4 space-y-2 max-h-[300px] overflow-y-auto">
-          <h4 className="font-semibold text-sm text-gray-700 mb-3 flex items-center justify-between">
-            <span>Farm Locations ({visibleFarmMapData.length}{activeDiseaseFilters.length > 0 ? ` of ${farmMapData.length}` : ''})</span>
-            <span className="text-xs font-normal text-gray-500">Click to focus on map</span>
-          </h4>
-          {visibleFarmMapData
-            .sort((a, b) => b.total_scans - a.total_scans)
-            .map((farm) => {
-              const heatLevel = farm.total_scans >= 16 ? 'high' : farm.total_scans >= 6 ? 'medium' : 'low';
-              const heatColor = heatLevel === 'high' ? 'bg-red-500' : heatLevel === 'medium' ? 'bg-yellow-500' : 'bg-green-500';
-              const heatBorder = heatLevel === 'high' ? 'border-red-300' : heatLevel === 'medium' ? 'border-yellow-300' : 'border-green-300';
-              
-              return (
-                <button
-                  key={farm.farm_id}
-                  onClick={() => handleFarmSelect(farm.farm_id)}
-                  className={`w-full text-left p-3 rounded-lg border-2 transition-all duration-200 ${
-                    selectedFarm === farm.farm_id
-                      ? "border-[#388E3C] bg-[#388E3C]/5 shadow-md"
-                      : `${heatBorder} hover:border-[#388E3C]/50 hover:bg-gray-50`
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-3 h-3 rounded-full ${heatColor} animate-pulse`} />
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-sm text-gray-900">
-                            {farm.farm_name}
-                          </span>
-                          {farm.total_scans > 0 && (
-                            <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
-                              heatLevel === 'high' 
-                                ? 'bg-red-100 text-red-700' 
-                                : heatLevel === 'medium' 
-                                  ? 'bg-yellow-100 text-yellow-700' 
-                                  : 'bg-green-100 text-green-700'
-                            }`}>
-                              {heatLevel === 'high' ? 'High' : heatLevel === 'medium' ? 'Medium' : 'Low'}
+        {showFarmList && (
+          <div className="mt-4 space-y-2 max-h-[300px] overflow-y-auto">
+            <h4 className="font-semibold text-sm text-gray-700 mb-3 flex items-center justify-between">
+              <span>Farm Locations ({visibleFarmMapData.length}{activeDiseaseFilters.length > 0 ? ` of ${farmMapData.length}` : ''})</span>
+              <span className="text-xs font-normal text-gray-500">Click to focus on map</span>
+            </h4>
+            {visibleFarmMapData
+              .sort((a, b) => b.total_scans - a.total_scans)
+              .map((farm) => {
+                const heatLevel = farm.total_scans >= 16 ? 'high' : farm.total_scans >= 6 ? 'medium' : 'low';
+                const heatColor = heatLevel === 'high' ? 'bg-red-500' : heatLevel === 'medium' ? 'bg-yellow-500' : 'bg-green-500';
+                const heatBorder = heatLevel === 'high' ? 'border-red-300' : heatLevel === 'medium' ? 'border-yellow-300' : 'border-green-300';
+
+                return (
+                  <button
+                    key={farm.farm_id}
+                    onClick={() => handleFarmSelect(farm.farm_id)}
+                    className={`w-full text-left p-3 rounded-lg border-2 transition-all duration-200 ${
+                      selectedFarm === farm.farm_id
+                        ? "border-[#388E3C] bg-[#388E3C]/5 shadow-md"
+                        : `${heatBorder} hover:border-[#388E3C]/50 hover:bg-gray-50`
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-3 h-3 rounded-full ${heatColor} animate-pulse`} />
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-sm text-gray-900">
+                              {farm.farm_name}
                             </span>
-                          )}
+                            {farm.total_scans > 0 && (
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
+                                heatLevel === 'high'
+                                  ? 'bg-red-100 text-red-700'
+                                  : heatLevel === 'medium'
+                                    ? 'bg-yellow-100 text-yellow-700'
+                                    : 'bg-green-100 text-green-700'
+                              }`}>
+                                {heatLevel === 'high' ? 'High' : heatLevel === 'medium' ? 'Medium' : 'Low'}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            📍 {farm.latitude.toFixed(4)}, {farm.longitude.toFixed(4)}
+                          </p>
                         </div>
-                        <p className="text-xs text-gray-500 mt-0.5">
-                          📍 {farm.latitude.toFixed(4)}, {farm.longitude.toFixed(4)}
+                      </div>
+                      <div className="text-right">
+                        <span className={`text-sm font-bold ${farm.total_scans > 0 ? 'text-gray-900' : 'text-gray-400'}`}>
+                          {farm.total_scans > 0 ? farm.total_scans : '0'}
+                        </span>
+                        <p className="text-xs text-gray-500">
+                          disease {farm.total_scans === 1 ? 'scan' : 'scans'}
                         </p>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <span className={`text-sm font-bold ${farm.total_scans > 0 ? 'text-gray-900' : 'text-gray-400'}`}>
-                        {farm.total_scans > 0 ? farm.total_scans : '0'}
-                      </span>
-                      <p className="text-xs text-gray-500">
-                        disease {farm.total_scans === 1 ? 'scan' : 'scans'}
-                      </p>
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-        </div>
+                  </button>
+                );
+              })}
+          </div>
+        )}
       </CardContent>
     </Card>
   );

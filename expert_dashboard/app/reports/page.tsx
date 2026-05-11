@@ -6,11 +6,12 @@ import AppShell from "@/components/AppShell";
 import AuthGuard from "@/components/AuthGuard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Loader2, AlertCircle, TrendingUp, Camera, CheckCircle2, Download, Calendar, Clock, Clock3 } from "lucide-react";
-import { supabase } from "@/components/supabase";
+import { Loader2, AlertCircle, TrendingUp, Camera, CheckCircle2, Download, Calendar, Clock, Clock3, BarChart3, FileText } from "lucide-react";
 import {
   LineChart,
   Line,
+  AreaChart,
+  Area,
   BarChart,
   Bar,
   PieChart as RechartsPieChart,
@@ -28,19 +29,13 @@ import toast from "react-hot-toast";
 
 import type { Scan, ValidationHistory } from "@/types";
 import { getAiPrediction, isNonAmpalayaScan } from "@/types";
-import { parseTimestampToLocal, getLocalHour, normalizeToStartOfDay, normalizeToEndOfDay, getLocalDateComponents } from "@/utils/timezone";
+import { parseTimestampToLocal, normalizeToStartOfDay } from "@/utils/timezone";
 
 type Range = "daily" | "weekly" | "monthly" | "custom";
 
 type TrendDatum = {
   period: string;
   scans: number;
-};
-
-type ValidationDatum = {
-  period: string;
-  validated: number;
-  corrected: number;
 };
 
 // Disease color mapping (Healthy must be GREEN)
@@ -238,111 +233,6 @@ function buildScansTrend(range: Range, scans: Scan[], rangeStart: Date, rangeEnd
     return {
       period: dayNumber.toString(),
       scans: bucketCounts.get(idx) ?? 0,
-    };
-  });
-}
-
-function buildValidationActivity(
-  range: Range,
-  validations: ValidationHistory[],
-  rangeStart: Date,
-  rangeEnd: Date
-): ValidationDatum[] {
-  if (!validations || validations.length === 0) {
-    // Return empty array with at least one entry for daily to show empty state
-    if (range === "daily") {
-      return [{ period: "12 AM", validated: 0, corrected: 0 }];
-    }
-    return [];
-  }
-
-  if (range === "daily") {
-    const base = normalizeToStartOfDayUTC(rangeStart);
-    const isToday = rangeEnd.toDateString() === base.toDateString();
-    const currentHour = isToday ? Math.min(rangeEnd.getUTCHours() + 1, 24) : 24;
-    const counts = new Map<number, { validated: number; corrected: number }>();
-
-    validations.forEach((record) => {
-      if (!record.validated_at) return;
-      try {
-        const validatedAt = new Date(record.validated_at);
-        if (isNaN(validatedAt.getTime())) return;
-        if (validatedAt < base || validatedAt > rangeEnd) return;
-        const hour = validatedAt.getUTCHours(); // Use UTC hour directly
-        const bucket = counts.get(hour) ?? { validated: 0, corrected: 0 };
-        if (record.status === "Validated") {
-          bucket.validated += 1;
-        } else if (record.status === "Corrected") {
-          bucket.corrected += 1;
-        }
-        counts.set(hour, bucket);
-      } catch {
-        // Skip invalid dates
-        return;
-      }
-    });
-
-    return Array.from({ length: Math.max(currentHour, 1) }, (_, hour) => {
-      // Create hour start time in Philippine timezone
-      const hourStart = new Date(base.getTime() + (hour * 60 * 60 * 1000));
-      const bucket = counts.get(hour);
-      return {
-        period: HOUR_FORMATTER.format(hourStart),
-        validated: bucket?.validated ?? 0,
-        corrected: bucket?.corrected ?? 0,
-      };
-    });
-  }
-
-  const startDay = normalizeToStartOfDayUTC(rangeStart);
-  const endDay = normalizeToStartOfDayUTC(rangeEnd);
-  const totalDays = Math.max(1, Math.floor((endDay.getTime() - startDay.getTime()) / ONE_DAY) + 1);
-  const counts = new Map<number, { validated: number; corrected: number }>();
-
-  validations.forEach((record) => {
-    if (!record.validated_at) return;
-    try {
-      const validatedAt = new Date(record.validated_at);
-      if (isNaN(validatedAt.getTime())) return;
-      if (validatedAt < startDay || validatedAt > rangeEnd) return;
-      const dayIndex = Math.floor((normalizeToStartOfDayUTC(validatedAt).getTime() - startDay.getTime()) / ONE_DAY);
-      if (dayIndex < 0 || dayIndex >= totalDays) return;
-      const bucket = counts.get(dayIndex) ?? { validated: 0, corrected: 0 };
-      if (record.status === "Validated") {
-        bucket.validated += 1;
-      } else if (record.status === "Corrected") {
-        bucket.corrected += 1;
-      }
-      counts.set(dayIndex, bucket);
-    } catch {
-      // Skip invalid dates
-      return;
-    }
-  });
-
-  if (range === "weekly") {
-    const buckets = Math.min(7, totalDays);
-    return Array.from({ length: buckets }, (_, idx) => {
-      const stamp = new Date(startDay);
-      stamp.setDate(startDay.getDate() + idx);
-      const bucket = counts.get(idx);
-      return {
-        period: WEEKDAY_FORMATTER.format(stamp),
-        validated: bucket?.validated ?? 0,
-        corrected: bucket?.corrected ?? 0,
-      };
-    });
-  }
-
-  // Monthly
-  return Array.from({ length: totalDays }, (_, idx) => {
-    const stamp = new Date(startDay);
-    stamp.setDate(startDay.getDate() + idx);
-    const bucket = counts.get(idx);
-    return {
-      period: DAY_FORMATTER.format(stamp),
-      validated: bucket?.validated ?? 0,
-      corrected: bucket?.corrected ?? 0,
     };
   });
 }
@@ -605,23 +495,6 @@ export default function ReportsPage() {
     return filteredScans.length;
   }, [filteredScans]);
 
-  const filteredValidations = useMemo(() => {
-    if (!validationHistory || validationHistory.length === 0) return [];
-    
-    return validationHistory.filter((record) => {
-      if (!record.validated_at) return false;
-      try {
-        const validatedAt = parseTimestampToLocal(record.validated_at);
-        // Ensure valid date
-        if (isNaN(validatedAt.getTime())) return false;
-        // Compare dates properly
-        return validatedAt >= rangeStart && validatedAt <= rangeEnd;
-      } catch {
-        return false;
-      }
-    });
-  }, [validationHistory, rangeStart, rangeEnd]);
-
   const successRate = useMemo(() => {
     // Success Rate = (Validated + Corrected scans) / (Total scans) * 100
     // Shows the percentage of scans that have been successfully processed
@@ -644,6 +517,47 @@ export default function ReportsPage() {
     const pending = filteredScans.filter((s) => s.status === "Pending" || s.status === "Pending Validation").length;
     return total - pending;
   }, [filteredScans]);
+
+  const pendingScansCount = useMemo(() => {
+    return filteredScans.filter((s) => s.status === "Pending" || s.status === "Pending Validation").length;
+  }, [filteredScans]);
+
+  const correctedScansCount = useMemo(() => {
+    return filteredScans.filter((s) => s.status === "Corrected").length;
+  }, [filteredScans]);
+
+  // Weekly Scan Activity — always shows current week (Sun-Sat)
+  const weeklyScanActivity = useMemo(() => {
+    const now = new Date();
+    const dayOfWeek = now.getDay(); // 0 = Sunday
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - dayOfWeek);
+    startOfWeek.setHours(0, 0, 0, 0);
+
+    const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const counts = new Array(7).fill(0);
+
+    if (scans && scans.length > 0) {
+      scans.forEach((scan) => {
+        if (!scan.created_at) return;
+        try {
+          const createdAt = new Date(scan.created_at);
+          if (isNaN(createdAt.getTime())) return;
+          if (isNonAmpalayaScan(scan)) return;
+          if (createdAt >= startOfWeek && createdAt <= now) {
+            const scanDay = createdAt.getDay();
+            counts[scanDay] += 1;
+          }
+        } catch {}
+      });
+    }
+
+    return days.map((day, idx) => ({
+      day,
+      scans: counts[idx],
+      isToday: idx === dayOfWeek,
+    }));
+  }, [scans]);
 
   const scansTrend = useMemo(() => buildScansTrend(range, filteredScans, rangeStart, rangeEnd), [range, filteredScans, rangeStart, rangeEnd]);
 
@@ -682,8 +596,8 @@ export default function ReportsPage() {
         });
     }
 
-    // Return in specific order with all items (even if 0) - order: Cercospora, Yellow Mosaic Virus, Healthy, Unknown, Fusarium Wilt, Downy Mildew
-    const order = ["Cercospora", "Yellow Mosaic Virus", "Healthy", "Unknown", "Fusarium Wilt", "Downy Mildew"];
+    // Return in specific order with all items (even if 0) - exclude Unknown from display
+    const order = ["Cercospora", "Yellow Mosaic Virus", "Healthy", "Fusarium Wilt", "Downy Mildew"];
     return order.map((name) => ({
       name,
       value: counts[name as keyof typeof counts] || 0,
@@ -721,8 +635,8 @@ export default function ReportsPage() {
         });
     }
 
-    // Return in specific order with all items (even if 0) - order: Unknown, Immature, Mature, Overmature, Overripe
-    const order = ["Unknown", "Immature", "Mature", "Overmature", "Overripe"];
+    // Return in specific order with all items (even if 0) - exclude Unknown from display
+    const order = ["Immature", "Mature", "Overmature", "Overripe"];
     return order.map((name) => ({
       name,
       value: counts[name as keyof typeof counts] || 0,
@@ -1307,267 +1221,264 @@ export default function ReportsPage() {
   return (
     <AuthGuard>
       <AppShell>
-        <div className="space-y-8 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          {/* Header Section with Title */}
-          <div className="space-y-3">
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 tracking-tight">Reports &amp; Analytics</h1>
-              <p className="text-gray-600 text-xs sm:text-sm">Comprehensive insights into scan activity and AI performance</p>
-            </div>
-            
-            {/* Real-time Clock */}
-            <div className="flex items-center justify-between px-3 sm:px-5 py-2.5 sm:py-3 text-xs sm:text-sm bg-gradient-to-r from-[#388E3C] to-[#2F7A33] rounded-lg shadow-md overflow-hidden">
-              <RealTimeClock />
-            </div>
+        <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          {/* Page Header */}
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 tracking-tight mb-1">Reports &amp; Analytics</h1>
+            <p className="text-gray-500 text-sm">Comprehensive insights into scan activity and AI performance.</p>
           </div>
 
-          {/* Filters Section */}
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 sm:gap-6">
-            {/* Date Range Filter Section - Left Side */}
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                <Calendar className="h-4 w-4" />
-                Time Period:
-              </span>
-              <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
-                {RANGE_OPTIONS.filter(opt => opt.value !== "custom").map((option) => (
-                  <Button
-                    key={option.value}
-                    variant={range === option.value ? "default" : "ghost"}
-                    size="sm"
-                    className={`text-sm font-medium transition-colors ${
-                      range === option.value 
-                        ? "bg-[#388E3C] text-white hover:bg-[#2F7A33]" 
-                        : "text-gray-700 hover:bg-gray-100"
-                    }`}
-                    onClick={() => {
-                      setRange(option.value);
-                      setShowCustomPicker(false);
-                    }}
-                  >
-                    {option.label}
-                  </Button>
-                ))}
-              </div>
-              <Button
-                variant={range === "custom" ? "default" : "outline"}
-                size="sm"
-                className={`text-sm font-medium transition-colors ${
-                  range === "custom" 
-                    ? "bg-[#388E3C] text-white hover:bg-[#2F7A33]" 
-                    : "border-gray-300 hover:bg-gray-50"
-                }`}
-                onClick={() => {
-                  setRange("custom");
-                  setShowCustomPicker(true);
-                  if (!customStartDate || !customEndDate) {
-                    const today = new Date();
-                    const weekAgo = new Date(today);
-                    weekAgo.setDate(today.getDate() - 7);
-                    setCustomStartDate(weekAgo.toISOString().split('T')[0]);
-                    setCustomEndDate(today.toISOString().split('T')[0]);
-                  }
-                }}
-              >
-                <Calendar className="h-4 w-4 mr-1.5" />
-                Custom
-              </Button>
-              {showCustomPicker && range === "custom" && (
-                <div className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 shadow-sm">
-                  <input
-                    type="date"
-                    value={customStartDate}
-                    onChange={(e) => setCustomStartDate(e.target.value)}
-                    className="text-sm border border-gray-300 rounded-md px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-transparent transition-colors"
-                    max={customEndDate || new Date().toISOString().split('T')[0]}
-                  />
-                  <span className="text-gray-500 font-medium text-sm">to</span>
-                  <input
-                    type="date"
-                    value={customEndDate}
-                    onChange={(e) => setCustomEndDate(e.target.value)}
-                    className="text-sm border border-gray-300 rounded-md px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-transparent transition-colors"
-                    min={customStartDate || undefined}
-                    max={new Date().toISOString().split('T')[0]}
-                  />
-                  {customStartDate && customEndDate && (
-                    <span className="text-xs text-gray-600 font-medium ml-1">
-                      ({dateRangeLabel})
-                    </span>
+          {/* Green Date/Time Banner */}
+          <div className="bg-gradient-to-r from-[#388E3C] to-[#2F7A33] rounded-xl px-5 py-3.5 shadow-sm">
+            <RealTimeClock />
+          </div>
+
+          {/* Controls Bar */}
+          <Card className="shadow-sm border border-gray-200 bg-white rounded-xl overflow-hidden">
+            <CardContent className="p-4 sm:p-5">
+              <div className="flex flex-col lg:flex-row gap-3 items-stretch lg:items-center justify-between">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+                    <Calendar className="h-4 w-4 text-gray-400" />
+                    Time Range:
+                  </span>
+                  <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1">
+                    {RANGE_OPTIONS.filter(opt => opt.value !== "custom").map((option) => (
+                      <button
+                        key={option.value}
+                        onClick={() => {
+                          setRange(option.value);
+                          setShowCustomPicker(false);
+                        }}
+                        className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+                          range === option.value
+                            ? "bg-[#388E3C] text-white shadow-sm"
+                            : "text-gray-700 hover:bg-gray-100"
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                    <button
+                      onClick={() => {
+                        setRange("custom");
+                        setShowCustomPicker(true);
+                        if (!customStartDate || !customEndDate) {
+                          const today = new Date();
+                          const weekAgo = new Date(today);
+                          weekAgo.setDate(today.getDate() - 7);
+                          setCustomStartDate(weekAgo.toISOString().split('T')[0]);
+                          setCustomEndDate(today.toISOString().split('T')[0]);
+                        }
+                      }}
+                      className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+                        range === "custom"
+                          ? "bg-[#388E3C] text-white shadow-sm"
+                          : "text-gray-700 hover:bg-gray-100"
+                      }`}
+                    >
+                      <span className="flex items-center gap-1">
+                        <Calendar className="h-3.5 w-3.5" />
+                        Custom
+                      </span>
+                    </button>
+                  </div>
+                  {showCustomPicker && range === "custom" && (
+                    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2">
+                      <input
+                        type="date"
+                        value={customStartDate}
+                        onChange={(e) => setCustomStartDate(e.target.value)}
+                        className="text-sm border border-gray-300 rounded-md px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-transparent transition-colors"
+                        max={customEndDate || new Date().toISOString().split('T')[0]}
+                      />
+                      <span className="text-gray-500 font-medium text-sm">to</span>
+                      <input
+                        type="date"
+                        value={customEndDate}
+                        onChange={(e) => setCustomEndDate(e.target.value)}
+                        className="text-sm border border-gray-300 rounded-md px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-transparent transition-colors"
+                        min={customStartDate || undefined}
+                        max={new Date().toISOString().split('T')[0]}
+                      />
+                      {customStartDate && customEndDate && (
+                        <span className="text-xs text-gray-600 font-medium ml-1">({dateRangeLabel})</span>
+                      )}
+                    </div>
                   )}
                 </div>
-              )}
-            </div>
-            
-            {/* Export Buttons - Right Side */}
-            <div className="flex items-center gap-2 flex-shrink-0">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  const csvContent = generateCSV();
-                  downloadCSV(csvContent);
-                }}
-                className="flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm"
-              >
-                <Download className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                <span className="hidden sm:inline">Export</span> CSV
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => generatePDF()}
-                className="flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm text-white bg-[#388E3C] border-[#388E3C] hover:bg-[#2F7A33] hover:border-[#2F7A33] transition-colors"
-              >
-                <Download className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                <span className="hidden sm:inline">Export</span> PDF
-              </Button>
-            </div>
-          </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const csvContent = generateCSV();
+                      downloadCSV(csvContent);
+                    }}
+                    className="flex items-center gap-1.5 text-xs sm:text-sm"
+                  >
+                    <FileText className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                    <span className="hidden sm:inline">Export</span> CSV
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => generatePDF()}
+                    className="flex items-center gap-1.5 text-xs sm:text-sm text-white bg-[#388E3C] border-[#388E3C] hover:bg-[#2F7A33] hover:border-[#2F7A33] transition-colors"
+                  >
+                    <Download className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                    <span className="hidden sm:inline">Export</span> PDF
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
 
-          {/* KPI Cards Section */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-4">
-            {[
-              {
-                icon: Camera,
-                label: "Total Scans",
-                value: totalScansCount.toLocaleString("en-US"),
-                tone: "text-blue-600",
-              },
-              {
-                icon: CheckCircle2,
-                label: "Total Validated",
-                value: validatedScansCount.toLocaleString("en-US"),
-                tone: "text-green-600",
-              },
-              {
-                icon: TrendingUp,
-                label: "Success Rate",
-                value: `${successRate}%`,
-                tone: "text-purple-600",
-              },
-            ].map((metric, idx) => {
+          {/* 4 Metric Cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {[{
+              icon: Camera,
+              label: "Total Scans",
+              value: totalScansCount.toLocaleString("en-US"),
+              iconBg: "bg-blue-50",
+              iconColor: "text-blue-600",
+            }, {
+              icon: CheckCircle2,
+              label: "Total Validated",
+              value: validatedScansCount.toLocaleString("en-US"),
+              iconBg: "bg-emerald-50",
+              iconColor: "text-emerald-600",
+            }, {
+              icon: TrendingUp,
+              label: "Success Rate",
+              value: `${successRate}%`,
+              iconBg: "bg-purple-50",
+              iconColor: "text-purple-600",
+            }, {
+              icon: Clock,
+              label: "Pending Validations",
+              value: pendingScansCount.toLocaleString("en-US"),
+              iconBg: "bg-amber-50",
+              iconColor: "text-amber-600",
+            }].map((metric, idx) => {
               const Icon = metric.icon;
               return (
-                <Card key={idx} className="shadow-sm hover:shadow-md transition-all duration-200">
-                  <CardHeader className="pb-2 pt-4">
-                    <CardTitle className="flex items-center justify-between">
-                      <span className="text-sm font-semibold text-gray-700">{metric.label}</span>
-                      <Icon className={`h-4 w-4 ${metric.tone}`} />
-                    </CardTitle>
+                <Card key={idx} className="shadow-sm hover:shadow-md transition-all duration-200 border border-gray-100">
+                  <CardHeader className="pb-0.5 pt-3 px-3.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide leading-tight">{metric.label}</span>
+                      <div className={`${metric.iconBg} p-1.5 rounded-md`}>
+                        <Icon className={`h-3.5 w-3.5 ${metric.iconColor}`} />
+                      </div>
+                    </div>
                   </CardHeader>
-                  <CardContent className="pb-4">
-                    <p className="text-2xl font-bold text-gray-900">{metric.value}</p>
+                  <CardContent className="pb-3 pt-0.5 px-3.5">
+                    <p className="text-lg font-bold text-gray-900">{metric.value}</p>
                   </CardContent>
                 </Card>
               );
             })}
           </div>
 
-          {/* Scans Trend Chart - Full Width */}
-          <Card className="shadow-lg border border-[#388E3C]/20 rounded-xl overflow-hidden">
-            <CardHeader className="pb-3 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] px-6 pt-5">
-              <CardTitle className="text-xl font-bold text-white" style={{ color: 'white' }}>Scans Trend • {dateRangeLabel}</CardTitle>
-              <p className="text-sm text-gray-100 mt-1" style={{ color: 'white' }}>Scan activity patterns over time</p>
+          {/* Scans Trend — Full Width */}
+          <Card className="shadow-sm border border-gray-200 bg-white rounded-xl overflow-hidden">
+            <CardHeader className="px-6 py-5 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] rounded-t-xl">
+              <CardTitle className="text-lg font-bold" style={{ color: '#ffffff' }}>Scans Trend <span className="ml-2 text-sm font-normal opacity-80">• {dateRangeLabel}</span></CardTitle>
+              <p className="text-xs mt-0.5" style={{ color: '#ffffff', opacity: 0.8 }}>Scan activity patterns over time</p>
             </CardHeader>
-            <CardContent className="pt-6 pb-4">
-            {scansTrend.length > 0 && isPageVisible ? (
-              <div style={{ minHeight: 360 }}>
-                <ResponsiveContainer key={`scans-trend-${chartKey}`} width="100%" height={360}>
-                  <LineChart data={scansTrend} margin={{ top: 10, right: 30, left: 20, bottom: 50 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis 
-                    dataKey="period" 
-                    stroke="#6b7280" 
-                    fontSize={12} 
-                    tick={{ fill: "#6b7280" }}
-                    tickLine={false}
-                    interval={range === "monthly" ? Math.floor(scansTrend.length / 15) : "preserveStartEnd"}
-                    angle={range === "monthly" ? 0 : 0}
-                    /* Dynamic X-axis label — updates automatically when filter changes */
-                    label={{
-                      value: range === "daily" ? "Hours" : range === "weekly" ? "Days" : range === "monthly" ? new Date().toLocaleString("en-US", { month: "long" }) : "Date",
-                      position: "insideBottom",
-                      offset: -10,
-                      style: { fontSize: 13, fontWeight: 600, fill: "#374151", textAnchor: "middle" },
-                    }}
-                  />
-                  <YAxis 
-                    stroke="#6b7280" 
-                    fontSize={12} 
-                    tick={{ fill: "#6b7280" }} 
-                    allowDecimals={false}
-                    tickLine={false}
-                    /* Static Y-axis label — always "Number of Scans" */
-                    label={{ value: "Number of Scans", angle: -90, position: "insideLeft", offset: -5, style: { fontSize: 13, fontWeight: 600, fill: "#374151" } }}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#fff",
-                      border: "1px solid #e5e7eb",
-                      borderRadius: "8px",
-                      fontSize: "13px",
-                      padding: "8px 12px",
-                      boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
-                    }}
-                    formatter={(value: number | undefined) => [value ?? 0, "Scans"]}
-                    labelFormatter={(label) => {
-                      if (range === "daily") return `Hour: ${label}`;
-                      if (range === "weekly") return label;
-                      return `Day ${label}`;
-                    }}
-                  />
-                  <Legend 
-                    wrapperStyle={{ fontSize: "12px", paddingTop: "20px" }}
-                    iconType="circle"
-                    align="center"
-                    verticalAlign="bottom"
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="scans"
-                    stroke="#388E3C"
-                    strokeWidth={3}
-                    name="Total Scans"
-                    dot={range === "monthly" ? false : { fill: "#388E3C", r: 4, strokeWidth: 2, stroke: "#fff" }}
-                    activeDot={{ r: 7, strokeWidth: 2, stroke: "#fff" }}
-                    animationDuration={1000}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-              </div>
-            ) : (
-              <div className="flex h-[360px] flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 px-6 text-center">
-                <div className="text-gray-400 mb-3">
-                  <TrendingUp className="w-12 h-12 mx-auto" />
+            <CardContent className="p-6">
+              {scansTrend.length > 0 && isPageVisible ? (
+                <div style={{ minHeight: 360 }}>
+                  <ResponsiveContainer key={`scans-trend-${chartKey}`} width="100%" height={360}>
+                    <LineChart data={scansTrend} margin={{ top: 10, right: 30, left: 20, bottom: 50 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis
+                        dataKey="period"
+                        stroke="#9ca3af"
+                        fontSize={12}
+                        tick={{ fill: "#6b7280" }}
+                        tickLine={false}
+                        axisLine={{ stroke: '#e5e7eb' }}
+                        interval={range === "monthly" ? Math.floor(scansTrend.length / 15) : "preserveStartEnd"}
+                        label={{
+                          value: range === "daily" ? "Hours" : range === "weekly" ? "Days" : range === "monthly" ? new Date().toLocaleString("en-US", { month: "long" }) : "Date",
+                          position: "insideBottom",
+                          offset: -10,
+                          style: { fontSize: 13, fontWeight: 600, fill: "#374151", textAnchor: "middle" },
+                        }}
+                      />
+                      <YAxis
+                        stroke="#9ca3af"
+                        fontSize={12}
+                        tick={{ fill: "#6b7280" }}
+                        allowDecimals={false}
+                        tickLine={false}
+                        axisLine={{ stroke: '#e5e7eb' }}
+                        label={{ value: "Number of Scans", angle: -90, position: "insideLeft", offset: -5, style: { fontSize: 13, fontWeight: 600, fill: "#374151" } }}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: "#fff",
+                          border: "1px solid #e5e7eb",
+                          borderRadius: "8px",
+                          fontSize: "13px",
+                          padding: "8px 12px",
+                          boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
+                        }}
+                        formatter={(value: number | undefined) => [value ?? 0, "Scans"]}
+                        labelFormatter={(label) => {
+                          if (range === "daily") return `Hour: ${label}`;
+                          if (range === "weekly") return label;
+                          return `Day ${label}`;
+                        }}
+                      />
+                      <Legend
+                        wrapperStyle={{ fontSize: "12px", paddingTop: "20px" }}
+                        iconType="circle"
+                        align="center"
+                        verticalAlign="bottom"
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="scans"
+                        stroke="#388E3C"
+                        strokeWidth={3}
+                        name="Total Scans"
+                        dot={range === "monthly" ? false : { fill: "#388E3C", r: 4, strokeWidth: 2, stroke: "#fff" }}
+                        activeDot={{ r: 7, strokeWidth: 2, stroke: "#fff" }}
+                        animationDuration={1000}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
                 </div>
-                <p className="text-gray-700 font-medium">No scan data available</p>
-                <p className="mt-1 text-xs text-gray-500">Data for {dateRangeLabel.toLowerCase()} will appear here once scans are recorded</p>
-              </div>
-            )}
+              ) : (
+                <div className="flex h-[360px] flex-col items-center justify-center rounded-xl bg-gray-50/70 px-6 text-center">
+                  <TrendingUp className="w-10 h-10 text-gray-300 mb-3" />
+                  <p className="text-sm font-medium text-gray-500">No scan data available</p>
+                  <p className="text-xs text-gray-400 mt-1">Scan data will appear here once recorded.</p>
+                </div>
+              )}
             </CardContent>
           </Card>
 
-          {/* Disease and Ripeness Distribution Sections - Side by Side */}
+          {/* Disease + Ripeness — 2 columns */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Disease Distribution Section */}
-            <Card className="shadow-lg border border-[#388E3C]/20 hover:shadow-xl transition-all duration-300 rounded-xl overflow-hidden">
-              <CardHeader className="pb-3 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] text-white px-6 pt-5">
-                <CardTitle className="text-xl font-bold text-white" style={{ color: 'white' }}>
-                  Disease Distribution
-                </CardTitle>
-                <p className="text-sm text-white/90 mt-1" style={{ color: 'white' }}>Leaf disease scan analysis for {dateRangeLabel.toLowerCase()}</p>
+            {/* Disease Distribution */}
+            <Card className="shadow-sm border border-gray-200 bg-white rounded-xl overflow-hidden">
+              <CardHeader className="px-6 py-5 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] rounded-t-xl">
+                <CardTitle className="text-lg font-bold" style={{ color: '#ffffff' }}>Disease Distribution</CardTitle>
+                <p className="text-xs mt-0.5" style={{ color: '#ffffff', opacity: 0.8 }}>Distribution of detected diseases</p>
               </CardHeader>
-              <CardContent className="pt-6 pb-4">
-                <div className="space-y-6">
-                  <div className="flex justify-center" style={{ minHeight: 280 }}>
-                    {diseaseDistribution.some((item) => item.value > 0) && isPageVisible ? (
-                      <ResponsiveContainer key={`disease-dist-${chartKey}`} width="100%" height={280}>
+              <CardContent className="p-6">
+                {diseaseDistribution.some((item) => item.value > 0) && isPageVisible ? (
+                  <div className="space-y-6">
+                    <div className="flex justify-center" style={{ minHeight: 260 }}>
+                      <ResponsiveContainer key={`disease-dist-${chartKey}`} width="100%" height={260}>
                         <RechartsPieChart>
                           <Pie
                             data={diseaseDistribution.filter((item) => item.value > 0)}
                             cx="50%"
                             cy="50%"
-                            labelLine={false}
+                            innerRadius={60}
                             outerRadius={90}
                             fill="#8884d8"
                             dataKey="value"
@@ -1575,8 +1486,8 @@ export default function ReportsPage() {
                             animationDuration={800}
                           >
                             {diseaseDistribution.filter((item) => item.value > 0).map((entry, index) => (
-                              <Cell 
-                                key={`disease-cell-${index}`} 
+                              <Cell
+                                key={`disease-cell-${index}`}
                                 fill={DISEASE_COLORS[entry.name] || "#6B7280"}
                                 stroke="#ffffff"
                                 strokeWidth={2}
@@ -1599,82 +1510,57 @@ export default function ReportsPage() {
                           />
                         </RechartsPieChart>
                       </ResponsiveContainer>
-                    ) : (
-                      <div className="flex h-[280px] w-full items-center justify-center rounded-lg border border-dashed border-gray-300 bg-gray-50">
-                        <p className="text-sm text-gray-500">No data to display</p>
-                      </div>
-                    )}
-                  </div>
-                  
-                  {/* Indicators/Labels - Show all categories */}
-                  <div className="space-y-2 pt-4 border-t border-gray-200">
-                    {diseaseDistribution.map((entry) => {
-                      const total = diseaseDistribution.reduce((sum, item) => sum + item.value, 0);
-                      const percentage = total > 0 ? ((entry.value / total) * 100).toFixed(1) : "0.0";
-                      const color = DISEASE_COLORS[entry.name] || "#6B7280";
-                      
-                      return (
-                        <motion.div
-                          key={entry.name}
-                          initial={{ opacity: 0, x: -10 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ duration: 0.3 }}
-                          className={`flex items-center gap-3 p-2.5 rounded-lg transition-colors ${
-                            entry.value === 0 
-                              ? "bg-gray-50/50 opacity-60" 
-                              : "bg-gray-50 hover:bg-gray-100"
-                          }`}
-                        >
-                          <div 
-                            className="w-3.5 h-3.5 rounded-full flex-shrink-0"
-                            style={{ backgroundColor: color }}
-                          />
-                          <div className="flex-1 min-w-0 flex items-center justify-between">
-                            <p className={`text-sm font-semibold truncate ${
-                              entry.value === 0 ? "text-gray-500" : "text-gray-900"
-                            }`}>
-                              {entry.name}
-                            </p>
-                            <div className="flex items-baseline gap-2 ml-2">
-                              <span className={`text-base font-bold ${
-                                entry.value === 0 ? "text-gray-400" : "text-gray-900"
-                              }`}>
-                                {entry.value.toLocaleString("en-US")}
-                              </span>
-                              {total > 0 && (
-                                <span className="text-xs text-gray-500 font-medium">
-                                  ({percentage}%)
-                                </span>
-                              )}
+                    </div>
+                    <div className="space-y-2 pt-4 border-t border-gray-100">
+                      {diseaseDistribution.map((entry) => {
+                        const total = diseaseDistribution.reduce((sum, item) => sum + item.value, 0);
+                        const percentage = total > 0 ? ((entry.value / total) * 100).toFixed(1) : "0.0";
+                        const color = DISEASE_COLORS[entry.name] || "#6B7280";
+                        return (
+                          <div
+                            key={entry.name}
+                            className={`flex items-center gap-3 p-2 rounded-lg transition-colors ${entry.value === 0 ? "bg-gray-50/50 opacity-60" : "bg-gray-50 hover:bg-gray-100"}`}
+                          >
+                            <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+                            <div className="flex-1 min-w-0 flex items-center justify-between">
+                              <p className={`text-sm font-medium truncate ${entry.value === 0 ? "text-gray-500" : "text-gray-900"}`}>{entry.name}</p>
+                              <div className="flex items-baseline gap-2 ml-2">
+                                <span className={`text-sm font-bold ${entry.value === 0 ? "text-gray-400" : "text-gray-900"}`}>{entry.value.toLocaleString("en-US")}</span>
+                                {total > 0 && <span className="text-xs text-gray-500">({percentage}%)</span>}
+                              </div>
                             </div>
                           </div>
-                        </motion.div>
-                      );
-                    })}
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="flex h-[280px] flex-col items-center justify-center rounded-xl bg-gray-50/70 text-center">
+                    <BarChart3 className="w-10 h-10 text-gray-300 mb-3" />
+                    <p className="text-sm font-medium text-gray-500">No disease data available</p>
+                    <p className="text-xs text-gray-400 mt-1">Leaf disease scans will appear here.</p>
+                  </div>
+                )}
               </CardContent>
             </Card>
 
-            {/* Ripeness Distribution Section */}
-            <Card className="shadow-lg border border-[#388E3C]/20 hover:shadow-xl transition-all duration-300 rounded-xl overflow-hidden">
-              <CardHeader className="pb-3 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] text-white px-6 pt-5">
-                <CardTitle className="text-xl font-bold text-white" style={{ color: 'white' }}>
-                  Ripeness Distribution
-                </CardTitle>
-                <p className="text-sm text-white/90 mt-1" style={{ color: 'white' }}>Fruit maturity scan analysis for {dateRangeLabel.toLowerCase()}</p>
+            {/* Ripeness Distribution */}
+            <Card className="shadow-sm border border-gray-200 bg-white rounded-xl overflow-hidden">
+              <CardHeader className="px-6 py-5 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] rounded-t-xl">
+                <CardTitle className="text-lg font-bold" style={{ color: '#ffffff' }}>Ripeness Distribution</CardTitle>
+                <p className="text-xs mt-0.5" style={{ color: '#ffffff', opacity: 0.8 }}>Distribution of fruit maturity stages</p>
               </CardHeader>
-              <CardContent className="pt-6 pb-4">
-                <div className="space-y-6">
-                  <div className="flex justify-center" style={{ minHeight: 280 }}>
-                    {ripenessDistribution.some((item) => item.value > 0) && isPageVisible ? (
-                      <ResponsiveContainer key={`ripeness-dist-${chartKey}`} width="100%" height={280}>
+              <CardContent className="p-6">
+                {ripenessDistribution.some((item) => item.value > 0) && isPageVisible ? (
+                  <div className="space-y-6">
+                    <div className="flex justify-center" style={{ minHeight: 260 }}>
+                      <ResponsiveContainer key={`ripeness-dist-${chartKey}`} width="100%" height={260}>
                         <RechartsPieChart>
                           <Pie
                             data={ripenessDistribution.filter((item) => item.value > 0)}
                             cx="50%"
                             cy="50%"
-                            labelLine={false}
+                            innerRadius={60}
                             outerRadius={90}
                             fill="#8884d8"
                             dataKey="value"
@@ -1682,8 +1568,8 @@ export default function ReportsPage() {
                             animationDuration={800}
                           >
                             {ripenessDistribution.filter((item) => item.value > 0).map((entry, index) => (
-                              <Cell 
-                                key={`ripeness-cell-${index}`} 
+                              <Cell
+                                key={`ripeness-cell-${index}`}
                                 fill={RIPENESS_COLORS[entry.name] || "#6B7280"}
                                 stroke="#ffffff"
                                 strokeWidth={2}
@@ -1706,204 +1592,202 @@ export default function ReportsPage() {
                           />
                         </RechartsPieChart>
                       </ResponsiveContainer>
-                    ) : (
-                      <div className="flex h-[280px] w-full items-center justify-center rounded-lg border border-dashed border-gray-300 bg-gray-50">
-                        <p className="text-sm text-gray-500">No data to display</p>
-                      </div>
-                    )}
-                  </div>
-                  
-                  {/* Indicators/Labels - Show all categories */}
-                  <div className="space-y-2 pt-4 border-t border-gray-200">
-                    {ripenessDistribution.map((entry) => {
-                      const total = ripenessDistribution.reduce((sum, item) => sum + item.value, 0);
-                      const percentage = total > 0 ? ((entry.value / total) * 100).toFixed(1) : "0.0";
-                      const color = RIPENESS_COLORS[entry.name] || "#6B7280";
-                      
-                      return (
-                        <motion.div
-                          key={entry.name}
-                          initial={{ opacity: 0, x: -10 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ duration: 0.3 }}
-                          className={`flex items-center gap-3 p-2.5 rounded-lg transition-colors ${
-                            entry.value === 0 
-                              ? "bg-gray-50/50 opacity-60" 
-                              : "bg-gray-50 hover:bg-gray-100"
-                          }`}
-                        >
-                          <div 
-                            className="w-3.5 h-3.5 rounded-full flex-shrink-0"
-                            style={{ backgroundColor: color }}
-                          />
-                          <div className="flex-1 min-w-0 flex items-center justify-between">
-                            <p className={`text-sm font-semibold truncate ${
-                              entry.value === 0 ? "text-gray-500" : "text-gray-900"
-                            }`}>
-                              {entry.name}
-                            </p>
-                            <div className="flex items-baseline gap-2 ml-2">
-                              <span className={`text-base font-bold ${
-                                entry.value === 0 ? "text-gray-400" : "text-gray-900"
-                              }`}>
-                                {entry.value.toLocaleString("en-US")}
-                              </span>
-                              {total > 0 && (
-                                <span className="text-xs text-gray-500 font-medium">
-                                  ({percentage}%)
-                                </span>
-                              )}
+                    </div>
+                    <div className="space-y-2 pt-4 border-t border-gray-100">
+                      {ripenessDistribution.map((entry) => {
+                        const total = ripenessDistribution.reduce((sum, item) => sum + item.value, 0);
+                        const percentage = total > 0 ? ((entry.value / total) * 100).toFixed(1) : "0.0";
+                        const color = RIPENESS_COLORS[entry.name] || "#6B7280";
+                        return (
+                          <div
+                            key={entry.name}
+                            className={`flex items-center gap-3 p-2 rounded-lg transition-colors ${entry.value === 0 ? "bg-gray-50/50 opacity-60" : "bg-gray-50 hover:bg-gray-100"}`}
+                          >
+                            <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+                            <div className="flex-1 min-w-0 flex items-center justify-between">
+                              <p className={`text-sm font-medium truncate ${entry.value === 0 ? "text-gray-500" : "text-gray-900"}`}>{entry.name}</p>
+                              <div className="flex items-baseline gap-2 ml-2">
+                                <span className={`text-sm font-bold ${entry.value === 0 ? "text-gray-400" : "text-gray-900"}`}>{entry.value.toLocaleString("en-US")}</span>
+                                {total > 0 && <span className="text-xs text-gray-500">({percentage}%)</span>}
+                              </div>
                             </div>
                           </div>
-                        </motion.div>
-                      );
-                    })}
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="flex h-[280px] flex-col items-center justify-center rounded-xl bg-gray-50/70 text-center">
+                    <BarChart3 className="w-10 h-10 text-gray-300 mb-3" />
+                    <p className="text-sm font-medium text-gray-500">No ripeness data available</p>
+                    <p className="text-xs text-gray-400 mt-1">Fruit maturity scans will appear here.</p>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
 
-          {/* Success Rate Trend Section */}
-          <Card className="shadow-lg border border-[#388E3C]/20 hover:shadow-xl transition-all duration-300 rounded-xl overflow-hidden">
-            <CardHeader className="pb-3 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] px-6 pt-5">
-              <CardTitle className="text-xl font-bold text-white" style={{ color: 'white' }}>
-                Success Rate Trend • {dateRangeLabel}
-              </CardTitle>
-              <p className="text-sm mt-1 text-gray-100" style={{ color: 'white' }}>
-                {range === "daily" && "Hourly validation success rate for today"}
-                {range === "weekly" && "Daily validation success rate for this week"}
-                {range === "monthly" && "Daily validation success rate for this month"}
-                {range === "custom" && "Validation success rate for selected period"}
-              </p>
-            </CardHeader>
-            <CardContent className="pt-6">
-              <div style={{ minHeight: 380 }}>
-              {successRateTrend.length > 0 && isPageVisible ? (
-                <ResponsiveContainer key={`success-rate-${chartKey}`} width="100%" height={380}>
-                  <LineChart data={successRateTrend} margin={{ top: 5, right: 30, left: 20, bottom: 50 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                    <XAxis 
-                      dataKey="period" 
-                      stroke="#6b7280" 
-                      fontSize={12} 
-                      tick={{ fill: "#6b7280" }}
-                      tickLine={false}
-                      interval={range === "monthly" ? Math.floor(successRateTrend.length / 15) : "preserveStartEnd"}
-                      /* Dynamic X-axis label — mirrors Scans Trend logic for consistency */
-                      label={{
-                        value: range === "daily" ? "Hours" : range === "weekly" ? "Days" : range === "monthly" ? new Date().toLocaleString("en-US", { month: "long" }) : "Date",
-                        position: "insideBottom",
-                        offset: -10,
-                        style: { fontSize: 13, fontWeight: 600, fill: "#374151", textAnchor: "middle" },
-                      }}
-                    />
-                    <YAxis 
-                      stroke="#6b7280" 
-                      fontSize={12} 
-                      tick={{ fill: "#6b7280" }}
-                      allowDecimals={false}
-                      tickLine={false}
-                      domain={[0, 100]}
-                      label={{ value: 'Success Rate (%)', angle: -90, position: 'insideLeft', style: { fontSize: 13, fontWeight: 600, fill: '#374151' } }}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "#fff",
-                        border: "1px solid #e5e7eb",
-                        borderRadius: "8px",
-                        fontSize: "13px",
-                        padding: "10px 14px",
-                        boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
-                      }}
-                      formatter={(value: number | undefined, name: string | undefined) => {
-                        const val = value ?? 0; if (name === "Success Rate") return [`${val}%`, "Success Rate"];
-                        return [val, name];
-                      }}
-                      labelFormatter={(label) => {
-                        if (range === "daily") return `Hour: ${label}`;
-                        if (range === "weekly") return label;
-                        return `Day ${label}`;
-                      }}
-                    />
-                    <Legend 
-                      wrapperStyle={{ fontSize: "12px", paddingTop: "20px" }}
-                      iconType="circle"
-                      align="center"
-                      verticalAlign="bottom"
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="successRate"
-                      stroke="#388E3C"
-                      strokeWidth={3}
-                      name="Success Rate"
-                      dot={range === "monthly" ? false : { fill: "#388E3C", r: 5, strokeWidth: 2, stroke: "#fff" }}
-                      activeDot={{ r: 7, strokeWidth: 2, stroke: "#fff" }}
-                      animationDuration={1000}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="flex h-[380px] items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 px-6 text-center">
-                  <div className="text-gray-400 mb-3">
-                    <TrendingUp className="w-12 h-12 mx-auto mb-3" />
+          {/* Weekly Scan Activity + Success Rate Trend — 2 columns */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Weekly Scan Activity Bar Chart */}
+            <Card className="shadow-sm border border-gray-200 bg-white rounded-xl overflow-hidden">
+              <CardHeader className="px-6 py-5 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] rounded-t-xl">
+                <CardTitle className="text-lg font-bold" style={{ color: '#ffffff' }}>Weekly Scan Activity</CardTitle>
+                <p className="text-xs mt-0.5" style={{ color: '#ffffff', opacity: 0.8 }}>Total scans per day this week</p>
+              </CardHeader>
+              <CardContent className="p-6">
+                {weeklyScanActivity.some((d) => d.scans > 0) && isPageVisible ? (
+                  <div style={{ minHeight: 320 }}>
+                    <ResponsiveContainer key={`weekly-${chartKey}`} width="100%" height={320}>
+                      <BarChart data={weeklyScanActivity} margin={{ top: 10, right: 20, left: 0, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+                        <XAxis
+                          dataKey="day"
+                          stroke="#9ca3af"
+                          fontSize={12}
+                          tickLine={false}
+                          axisLine={{ stroke: '#e5e7eb' }}
+                          tick={{ fill: '#6b7280' }}
+                        />
+                        <YAxis
+                          stroke="#9ca3af"
+                          fontSize={12}
+                          tickLine={false}
+                          axisLine={{ stroke: '#e5e7eb' }}
+                          tick={{ fill: '#6b7280' }}
+                          allowDecimals={false}
+                        />
+                        <Tooltip
+                          contentStyle={{
+                            backgroundColor: "#fff",
+                            border: "1px solid #e5e7eb",
+                            borderRadius: "8px",
+                            fontSize: "13px",
+                            padding: "8px 12px",
+                            boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
+                          }}
+                          formatter={(value: number | undefined) => [`${value ?? 0} scans`, "Scans"]}
+                        />
+                        <Bar dataKey="scans" radius={[6, 6, 0, 0]} maxBarSize={48}>
+                          {weeklyScanActivity.map((entry, index) => (
+                            <Cell key={`bar-${index}`} fill={entry.isToday ? "#388E3C" : "#D1D5DB"} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
                   </div>
-                  <div>
-                    <p className="text-gray-700 font-medium">No success rate data available</p>
-                    <p className="mt-1 text-xs text-gray-500">Data for {dateRangeLabel.toLowerCase()} will appear here once scans are validated</p>
+                ) : (
+                  <div className="flex h-[320px] flex-col items-center justify-center rounded-xl bg-gray-50/70 text-center">
+                    <BarChart3 className="w-10 h-10 text-gray-300 mb-3" />
+                    <p className="text-sm font-medium text-gray-500">No weekly scan data</p>
+                    <p className="text-xs text-gray-400 mt-1">Scans recorded this week will appear here.</p>
                   </div>
-                </div>
-              )}
-              </div>
-            </CardContent>
-          </Card>
+                )}
+              </CardContent>
+            </Card>
 
-          {/* Monthly Performance Details Table */}
-          <Card className="shadow-lg border border-[#388E3C]/20 hover:shadow-xl transition-all duration-300 rounded-xl overflow-hidden">
-            <CardHeader className="pb-3 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] px-6 pt-5">
-              <CardTitle className="text-xl font-bold text-white" style={{ color: 'white' }}>
-                Performance Details • {dateRangeLabel}
-              </CardTitle>
-              <p className="text-sm mt-1 text-gray-100" style={{ color: 'white' }}>
-                {range === "daily" && "Hourly breakdown of validation metrics for today"}
-                {range === "weekly" && "Daily breakdown of validation metrics for this week"}
-                {range === "monthly" && "Daily breakdown of validation metrics for this month"}
-                {range === "custom" && "Breakdown of validation metrics for selected period"}
-              </p>
+            {/* Success Rate Trend — Area Chart */}
+            <Card className="shadow-sm border border-gray-200 bg-white rounded-xl overflow-hidden">
+              <CardHeader className="px-6 py-5 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] rounded-t-xl">
+                <CardTitle className="text-lg font-bold" style={{ color: '#ffffff' }}>Success Rate Trend <span className="ml-2 text-sm font-normal opacity-80">• {dateRangeLabel}</span></CardTitle>
+                <p className="text-xs mt-0.5" style={{ color: '#ffffff', opacity: 0.8 }}>Validation success rate over time</p>
+              </CardHeader>
+              <CardContent className="p-6">
+                {successRateTrend.length > 0 && isPageVisible ? (
+                  <div style={{ minHeight: 320 }}>
+                    <ResponsiveContainer key={`success-rate-${chartKey}`} width="100%" height={320}>
+                      <AreaChart data={successRateTrend} margin={{ top: 10, right: 30, left: 0, bottom: 5 }}>
+                        <defs>
+                          <linearGradient id="successGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#388E3C" stopOpacity={0.25} />
+                            <stop offset="100%" stopColor="#388E3C" stopOpacity={0.02} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                        <XAxis
+                          dataKey="period"
+                          stroke="#9ca3af"
+                          fontSize={12}
+                          tickLine={false}
+                          axisLine={{ stroke: '#e5e7eb' }}
+                          tick={{ fill: '#6b7280' }}
+                          interval={range === "monthly" ? Math.floor(successRateTrend.length / 15) : "preserveStartEnd"}
+                        />
+                        <YAxis
+                          stroke="#9ca3af"
+                          fontSize={12}
+                          tickLine={false}
+                          axisLine={{ stroke: '#e5e7eb' }}
+                          tick={{ fill: '#6b7280' }}
+                          allowDecimals={false}
+                          domain={[0, 100]}
+                          unit="%"
+                        />
+                        <Tooltip
+                          contentStyle={{
+                            backgroundColor: "#fff",
+                            border: "1px solid #e5e7eb",
+                            borderRadius: "8px",
+                            fontSize: "13px",
+                            padding: "8px 12px",
+                            boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
+                          }}
+                          formatter={(value: number | undefined) => [`${value ?? 0}%`, "Success Rate"]}
+                          labelFormatter={(label) => {
+                            if (range === "daily") return `Hour: ${label}`;
+                            if (range === "weekly") return label;
+                            return `Day ${label}`;
+                          }}
+                        />
+                        <Area
+                          type="monotone"
+                          dataKey="successRate"
+                          stroke="#388E3C"
+                          strokeWidth={2}
+                          fill="url(#successGradient)"
+                          dot={range === "monthly" ? false : { fill: "#388E3C", r: 4, strokeWidth: 2, stroke: "#fff" }}
+                          activeDot={{ r: 6, strokeWidth: 2, stroke: "#fff" }}
+                          animationDuration={1000}
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                ) : (
+                  <div className="flex h-[320px] flex-col items-center justify-center rounded-xl bg-gray-50/70 text-center">
+                    <TrendingUp className="w-10 h-10 text-gray-300 mb-3" />
+                    <p className="text-sm font-medium text-gray-500">No success rate data</p>
+                    <p className="text-xs text-gray-400 mt-1">Validated scans will populate this chart.</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Performance Details */}
+          <Card className="shadow-sm border border-gray-200 bg-white rounded-xl overflow-hidden">
+            <CardHeader className="px-6 py-5 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] rounded-t-xl">
+              <CardTitle className="text-lg font-bold" style={{ color: '#ffffff' }}>Performance Details <span className="ml-2 text-sm font-normal opacity-80">• {dateRangeLabel}</span></CardTitle>
+              <p className="text-xs mt-0.5" style={{ color: '#ffffff', opacity: 0.8 }}>Validation and AI performance summary</p>
             </CardHeader>
-            <CardContent className="pt-6">
+            <CardContent className="p-6">
               {(() => {
-                // Build performance details based on selected time range
                 const performanceDetails = [];
-
                 if (range === "daily") {
-                  // Today: Show hourly breakdown
                   const base = normalizeToStartOfDayUTC(rangeStart);
-                  
                   for (let hour = 0; hour < 24; hour++) {
-                    // Create hour boundaries in Asia/Manila timezone
-                    // base is already in UTC representing midnight Manila
-                    // Add hours in UTC to maintain Manila timezone alignment
                     const hourStart = new Date(base.getTime() + (hour * 60 * 60 * 1000));
-                    const hourEnd = new Date(base.getTime() + ((hour + 1) * 60 * 60 * 1000) - 1);
-                    
                     const hourScans = filteredScans.filter(scan => {
                       if (!scan.created_at) return false;
                       const scanDate = new Date(scan.created_at);
                       const scanHour = scanDate.getUTCHours();
                       return scanHour === hour;
                     });
-                    
                     const totalScans = hourScans.length;
                     const validatedScans = hourScans.filter(s => s.status === "Validated").length;
                     const correctedScans = hourScans.filter(s => s.status === "Corrected").length;
                     const pendingScans = hourScans.filter(s => s.status === "Pending" || s.status === "Pending Validation").length;
                     const successRate = totalScans > 0 ? ((validatedScans + correctedScans) / totalScans) * 100 : 0;
-                    
-                    // Format the hour label using Philippine timezone
                     const hourLabel = HOUR_FORMATTER.format(hourStart);
-                    
                     performanceDetails.push({
                       period: hourLabel,
                       totalScans,
@@ -1914,40 +1798,32 @@ export default function ReportsPage() {
                     });
                   }
                 } else {
-                  // Weekly or Monthly: Show daily breakdown
                   const startDay = normalizeToStartOfDayUTC(rangeStart);
                   const endDay = normalizeToStartOfDayUTC(rangeEnd);
                   const totalDays = Math.max(1, Math.floor((endDay.getTime() - startDay.getTime()) / ONE_DAY) + 1);
-                  
                   const daysToShow = range === "weekly" ? 7 : totalDays;
-                  
                   for (let dayIdx = 0; dayIdx < daysToShow; dayIdx++) {
                     const dayStart = new Date(startDay);
                     dayStart.setDate(startDay.getDate() + dayIdx);
                     dayStart.setHours(0, 0, 0, 0);
-                    
                     const dayEnd = new Date(dayStart);
                     dayEnd.setHours(23, 59, 59, 999);
-                    
                     const dayScans = filteredScans.filter(scan => {
                       if (!scan.created_at) return false;
                       const scanDate = parseTimestampToLocal(scan.created_at);
                       return scanDate >= dayStart && scanDate <= dayEnd;
                     });
-                    
                     const totalScans = dayScans.length;
                     const validatedScans = dayScans.filter(s => s.status === "Validated").length;
                     const correctedScans = dayScans.filter(s => s.status === "Corrected").length;
                     const pendingScans = dayScans.filter(s => s.status === "Pending" || s.status === "Pending Validation").length;
                     const successRate = totalScans > 0 ? ((validatedScans + correctedScans) / totalScans) * 100 : 0;
-                    
                     let periodLabel;
                     if (range === "weekly") {
                       periodLabel = WEEKDAY_FORMATTER.format(dayStart);
                     } else {
                       periodLabel = `Day ${dayIdx + 1}`;
                     }
-                    
                     performanceDetails.push({
                       period: periodLabel,
                       totalScans,
@@ -1958,23 +1834,18 @@ export default function ReportsPage() {
                     });
                   }
                 }
-
-                // Filter out rows with no activity (optional - can keep all rows)
                 const hasAnyData = performanceDetails.some(d => d.totalScans > 0);
-
                 return hasAnyData ? (
                   <div className="overflow-x-auto">
                     <table className="w-full border-collapse">
                       <thead>
-                        <tr className="bg-gray-50 border-b-2 border-[#388E3C]/20">
-                          <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
-                            {range === "daily" ? "Hour" : range === "weekly" ? "Day" : "Day"}
-                          </th>
-                          <th className="px-4 py-3 text-center text-sm font-semibold text-gray-700">Total Scans</th>
-                          <th className="px-4 py-3 text-center text-sm font-semibold text-gray-700">Validated</th>
-                          <th className="px-4 py-3 text-center text-sm font-semibold text-gray-700">Corrected</th>
-                          <th className="px-4 py-3 text-center text-sm font-semibold text-gray-700">Pending</th>
-                          <th className="px-4 py-3 text-center text-sm font-semibold text-gray-700">Success Rate</th>
+                        <tr className="bg-gray-50/80 border-b border-gray-200">
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">{range === "daily" ? "Hour" : "Day"}</th>
+                          <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Total Scans</th>
+                          <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Validated</th>
+                          <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Corrected</th>
+                          <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Pending</th>
+                          <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Success Rate</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1986,53 +1857,34 @@ export default function ReportsPage() {
                               initial={{ opacity: 0, y: 10 }}
                               animate={{ opacity: 1, y: 0 }}
                               transition={{ duration: 0.3, delay: index * 0.02 }}
-                              className={`border-b border-gray-200 transition-colors ${
-                                hasActivity ? "hover:bg-gray-50" : "opacity-50"
-                              }`}
+                              className={`border-b border-gray-100 transition-colors ${hasActivity ? "hover:bg-gray-50/70" : "opacity-50"}`}
                             >
-                              <td className="px-4 py-3 text-sm font-medium text-gray-900">{detail.period}</td>
-                              <td className="px-4 py-3 text-center text-sm font-semibold text-blue-600">
-                                {detail.totalScans}
-                              </td>
+                              <td className="px-4 py-3 text-sm font-medium text-gray-900 whitespace-nowrap">{detail.period}</td>
+                              <td className="px-4 py-3 text-center text-sm font-semibold text-gray-700">{detail.totalScans}</td>
                               <td className="px-4 py-3 text-center">
                                 {detail.validatedScans > 0 ? (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-green-50 text-green-700 text-sm font-medium">
-                                    <CheckCircle2 className="w-3.5 h-3.5" />
-                                    {detail.validatedScans}
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-50 text-green-700 text-xs font-medium">
+                                    <CheckCircle2 className="w-3 h-3" />{detail.validatedScans}
                                   </span>
-                                ) : (
-                                  <span className="text-sm text-gray-400">0</span>
-                                )}
+                                ) : (<span className="text-xs text-gray-400">0</span>)}
                               </td>
                               <td className="px-4 py-3 text-center">
                                 {detail.correctedScans > 0 ? (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 text-sm font-medium">
-                                    {detail.correctedScans}
-                                  </span>
-                                ) : (
-                                  <span className="text-sm text-gray-400">0</span>
-                                )}
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-xs font-medium">{detail.correctedScans}</span>
+                                ) : (<span className="text-xs text-gray-400">0</span>)}
                               </td>
                               <td className="px-4 py-3 text-center">
                                 {detail.pendingScans > 0 ? (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 text-sm font-medium">
-                                    <Clock className="w-3.5 h-3.5" />
-                                    {detail.pendingScans}
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 text-xs font-medium">
+                                    <Clock className="w-3 h-3" />{detail.pendingScans}
                                   </span>
-                                ) : (
-                                  <span className="text-sm text-gray-400">0</span>
-                                )}
+                                ) : (<span className="text-xs text-gray-400">0</span>)}
                               </td>
                               <td className="px-4 py-3 text-center">
                                 <div className="flex items-center gap-2 justify-center">
-                                  <span className="text-sm font-semibold text-gray-900">
-                                    {detail.successRate}%
-                                  </span>
-                                  <div className="w-16 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                                    <div
-                                      className="h-full bg-gradient-to-r from-[#388E3C] to-[#2F7A33] transition-all duration-300"
-                                      style={{ width: `${Math.min(detail.successRate, 100)}%` }}
-                                    />
+                                  <span className="text-sm font-semibold text-gray-900">{detail.successRate}%</span>
+                                  <div className="w-14 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                                    <div className="h-full bg-gradient-to-r from-[#388E3C] to-[#2F7A33] transition-all duration-300" style={{ width: `${Math.min(detail.successRate, 100)}%` }} />
                                   </div>
                                 </div>
                               </td>
@@ -2043,12 +1895,10 @@ export default function ReportsPage() {
                     </table>
                   </div>
                 ) : (
-                  <div className="flex h-[200px] items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-gray-50">
-                    <div className="text-center">
-                      <AlertCircle className="w-10 h-10 text-gray-400 mx-auto mb-2" />
-                      <p className="text-sm font-medium text-gray-600">No performance data available</p>
-                      <p className="text-xs text-gray-500 mt-1">Data for {dateRangeLabel.toLowerCase()} will appear here once scans are recorded</p>
-                    </div>
+                  <div className="flex h-[200px] flex-col items-center justify-center rounded-xl bg-gray-50/70 text-center">
+                    <AlertCircle className="w-10 h-10 text-gray-300 mb-3" />
+                    <p className="text-sm font-medium text-gray-500">No performance data available</p>
+                    <p className="text-xs text-gray-400 mt-1">Data will appear once scans are recorded and validated.</p>
                   </div>
                 );
               })()}
