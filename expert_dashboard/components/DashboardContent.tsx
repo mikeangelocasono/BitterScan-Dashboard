@@ -240,8 +240,8 @@ function DashboardContent() {
   const tabs: { key: TabKey; label: string; count: number }[] = [
     { key: "all", label: "All Scans", count: totalScans },
     { key: "pending", label: "Pending", count: pendingValidations },
-    { key: "validated", label: "Validated", count: validatedScans },
-    { key: "corrected", label: "Corrected", count: correctedScans },
+    { key: "validated", label: "Confirmed", count: validatedScans },
+    { key: "corrected", label: "Corrections", count: correctedScans },
   ];
 
   return (
@@ -263,8 +263,8 @@ function DashboardContent() {
         {[
           { icon: Camera, label: "Total Scans", value: totalScans, iconColor: "text-blue-500", iconBg: "bg-blue-50" },
           { icon: Clock, label: "Pending Validation", value: pendingValidations, iconColor: "text-amber-500", iconBg: "bg-amber-50" },
-          { icon: CheckCircle2, label: "Validated", value: validatedScans, iconColor: "text-emerald-500", iconBg: "bg-emerald-50" },
-          { icon: Info, label: "Corrected", value: correctedScans, iconColor: "text-purple-500", iconBg: "bg-purple-50" }
+          { icon: CheckCircle2, label: "Confirmed Validations", value: validatedScans, iconColor: "text-emerald-500", iconBg: "bg-emerald-50" },
+          { icon: Info, label: "Corrections", value: correctedScans, iconColor: "text-purple-500", iconBg: "bg-purple-50" }
         ].map((s, idx) => (
           <StatCard key={s.label} icon={s.icon} label={s.label} value={s.value} iconColor={s.iconColor} iconBg={s.iconBg} index={idx} />
         ))}
