@@ -1194,7 +1194,7 @@ export default function ValidatePage() {
 							}
 							setDetailId(null);
 						}
-					}} maxWidthClass="max-w-5xl">
+					}} maxWidthClass="max-w-4xl">
 						<DialogContent className="p-0 flex flex-col max-h-[92vh] overflow-hidden">
 							{detailId && (() => {
 								const selectedScan = scans.find((scan: Scan) => scan.id.toString() === detailId);
