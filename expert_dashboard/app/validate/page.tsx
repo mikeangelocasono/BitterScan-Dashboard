@@ -295,25 +295,11 @@ export default function ValidatePage() {
 		}
 	}, [detailId, scans, decision]);
 
-	// Prevent body scroll when modal is open and fix dialog sizing
+	// Prevent body scroll when modal is open
 	useEffect(() => {
 		if (detailId) {
 			document.body.style.overflow = 'hidden';
-			// Fix dialog wrapper sizing for larger modals
-			const timer: NodeJS.Timeout = setTimeout((): void => {
-				const dialogWrapper = document.querySelector('[data-open="true"]');
-				if (dialogWrapper) {
-					(dialogWrapper as HTMLElement).style.maxWidth = '72rem'; // 6xl = 72rem
-					(dialogWrapper as HTMLElement).style.width = 'calc(100% - 2rem)';
-				}
-				// Reset scroll position to top when opening dialog
-				const scrollContainer = document.querySelector('.scrollable-details-content');
-				if (scrollContainer) {
-					scrollContainer.scrollTop = 0;
-				}
-			}, 10);
 			return (): void => {
-				clearTimeout(timer);
 				document.body.style.overflow = '';
 			};
 		} else {
@@ -1208,8 +1194,8 @@ export default function ValidatePage() {
 							}
 							setDetailId(null);
 						}
-					}}>
-						<DialogContent className="!max-w-5xl w-[calc(100%-1rem)] sm:w-[calc(100%-2rem)] max-w-[98vw] sm:max-w-[92vw] p-0 flex flex-col max-h-[92vh] h-auto overflow-hidden bg-white rounded-2xl shadow-2xl">
+					}} maxWidthClass="max-w-5xl">
+						<DialogContent className="p-0 flex flex-col max-h-[92vh] overflow-hidden">
 							{detailId && (() => {
 								const selectedScan = scans.find((scan: Scan) => scan.id.toString() === detailId);
 								if (!selectedScan) {

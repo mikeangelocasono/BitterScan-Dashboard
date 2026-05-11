@@ -20,7 +20,7 @@ export function Dialog({ open, onOpenChange, children, maxWidthClass = "sm:max-w
 		>
 			<div className="absolute inset-0 bg-black/40 transition-opacity duration-200" onClick={() => onOpenChange(false)} />
 			<div className="relative z-10 flex items-center justify-center min-h-screen p-2 sm:p-4">
-				<div className={clsx("w-full max-w-[calc(100vw-1rem)]", maxWidthClass, "bg-[var(--surface)] rounded-xl shadow-lg border border-[var(--color-border)] transform transition-all duration-200 ease-out scale-95 opacity-0 data-[open]:scale-100 data-[open]:opacity-100 max-h-[95vh] overflow-y-auto")} data-open={open ? "true" : undefined}>
+				<div className={clsx("w-full max-w-[calc(100vw-1rem)]", maxWidthClass, "bg-[var(--surface)] rounded-xl shadow-lg border border-[var(--color-border)] transform transition-all duration-200 ease-out scale-95 opacity-0 data-[open]:scale-100 data-[open]:opacity-100 max-h-[95vh] overflow-hidden")} data-open={open ? "true" : undefined}>
 					{children}
 				</div>
 			</div>
