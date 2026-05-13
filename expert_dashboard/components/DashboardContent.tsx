@@ -75,12 +75,12 @@ const StatCard = memo(({
     animate={{ y: 0, opacity: 1 }}
     transition={{ delay: index * 0.05, duration: 0.3 }}
   >
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 flex items-center justify-between hover:shadow-md transition-all duration-200 min-h-[88px]">
-      <div>
-        <p className="text-xs font-medium text-gray-500 mb-1 whitespace-nowrap">{label}</p>
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 flex items-center justify-between gap-3 hover:shadow-md transition-all duration-200 min-h-[88px] overflow-hidden">
+      <div className="min-w-0">
+        <p className="text-xs font-medium text-gray-500 mb-1">{label}</p>
         <p className="text-xl font-bold text-gray-900">{value.toLocaleString("en-US")}</p>
       </div>
-      <div className={`h-8 w-8 rounded-lg ${iconBg} flex items-center justify-center flex-shrink-0`}>
+      <div className={`h-9 w-9 rounded-lg ${iconBg} flex items-center justify-center flex-shrink-0`}>
         <Icon className={`h-4 w-4 ${iconColor}`} />
       </div>
     </div>
@@ -93,7 +93,7 @@ type TabKey = "all" | "pending" | "validated" | "corrected";
 
 function DashboardContent() {
   const { user, profile, loading: userLoading, sessionReady } = useUser();
-  const { scans, totalUsers, loading: dataLoading, error } = useData();
+  const { scans, totalUsers, validationHistory, loading: dataLoading, error } = useData();
   const [forceRender, setForceRender] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -155,10 +155,44 @@ function DashboardContent() {
     
     const total = validScans.length;
     const pending = validScans.filter(scan => {
-      return scan.status === 'Pending' || scan.status === 'Pending Validation';
+      const status = (scan.status || '').toLowerCase().trim();
+      return status.includes('pending') || status.includes('awaiting');
     }).length;
-    const validated = validScans.filter(scan => scan.status === 'Validated').length;
-    const corrected = validScans.filter(scan => scan.status === 'Corrected').length;
+
+    // Use validationHistory for confirmed vs corrections (same logic as admin dashboard)
+    // Build a Set of all valid scan identifiers
+    const validScanIds = new Set<string>();
+    validScans.forEach(s => {
+      if (s.scan_uuid) validScanIds.add(String(s.scan_uuid).trim());
+      if (s.id) validScanIds.add(String(s.id).trim());
+    });
+
+    // Deduplicate: keep only the latest validation per scan_id
+    const latestValidationPerScan = new Map<string, { status: string; validated_at: string }>();
+
+    if (validationHistory && validationHistory.length > 0) {
+      validationHistory.forEach((v) => {
+        const scanId = String(v.scan_id ?? '').trim();
+        if (!scanId || !validScanIds.has(scanId)) return;
+
+        const existing = latestValidationPerScan.get(scanId);
+        if (!existing || (v.validated_at && (!existing.validated_at || v.validated_at > existing.validated_at))) {
+          latestValidationPerScan.set(scanId, { status: (v.status || '').toLowerCase().trim(), validated_at: v.validated_at || '' });
+        }
+      });
+    }
+
+    let validated = 0;
+    let corrected = 0;
+
+    latestValidationPerScan.forEach(({ status }) => {
+      if (status === 'corrected') {
+        corrected++;
+      } else if (status === 'validated' || status === 'confirmed') {
+        validated++;
+      }
+    });
+
     const disease = validScans.filter(scan => scan.scan_type === 'leaf_disease').length;
     const ripeness = validScans.filter(scan => scan.scan_type === 'fruit_maturity').length;
     
@@ -170,7 +204,7 @@ function DashboardContent() {
       diseaseRecords: disease,
       ripenessRecords: ripeness,
     };
-  }, [validScans]);
+  }, [validScans, validationHistory]);
 
   // Filtered and sorted scans for the table
   const displayedScans = useMemo(() => {
