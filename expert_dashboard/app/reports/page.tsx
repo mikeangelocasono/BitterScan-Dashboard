@@ -1482,9 +1482,9 @@ export default function ReportsPage() {
           <Card className="shadow-sm border border-gray-200 bg-white rounded-xl overflow-hidden">
             <CardHeader className="px-6 py-5 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] rounded-t-xl">
               <CardTitle className="text-lg font-bold" style={{ color: '#ffffff' }}>Success Rate Overview <span className="ml-2 text-sm font-normal opacity-80">• {dateRangeLabel}</span></CardTitle>
-              <p className="text-xs mt-0.5" style={{ color: '#ffffff', opacity: 0.8 }}>Completed and pending expert validations</p>
+              <p className="text-xs mt-0.5" style={{ color: '#ffffff', opacity: 0.8 }}>Completed and pending expert validations for the selected period</p>
             </CardHeader>
-            <CardContent className="p-6">
+            <CardContent className="px-6 py-6">
               {(() => {
                 // Count validated scans (expert already reviewed — any completed status)
                 const validatedScans = filteredScans.filter(s => {
@@ -1503,68 +1503,98 @@ export default function ReportsPage() {
                 const pendingRate = totalSubmitted > 0 ? parseFloat(((pendingValidations / totalSubmitted) * 100).toFixed(1)) : 0;
 
                 return (
-                  <div className="space-y-6">
-                    {/* Main percentage */}
+                  <div className="space-y-7">
+                    {/* Main metric */}
                     <div className="text-center">
-                      <p className="text-5xl sm:text-6xl font-bold text-gray-900 tabular-nums">{validationCompletionRate}%</p>
-                      <p className="text-sm text-gray-500 mt-1">Validation Completion Rate</p>
+                      <p className="text-5xl sm:text-6xl font-extrabold text-[#388E3C] tabular-nums leading-none">{validationCompletionRate}%</p>
+                      <p className="text-sm font-medium text-gray-600 mt-2">Validation Completion Rate</p>
+                      <p className="text-xs text-gray-400 mt-0.5">{totalSubmitted} total submitted for validation</p>
                     </div>
 
-                    {/* Counts */}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-xl mx-auto">
-                      <div className="text-center p-4 rounded-xl bg-emerald-50 border border-emerald-100">
-                        <p className="text-2xl font-bold text-emerald-700 tabular-nums">{validatedScans}</p>
-                        <p className="text-xs font-medium text-emerald-600 mt-0.5">Validated Scans</p>
+                    {/* Three metric cards */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      {/* Validated */}
+                      <div className="flex items-center gap-3 p-4 rounded-xl bg-emerald-50/70 border border-emerald-100">
+                        <div className="h-10 w-10 rounded-lg bg-emerald-100 flex items-center justify-center flex-shrink-0">
+                          <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xl font-bold text-emerald-700 tabular-nums leading-tight">{validatedScans}</p>
+                          <p className="text-[11px] font-medium text-emerald-600">Validated Scans</p>
+                          <p className="text-[10px] text-emerald-500/80">Reviewed by expert</p>
+                        </div>
                       </div>
-                      <div className="text-center p-4 rounded-xl bg-amber-50 border border-amber-100">
-                        <p className="text-2xl font-bold text-amber-700 tabular-nums">{pendingValidations}</p>
-                        <p className="text-xs font-medium text-amber-600 mt-0.5">Pending Validations</p>
+                      {/* Pending */}
+                      <div className="flex items-center gap-3 p-4 rounded-xl bg-amber-50/70 border border-amber-100">
+                        <div className="h-10 w-10 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
+                          <Clock3 className="h-5 w-5 text-amber-600" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xl font-bold text-amber-700 tabular-nums leading-tight">{pendingValidations}</p>
+                          <p className="text-[11px] font-medium text-amber-600">Pending Validations</p>
+                          <p className="text-[10px] text-amber-500/80">Waiting for review</p>
+                        </div>
                       </div>
-                      <div className="text-center p-4 rounded-xl bg-gray-50 border border-gray-200">
-                        <p className="text-2xl font-bold text-gray-700 tabular-nums">{totalSubmitted}</p>
-                        <p className="text-xs font-medium text-gray-500 mt-0.5">Total Submitted</p>
+                      {/* Total */}
+                      <div className="flex items-center gap-3 p-4 rounded-xl bg-slate-50 border border-slate-200">
+                        <div className="h-10 w-10 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
+                          <Camera className="h-5 w-5 text-slate-600" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xl font-bold text-slate-700 tabular-nums leading-tight">{totalSubmitted}</p>
+                          <p className="text-[11px] font-medium text-slate-600">Total Submitted</p>
+                          <p className="text-[10px] text-slate-400">For expert review</p>
+                        </div>
                       </div>
                     </div>
 
-                    {/* Stacked bar */}
-                    <div className="max-w-lg mx-auto">
-                      <div className="h-4 w-full bg-gray-100 rounded-full overflow-hidden flex">
+                    {/* Stacked progress bar */}
+                    <div>
+                      <div className="h-3.5 w-full bg-gray-100 rounded-full overflow-hidden flex">
                         {totalSubmitted > 0 ? (
                           <>
-                            <div
-                              className="h-full bg-emerald-500 transition-all duration-500"
-                              style={{ width: `${validationCompletionRate}%` }}
-                            />
-                            <div
-                              className="h-full bg-amber-400 transition-all duration-500"
-                              style={{ width: `${pendingRate}%` }}
-                            />
+                            {validationCompletionRate > 0 && (
+                              <div
+                                className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-700 ease-out"
+                                style={{ width: `${validationCompletionRate}%` }}
+                              />
+                            )}
+                            {pendingRate > 0 && (
+                              <div
+                                className="h-full bg-gradient-to-r from-amber-400 to-amber-300 transition-all duration-700 ease-out"
+                                style={{ width: `${pendingRate}%` }}
+                              />
+                            )}
                           </>
                         ) : (
-                          <div className="h-full w-full bg-gray-200" />
+                          <div className="h-full w-full bg-gray-200 rounded-full" />
                         )}
                       </div>
                       {/* Legend */}
-                      <div className="flex items-center justify-center gap-6 mt-3">
+                      <div className="flex items-center justify-center gap-5 mt-2.5">
                         <div className="flex items-center gap-1.5">
-                          <div className="w-3 h-3 rounded-full bg-emerald-500" />
-                          <span className="text-xs text-gray-600">Validated ({validationCompletionRate}%)</span>
+                          <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                          <span className="text-[11px] text-gray-600 font-medium">Validated {validationCompletionRate}%</span>
                         </div>
                         <div className="flex items-center gap-1.5">
-                          <div className="w-3 h-3 rounded-full bg-amber-400" />
-                          <span className="text-xs text-gray-600">Pending ({pendingRate}%)</span>
+                          <div className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+                          <span className="text-[11px] text-gray-600 font-medium">Pending {pendingRate}%</span>
                         </div>
                       </div>
                     </div>
 
-                    {/* Insight text */}
-                    <p className="text-xs text-gray-400 text-center">
-                      {totalSubmitted === 0
-                        ? 'No submitted scans found for the selected period.'
-                        : validationCompletionRate >= 80
-                          ? 'Most submitted scans have already been reviewed by the expert, showing that the validation process is nearly complete for the selected period.'
-                          : 'Several submitted scans are still pending expert review for the selected period.'}
-                    </p>
+                    {/* Insight box */}
+                    <div className={`rounded-lg px-4 py-3 ${totalSubmitted === 0 ? 'bg-gray-50 border border-gray-100' : validationCompletionRate >= 80 ? 'bg-emerald-50/60 border border-emerald-100' : 'bg-amber-50/60 border border-amber-100'}`}>
+                      <p className={`text-xs leading-relaxed ${totalSubmitted === 0 ? 'text-gray-500' : validationCompletionRate >= 80 ? 'text-emerald-700' : 'text-amber-700'}`}>
+                        {totalSubmitted === 0
+                          ? 'No validation records are available for the selected period.'
+                          : pendingValidations === 0
+                            ? 'All submitted scans for the selected period have already been reviewed by the expert.'
+                            : validationCompletionRate >= 80
+                              ? `Most submitted scans have already been reviewed by the expert, with only ${pendingValidations} scan${pendingValidations === 1 ? '' : 's'} still pending validation.`
+                              : `Several submitted scans are still pending expert review for the selected period. ${pendingValidations} scan${pendingValidations === 1 ? '' : 's'} awaiting validation.`}
+                      </p>
+                    </div>
                   </div>
                 );
               })()}
