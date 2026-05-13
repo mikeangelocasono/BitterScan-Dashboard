@@ -126,7 +126,8 @@ function ManageDiseaseInfoContent() {
   const [manualBisayaEdits, setManualBisayaEdits] = useState<Record<string, boolean>>({});
   const [lastTranslatedEn, setLastTranslatedEn] = useState<Record<string, string>>({});
   const [translationStatus, setTranslationStatus] = useState<Record<string, string>>({});
-  const debounceTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const debounceTimers = useRef<Record<string, any>>({});
 
   const effectiveRole = useMemo(() => profile?.role || user?.user_metadata?.role || null, [profile?.role, user?.user_metadata?.role]);
   const isAuthorized = useMemo(() => effectiveRole === "expert" || effectiveRole === "admin", [effectiveRole]);
@@ -355,20 +356,25 @@ function ManageDiseaseInfoContent() {
   useEffect(() => {
     if (!isDialogOpen || !editingDisease) return;
 
-    const fields: { key: string; en: string | null; bi: string | null; setBi: (text: string) => void }[] = [
-      { key: 'description', en: editingDisease.description_en, bi: editingDisease.description_bi, setBi: (t) => setEditingDisease(prev => prev ? { ...prev, description_bi: t } : prev) },
-      { key: 'symptoms', en: editingDisease.symptoms_en, bi: editingDisease.symptoms_bi, setBi: (t) => setEditingDisease(prev => prev ? { ...prev, symptoms_bi: t } : prev) },
-      { key: 'treatment', en: editingDisease.treatment_en, bi: editingDisease.treatment_bi, setBi: (t) => setEditingDisease(prev => prev ? { ...prev, treatment_bi: t } : prev) },
-      { key: 'products', en: editingDisease.products_en, bi: editingDisease.products_bi, setBi: (t) => setEditingDisease(prev => prev ? { ...prev, products_bi: t } : prev) },
-      { key: 'prevention', en: editingDisease.prevention_en, bi: editingDisease.prevention_bi, setBi: (t) => setEditingDisease(prev => prev ? { ...prev, prevention_bi: t } : prev) },
-    ];
+    // Delay auto-translate to ensure component is fully mounted
+    const timer = setTimeout(() => {
+      if (!editingDisease) return;
+      const fields: { key: string; en: string | null; bi: string | null; setBi: (text: string) => void }[] = [
+        { key: 'description', en: editingDisease.description_en, bi: editingDisease.description_bi, setBi: (t) => setEditingDisease(prev => prev ? { ...prev, description_bi: t } : prev) },
+        { key: 'symptoms', en: editingDisease.symptoms_en, bi: editingDisease.symptoms_bi, setBi: (t) => setEditingDisease(prev => prev ? { ...prev, symptoms_bi: t } : prev) },
+        { key: 'treatment', en: editingDisease.treatment_en, bi: editingDisease.treatment_bi, setBi: (t) => setEditingDisease(prev => prev ? { ...prev, treatment_bi: t } : prev) },
+        { key: 'products', en: editingDisease.products_en, bi: editingDisease.products_bi, setBi: (t) => setEditingDisease(prev => prev ? { ...prev, products_bi: t } : prev) },
+        { key: 'prevention', en: editingDisease.prevention_en, bi: editingDisease.prevention_bi, setBi: (t) => setEditingDisease(prev => prev ? { ...prev, prevention_bi: t } : prev) },
+      ];
 
-    // Only auto-translate fields where English exists but Bisaya is empty
-    fields.forEach(({ key, en, bi, setBi }) => {
-      if (en && en.trim() && (!bi || !bi.trim())) {
-        scheduleAutoTranslate(key, en, setBi);
-      }
-    });
+      fields.forEach(({ key, en, bi, setBi }) => {
+        if (en && en.trim() && (!bi || !bi.trim())) {
+          scheduleAutoTranslate(key, en, setBi);
+        }
+      });
+    }, 500);
+
+    return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDialogOpen]);
 
