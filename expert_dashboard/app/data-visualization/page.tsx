@@ -1038,7 +1038,7 @@ export default function DataVisualizationPage() {
                   icon: Leaf,
                   label: "Most Detected Leaf Disease",
                   value: mostDetectedDiseaseData.name,
-                  sub: `${mostDetectedDiseaseData.count} scan${mostDetectedDiseaseData.count === 1 ? '' : 's'}`,
+                  sub: `${mostDetectedDiseaseData.count}`,
                   iconBg: "bg-red-50",
                   iconColor: "text-red-600",
                   valueColor: "text-gray-900",
@@ -1047,7 +1047,7 @@ export default function DataVisualizationPage() {
                   icon: Apple,
                   label: "Most Detected Fruit Ripeness",
                   value: mostDetectedRipenessData.name,
-                  sub: `${mostDetectedRipenessData.count} scan${mostDetectedRipenessData.count === 1 ? '' : 's'}`,
+                  sub: `${mostDetectedRipenessData.count}`,
                   iconBg: "bg-amber-50",
                   iconColor: "text-amber-600",
                   valueColor: "text-gray-900",
@@ -1065,8 +1065,10 @@ export default function DataVisualizationPage() {
                       </div>
                     </CardHeader>
                     <CardContent className="pb-3 pt-0.5 px-3.5">
-                      <p className={`text-lg font-bold ${metric.valueColor}`}>{metric.value}</p>
-                      {metric.sub && <p className="text-[10px] text-gray-400 mt-0.5">{metric.sub}</p>}
+                      <div className="flex items-center justify-between">
+                        <p className={`text-lg font-bold ${metric.valueColor}`}>{metric.value}</p>
+                        {metric.sub && <span className="text-lg font-bold text-gray-900">{metric.sub}</span>}
+                      </div>
                     </CardContent>
                   </Card>
                 );
