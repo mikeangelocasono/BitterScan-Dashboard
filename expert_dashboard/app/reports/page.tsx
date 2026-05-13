@@ -363,6 +363,15 @@ export default function ReportsPage() {
   const [customEndDate, setCustomEndDate] = useState<string>("");
   const [showCustomPicker, setShowCustomPicker] = useState(false);
   
+  // Performance Details pagination state
+  const [perfPage, setPerfPage] = useState(1);
+  const perfRowsPerPage = 5;
+
+  // Reset performance page when date range changes
+  useEffect(() => {
+    setPerfPage(1);
+  }, [range, customStartDate, customEndDate]);
+  
   // Visibility state - prevent chart rendering issues when tab is hidden
   const [isPageVisible, setIsPageVisible] = useState(true);
   const [chartKey, setChartKey] = useState(0);
@@ -1764,7 +1773,7 @@ export default function ReportsPage() {
             </CardHeader>
             <CardContent className="p-6">
               {(() => {
-                const performanceDetails = [];
+                const performanceDetails: { period: string; totalScans: number; validatedScans: number; correctedScans: number; pendingScans: number; successRate: number }[] = [];
                 if (range === "daily") {
                   const base = normalizeToStartOfDayUTC(rangeStart);
                   for (let hour = 0; hour < 24; hour++) {
@@ -1811,11 +1820,11 @@ export default function ReportsPage() {
                     const correctedScans = dayScans.filter(s => s.status === "Corrected").length;
                     const pendingScans = dayScans.filter(s => s.status === "Pending" || s.status === "Pending Validation").length;
                     const successRate = totalScans > 0 ? ((validatedScans + correctedScans) / totalScans) * 100 : 0;
-                    let periodLabel;
+                    let periodLabel: string;
                     if (range === "weekly") {
-                      periodLabel = WEEKDAY_FORMATTER.format(dayStart);
+                      periodLabel = dayStart.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
                     } else {
-                      periodLabel = `Day ${dayIdx + 1}`;
+                      periodLabel = dayStart.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
                     }
                     performanceDetails.push({
                       period: periodLabel,
@@ -1828,71 +1837,133 @@ export default function ReportsPage() {
                   }
                 }
                 const hasAnyData = performanceDetails.some(d => d.totalScans > 0);
-                return hasAnyData ? (
-                  <div className="overflow-x-auto">
-                    <table className="w-full border-collapse">
-                      <thead>
-                        <tr className="bg-gray-50/80 border-b border-gray-200">
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">{range === "daily" ? "Hour" : "Day"}</th>
-                          <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Total Scans</th>
-                          <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Validated</th>
-                          <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Corrected</th>
-                          <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Pending</th>
-                          <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Success Rate</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {performanceDetails.map((detail, index) => {
-                          const hasActivity = detail.totalScans > 0;
-                          return (
-                            <motion.tr
-                              key={detail.period}
-                              initial={{ opacity: 0, y: 10 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              transition={{ duration: 0.3, delay: index * 0.02 }}
-                              className={`border-b border-gray-100 transition-colors ${hasActivity ? "hover:bg-gray-50/70" : "opacity-50"}`}
-                            >
-                              <td className="px-4 py-3 text-sm font-medium text-gray-900 whitespace-nowrap">{detail.period}</td>
-                              <td className="px-4 py-3 text-center text-sm font-semibold text-gray-700">{detail.totalScans}</td>
-                              <td className="px-4 py-3 text-center">
-                                {detail.validatedScans > 0 ? (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-50 text-green-700 text-xs font-medium">
-                                    <CheckCircle2 className="w-3 h-3" />{detail.validatedScans}
-                                  </span>
-                                ) : (<span className="text-xs text-gray-400">0</span>)}
-                              </td>
-                              <td className="px-4 py-3 text-center">
-                                {detail.correctedScans > 0 ? (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-xs font-medium">{detail.correctedScans}</span>
-                                ) : (<span className="text-xs text-gray-400">0</span>)}
-                              </td>
-                              <td className="px-4 py-3 text-center">
-                                {detail.pendingScans > 0 ? (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 text-xs font-medium">
-                                    <Clock className="w-3 h-3" />{detail.pendingScans}
-                                  </span>
-                                ) : (<span className="text-xs text-gray-400">0</span>)}
-                              </td>
-                              <td className="px-4 py-3 text-center">
-                                <div className="flex items-center gap-2 justify-center">
-                                  <span className="text-sm font-semibold text-gray-900">{detail.successRate}%</span>
-                                  <div className="w-14 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                                    <div className="h-full bg-gradient-to-r from-[#388E3C] to-[#2F7A33] transition-all duration-300" style={{ width: `${Math.min(detail.successRate, 100)}%` }} />
+
+                if (!hasAnyData) {
+                  return (
+                    <div className="flex h-[200px] flex-col items-center justify-center rounded-xl bg-gray-50/70 text-center">
+                      <AlertCircle className="w-10 h-10 text-gray-300 mb-3" />
+                      <p className="text-sm font-medium text-gray-500">No performance data available</p>
+                      <p className="text-xs text-gray-400 mt-1">Data will appear once scans are recorded and validated.</p>
+                    </div>
+                  );
+                }
+
+                // Pagination calculations
+                const totalRecords = performanceDetails.length;
+                const totalPages = Math.ceil(totalRecords / perfRowsPerPage);
+                const safePage = Math.min(perfPage, totalPages);
+                const startIndex = (safePage - 1) * perfRowsPerPage;
+                const endIndex = Math.min(startIndex + perfRowsPerPage, totalRecords);
+                const paginatedDetails = performanceDetails.slice(startIndex, endIndex);
+
+                return (
+                  <>
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse">
+                        <thead>
+                          <tr className="bg-gray-50/80 border-b border-gray-200">
+                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">{range === "daily" ? "Hour" : "Date"}</th>
+                            <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Total Scans</th>
+                            <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Validated</th>
+                            <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Corrected</th>
+                            <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Pending</th>
+                            <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Success Rate</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {paginatedDetails.map((detail, index) => {
+                            const hasActivity = detail.totalScans > 0;
+                            return (
+                              <motion.tr
+                                key={`${detail.period}-${startIndex + index}`}
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ duration: 0.3, delay: index * 0.02 }}
+                                className={`border-b border-gray-100 transition-colors ${hasActivity ? "hover:bg-gray-50/70" : "opacity-50"}`}
+                              >
+                                <td className="px-4 py-3 text-sm font-medium text-gray-900 whitespace-nowrap">{detail.period}</td>
+                                <td className="px-4 py-3 text-center text-sm font-semibold text-gray-700">{detail.totalScans}</td>
+                                <td className="px-4 py-3 text-center">
+                                  {detail.validatedScans > 0 ? (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-50 text-green-700 text-xs font-medium">
+                                      <CheckCircle2 className="w-3 h-3" />{detail.validatedScans}
+                                    </span>
+                                  ) : (<span className="text-xs text-gray-400">0</span>)}
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  {detail.correctedScans > 0 ? (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-xs font-medium">{detail.correctedScans}</span>
+                                  ) : (<span className="text-xs text-gray-400">0</span>)}
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  {detail.pendingScans > 0 ? (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 text-xs font-medium">
+                                      <Clock className="w-3 h-3" />{detail.pendingScans}
+                                    </span>
+                                  ) : (<span className="text-xs text-gray-400">0</span>)}
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  <div className="flex items-center gap-2 justify-center">
+                                    <span className="text-sm font-semibold text-gray-900">{detail.successRate}%</span>
+                                    <div className="w-14 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                                      <div className="h-full bg-gradient-to-r from-[#388E3C] to-[#2F7A33] transition-all duration-300" style={{ width: `${Math.min(detail.successRate, 100)}%` }} />
+                                    </div>
                                   </div>
-                                </div>
-                              </td>
-                            </motion.tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <div className="flex h-[200px] flex-col items-center justify-center rounded-xl bg-gray-50/70 text-center">
-                    <AlertCircle className="w-10 h-10 text-gray-300 mb-3" />
-                    <p className="text-sm font-medium text-gray-500">No performance data available</p>
-                    <p className="text-xs text-gray-400 mt-1">Data will appear once scans are recorded and validated.</p>
-                  </div>
+                                </td>
+                              </motion.tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Pagination Footer */}
+                    {totalPages > 1 && (
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mt-4 pt-4 border-t border-gray-100">
+                        <p className="text-xs text-gray-500">
+                          Showing {startIndex + 1} to {endIndex} of {totalRecords} records
+                        </p>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => setPerfPage(prev => Math.max(prev - 1, 1))}
+                            disabled={safePage === 1}
+                            className="px-2.5 py-1 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          >
+                            Previous
+                          </button>
+                          {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                            let pageNum = i + 1;
+                            if (totalPages > 5) {
+                              if (safePage > 3) {
+                                pageNum = safePage - 2 + i;
+                              }
+                              if (pageNum > totalPages) pageNum = totalPages - 4 + i;
+                            }
+                            return (
+                              <button
+                                key={pageNum}
+                                onClick={() => setPerfPage(pageNum)}
+                                className={`min-w-[28px] px-2 py-1 text-xs font-medium rounded-md transition-colors ${
+                                  safePage === pageNum
+                                    ? 'bg-[#388E3C] text-white'
+                                    : 'text-gray-600 hover:bg-gray-50 border border-gray-200'
+                                }`}
+                              >
+                                {pageNum}
+                              </button>
+                            );
+                          })}
+                          <button
+                            onClick={() => setPerfPage(prev => Math.min(prev + 1, totalPages))}
+                            disabled={safePage === totalPages}
+                            className="px-2.5 py-1 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          >
+                            Next
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 );
               })()}
             </CardContent>
