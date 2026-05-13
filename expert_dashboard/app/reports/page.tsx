@@ -361,6 +361,10 @@ export default function ReportsPage() {
     
     return scans.filter((scan) => {
       if (!scan.created_at) return false;
+      // Exclude scans with Unknown status or Unknown AI prediction
+      if ((scan.status as string) === "Unknown") return false;
+      const aiResult = getAiPrediction(scan);
+      if (aiResult === "Unknown") return false;
       // Exclude Non-Ampalaya scans from all report metrics
       if (isNonAmpalayaScan(scan)) return false;
       try {

@@ -520,8 +520,14 @@ export default function DataVisualizationPage() {
         return [];
       }
       const scans = Array.isArray(dataContext.scans) ? dataContext.scans : [];
-      // Exclude Non-Ampalaya scans — they are not valid Ampalaya detections
-      const filtered = scans.filter(scan => !isNonAmpalayaScan(scan));
+      // Exclude Non-Ampalaya scans and Unknown predictions
+      const filtered = scans.filter(scan => {
+        if (isNonAmpalayaScan(scan)) return false;
+        if ((scan.status as string) === 'Unknown') return false;
+        const aiResult = getAiPrediction(scan);
+        if (aiResult === 'Unknown') return false;
+        return true;
+      });
       console.log('[DataViz] Total scans loaded:', filtered.length, '(excluded', scans.length - filtered.length, 'Non-Ampalaya)');
       return filtered;
     } catch (error) {
