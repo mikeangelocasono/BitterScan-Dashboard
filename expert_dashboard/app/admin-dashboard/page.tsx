@@ -197,12 +197,12 @@ function AdminDashboardContent() {
         }].map((card) => {
           const Icon = card.icon;
           return (
-            <div key={card.label} className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 flex items-center justify-between hover:shadow-md transition-all duration-200 min-h-[88px]">
-              <div>
-                <p className="text-xs font-medium text-gray-500 mb-1 whitespace-nowrap">{card.label}</p>
+            <div key={card.label} className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 flex items-center justify-between gap-3 hover:shadow-md transition-all duration-200 min-h-[88px] overflow-hidden">
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-gray-500 mb-1">{card.label}</p>
                 <p className="text-xl font-bold text-gray-900">{card.value.toLocaleString()}</p>
               </div>
-              <div className={`h-8 w-8 rounded-lg ${card.bgTone} flex items-center justify-center flex-shrink-0`}>
+              <div className={`h-9 w-9 rounded-lg ${card.bgTone} flex items-center justify-center flex-shrink-0`}>
                 <Icon className={`h-4 w-4 ${card.tone}`} />
               </div>
             </div>
