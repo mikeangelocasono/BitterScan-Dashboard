@@ -672,19 +672,16 @@ export default function DataVisualizationPage() {
   }, [dateFilteredScans]);
 
   // Calculate Most Detected Leaf Disease
-  const mostDetectedDisease = useMemo(() => {
+  const mostDetectedDiseaseData = useMemo(() => {
     const diseaseCounts = new Map<string, number>();
     dateFilteredScans.filter(isLeafDiseaseScan).forEach((scan) => {
       const prediction = getAiPrediction(scan);
-      // Only filter Unknown in this specific calculation
       if (prediction && prediction !== 'Unknown') {
         diseaseCounts.set(prediction, (diseaseCounts.get(prediction) || 0) + 1);
       }
     });
-    
-    console.log('[DataViz] Most Detected Leaf Disease counts:', Object.fromEntries(diseaseCounts));
 
-    if (diseaseCounts.size === 0) return "No data";
+    if (diseaseCounts.size === 0) return { name: "No data", count: 0 };
     
     let maxDisease = "";
     let maxCount = 0;
@@ -695,23 +692,20 @@ export default function DataVisualizationPage() {
       }
     });
 
-    return maxDisease || "No data";
+    return { name: maxDisease || "No data", count: maxCount };
   }, [dateFilteredScans]);
 
   // Calculate Most Detected Fruit Ripeness
-  const mostDetectedRipeness = useMemo(() => {
+  const mostDetectedRipenessData = useMemo(() => {
     const ripenessCounts = new Map<string, number>();
     dateFilteredScans.filter(isFruitRipenessScan).forEach((scan) => {
       const prediction = getAiPrediction(scan);
-      // Only filter Unknown in this specific calculation
       if (prediction && prediction !== 'Unknown') {
         ripenessCounts.set(prediction, (ripenessCounts.get(prediction) || 0) + 1);
       }
     });
-    
-    console.log('[DataViz] Most Detected Fruit Ripeness counts:', Object.fromEntries(ripenessCounts));
 
-    if (ripenessCounts.size === 0) return "No data";
+    if (ripenessCounts.size === 0) return { name: "No data", count: 0 };
     
     let maxRipeness = "";
     let maxCount = 0;
@@ -722,7 +716,7 @@ export default function DataVisualizationPage() {
       }
     });
 
-    return maxRipeness || "No data";
+    return { name: maxRipeness || "No data", count: maxCount };
   }, [dateFilteredScans]);
 
   // Calculate Average Monthly Performance
@@ -1047,8 +1041,8 @@ export default function DataVisualizationPage() {
                 {
                   icon: Leaf,
                   label: "Most Detected Leaf Disease",
-                  value: mostDetectedDisease,
-                  sub: "",
+                  value: mostDetectedDiseaseData.name,
+                  sub: `${mostDetectedDiseaseData.count} scan${mostDetectedDiseaseData.count === 1 ? '' : 's'}`,
                   iconBg: "bg-red-50",
                   iconColor: "text-red-600",
                   valueColor: "text-gray-900",
@@ -1056,8 +1050,8 @@ export default function DataVisualizationPage() {
                 {
                   icon: Apple,
                   label: "Most Detected Fruit Ripeness",
-                  value: mostDetectedRipeness,
-                  sub: "",
+                  value: mostDetectedRipenessData.name,
+                  sub: `${mostDetectedRipenessData.count} scan${mostDetectedRipenessData.count === 1 ? '' : 's'}`,
                   iconBg: "bg-amber-50",
                   iconColor: "text-amber-600",
                   valueColor: "text-gray-900",
@@ -1076,6 +1070,7 @@ export default function DataVisualizationPage() {
                     </CardHeader>
                     <CardContent className="pb-3 pt-0.5 px-3.5">
                       <p className={`text-lg font-bold ${metric.valueColor}`}>{metric.value}</p>
+                      {metric.sub && <p className="text-[10px] text-gray-400 mt-0.5">{metric.sub}</p>}
                     </CardContent>
                   </Card>
                 );
