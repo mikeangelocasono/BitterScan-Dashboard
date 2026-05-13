@@ -73,10 +73,36 @@ function AdminDashboardContent() {
       return { total: 0, pending: 0, confirmed: 0, corrections: 0 };
     }
     const total = validScans.length;
-    const pending = validScans.filter((s) => s.status === "Pending" || s.status === "Pending Validation").length;
-    // Use validationHistory for accurate confirmed vs corrected counts
-    const confirmed = validationHistory ? validationHistory.filter((v) => v.status === "Validated").length : 0;
-    const corrections = validationHistory ? validationHistory.filter((v) => v.status === "Corrected").length : 0;
+
+    // Pending = scans still awaiting expert review (from scan table status)
+    const pending = validScans.filter((s) => {
+      const status = (s.status || '').toLowerCase().trim();
+      return status.includes('pending') || status.includes('awaiting');
+    }).length;
+
+    // For confirmed vs corrections, use validationHistory but only count entries
+    // that correspond to scans in our validScans set (same filtering applied)
+    // This ensures confirmed + corrections <= total - pending
+    const validScanUuids = new Set(validScans.map(s => s.scan_uuid).filter(Boolean));
+
+    let confirmed = 0;
+    let corrections = 0;
+
+    if (validationHistory && validationHistory.length > 0) {
+      validationHistory.forEach((v) => {
+        // Only count if this validation belongs to a scan in our filtered set
+        const scanId = typeof v.scan_id === 'string' ? v.scan_id.trim() : '';
+        if (!scanId || !validScanUuids.has(scanId)) return;
+
+        const status = (v.status || '').toLowerCase().trim();
+        if (status === 'corrected') {
+          corrections++;
+        } else if (status === 'validated' || status === 'confirmed') {
+          confirmed++;
+        }
+      });
+    }
+
     return { total, pending, confirmed, corrections };
   }, [validScans, validationHistory]);
 
