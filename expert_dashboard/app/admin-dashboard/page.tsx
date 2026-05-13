@@ -80,8 +80,8 @@ function AdminDashboardContent() {
       return status.includes('pending') || status.includes('awaiting');
     }).length;
 
-    // For confirmed vs corrections, use validationHistory but only count entries
-    // that correspond to scans in our validScans set
+    // For confirmed vs corrections, use validationHistory but deduplicate per scan
+    // Only count the LATEST validation entry per scan_id to avoid double-counting
     // Build a Set of all valid scan identifiers (scan_uuid and string id)
     const validScanIds = new Set<string>();
     validScans.forEach(s => {
@@ -89,23 +89,31 @@ function AdminDashboardContent() {
       if (s.id) validScanIds.add(String(s.id).trim());
     });
 
-    let confirmed = 0;
-    let corrections = 0;
+    // Deduplicate: keep only the latest validation per scan_id
+    const latestValidationPerScan = new Map<string, { status: string; validated_at: string }>();
 
     if (validationHistory && validationHistory.length > 0) {
       validationHistory.forEach((v) => {
-        // Match by scan_id (could be UUID or numeric ID)
         const scanId = String(v.scan_id ?? '').trim();
         if (!scanId || !validScanIds.has(scanId)) return;
 
-        const status = (v.status || '').toLowerCase().trim();
-        if (status === 'corrected') {
-          corrections++;
-        } else if (status === 'validated' || status === 'confirmed') {
-          confirmed++;
+        const existing = latestValidationPerScan.get(scanId);
+        if (!existing || (v.validated_at && (!existing.validated_at || v.validated_at > existing.validated_at))) {
+          latestValidationPerScan.set(scanId, { status: (v.status || '').toLowerCase().trim(), validated_at: v.validated_at || '' });
         }
       });
     }
+
+    let confirmed = 0;
+    let corrections = 0;
+
+    latestValidationPerScan.forEach(({ status }) => {
+      if (status === 'corrected') {
+        corrections++;
+      } else if (status === 'validated' || status === 'confirmed') {
+        confirmed++;
+      }
+    });
 
     return { total, pending, confirmed, corrections };
   }, [validScans, validationHistory]);
