@@ -829,12 +829,10 @@ export default function DataVisualizationPage() {
       "Downy Mildew": 0,
       "Fusarium Wilt": 0,
       Healthy: 0,
-      Unknown: 0,
     };
     selectedFarmScans.filter(isLeafDiseaseScan).forEach((scan) => {
       const pred = getAiPrediction(scan);
-      if (pred && counts[pred] !== undefined) counts[pred]++;
-      else if (pred) counts["Unknown"]++;
+      if (pred && pred !== 'Unknown' && counts[pred] !== undefined) counts[pred]++;
     });
     return Object.entries(counts).map(([name, value]) => ({ name, value }));
   }, [selectedFarmScans]);
@@ -845,12 +843,10 @@ export default function DataVisualizationPage() {
       Mature: 0,
       Overmature: 0,
       Overripe: 0,
-      Unknown: 0,
     };
     selectedFarmScans.filter(isFruitRipenessScan).forEach((scan) => {
       const pred = getAiPrediction(scan);
-      if (pred && counts[pred] !== undefined) counts[pred]++;
-      else if (pred) counts["Unknown"]++;
+      if (pred && pred !== 'Unknown' && counts[pred] !== undefined) counts[pred]++;
     });
     return Object.entries(counts).map(([name, value]) => ({ name, value }));
   }, [selectedFarmScans]);
