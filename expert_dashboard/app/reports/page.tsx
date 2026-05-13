@@ -10,10 +10,6 @@ import { Loader2, AlertCircle, TrendingUp, Camera, CheckCircle2, Download, Calen
 import {
   LineChart,
   Line,
-  AreaChart,
-  Area,
-  BarChart,
-  Bar,
   PieChart as RechartsPieChart,
   Pie,
   Cell,
@@ -237,125 +233,6 @@ function buildScansTrend(range: Range, scans: Scan[], rangeStart: Date, rangeEnd
   });
 }
 
-type SuccessRateDatum = {
-  period: string;
-  successRate: number;
-  totalScans: number;
-  validatedScans: number;
-};
-
-function buildSuccessRateTrend(
-  range: Range,
-  scans: Scan[],
-  rangeStart: Date,
-  rangeEnd: Date
-): SuccessRateDatum[] {
-  if (range === "daily") {
-    // Today View: Show hourly success rate
-    const base = normalizeToStartOfDayUTC(rangeStart);
-    const scanCounts = new Map<number, number>();
-    const validatedCounts = new Map<number, number>();
-
-    if (scans && scans.length > 0) {
-      scans.forEach((scan) => {
-        if (!scan.created_at) return;
-        try {
-          const createdAt = new Date(scan.created_at);
-          if (isNaN(createdAt.getTime())) return;
-          if (createdAt < base || createdAt > rangeEnd) return;
-          const hour = createdAt.getUTCHours(); // Use UTC hour directly
-          scanCounts.set(hour, (scanCounts.get(hour) ?? 0) + 1);
-          
-          // Count validated/corrected scans
-          if (scan.status === "Validated" || scan.status === "Corrected") {
-            validatedCounts.set(hour, (validatedCounts.get(hour) ?? 0) + 1);
-          }
-        } catch {
-          return;
-        }
-      });
-    }
-
-    // Return all 24 hours
-    return Array.from({ length: 24 }, (_, hour) => {
-      // Create hour start time in Philippine timezone
-      const hourStart = new Date(base.getTime() + (hour * 60 * 60 * 1000));
-      const total = scanCounts.get(hour) ?? 0;
-      const validated = validatedCounts.get(hour) ?? 0;
-      const rate = total > 0 ? (validated / total) * 100 : 0;
-      
-      return {
-        period: HOUR_FORMATTER.format(hourStart),
-        successRate: parseFloat(rate.toFixed(1)),
-        totalScans: total,
-        validatedScans: validated,
-      };
-    });
-  }
-
-  const startDay = normalizeToStartOfDayUTC(rangeStart);
-  const endDay = normalizeToStartOfDayUTC(rangeEnd);
-  const totalDays = Math.max(1, Math.floor((endDay.getTime() - startDay.getTime()) / ONE_DAY) + 1);
-
-  const scanCounts = new Map<number, number>();
-  const validatedCounts = new Map<number, number>();
-
-  if (scans && scans.length > 0) {
-    scans.forEach((scan) => {
-      if (!scan.created_at) return;
-      try {
-        const createdAt = new Date(scan.created_at);
-        if (isNaN(createdAt.getTime())) return;
-        if (createdAt < startDay || createdAt > rangeEnd) return;
-        const dayIndex = Math.floor((normalizeToStartOfDayUTC(createdAt).getTime() - startDay.getTime()) / ONE_DAY);
-        if (dayIndex < 0 || dayIndex >= totalDays) return;
-        
-        scanCounts.set(dayIndex, (scanCounts.get(dayIndex) ?? 0) + 1);
-        
-        // Count validated/corrected scans
-        if (scan.status === "Validated" || scan.status === "Corrected") {
-          validatedCounts.set(dayIndex, (validatedCounts.get(dayIndex) ?? 0) + 1);
-        }
-      } catch {
-        return;
-      }
-    });
-  }
-
-  if (range === "weekly") {
-    // This Week View: Show all 7 days
-    return Array.from({ length: 7 }, (_, idx) => {
-      const stamp = new Date(startDay);
-      stamp.setDate(startDay.getDate() + idx);
-      const total = scanCounts.get(idx) ?? 0;
-      const validated = validatedCounts.get(idx) ?? 0;
-      const rate = total > 0 ? (validated / total) * 100 : 0;
-      
-      return {
-        period: WEEKDAY_FORMATTER.format(stamp),
-        successRate: parseFloat(rate.toFixed(1)),
-        totalScans: total,
-        validatedScans: validated,
-      };
-    });
-  }
-
-  // This Month View: Show day numbers
-  return Array.from({ length: totalDays }, (_, idx) => {
-    const dayNumber = idx + 1;
-    const total = scanCounts.get(idx) ?? 0;
-    const validated = validatedCounts.get(idx) ?? 0;
-    const rate = total > 0 ? (validated / total) * 100 : 0;
-    
-    return {
-      period: dayNumber.toString(),
-      successRate: parseFloat(rate.toFixed(1)),
-      totalScans: total,
-      validatedScans: validated,
-    };
-  });
-}
-
 export default function ReportsPage() {
   const { scans, validationHistory, loading, error, refreshData } = useData();
   const [range, setRange] = useState<Range>("monthly");
@@ -535,35 +412,7 @@ export default function ReportsPage() {
     return filteredScans.filter((s) => s.status === "Corrected").length;
   }, [filteredScans]);
 
-  // Weekly Scan Activity — shows scan activity by day of week within the selected date range
-  const weeklyScanActivity = useMemo(() => {
-    const now = new Date();
-    const dayOfWeek = now.getDay(); // 0 = Sunday
-    const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const counts = new Array(7).fill(0);
-
-    if (filteredScans && filteredScans.length > 0) {
-      filteredScans.forEach((scan) => {
-        if (!scan.created_at) return;
-        try {
-          const createdAt = new Date(scan.created_at);
-          if (isNaN(createdAt.getTime())) return;
-          const scanDay = createdAt.getDay();
-          counts[scanDay] += 1;
-        } catch {}
-      });
-    }
-
-    return days.map((day, idx) => ({
-      day,
-      scans: counts[idx],
-      isToday: idx === dayOfWeek,
-    }));
-  }, [filteredScans]);
-
   const scansTrend = useMemo(() => buildScansTrend(range, filteredScans, rangeStart, rangeEnd), [range, filteredScans, rangeStart, rangeEnd]);
-
-  const successRateTrend = useMemo(() => buildSuccessRateTrend(range, filteredScans, rangeStart, rangeEnd), [range, filteredScans, rangeStart, rangeEnd]);
 
   const diseaseDistribution = useMemo(() => {
     const counts = {
@@ -1629,141 +1478,82 @@ export default function ReportsPage() {
             </Card>
           </div>
 
-          {/* Weekly Scan Activity + Success Rate Trend — 2 columns */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Weekly Scan Activity Bar Chart */}
-            <Card className="shadow-sm border border-gray-200 bg-white rounded-xl overflow-hidden">
-              <CardHeader className="px-6 py-5 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] rounded-t-xl">
-                <CardTitle className="text-lg font-bold" style={{ color: '#ffffff' }}>Weekly Scan Activity</CardTitle>
-                <p className="text-xs mt-0.5" style={{ color: '#ffffff', opacity: 0.8 }}>Scans by day of week for selected period</p>
-              </CardHeader>
-              <CardContent className="p-6">
-                {weeklyScanActivity.some((d) => d.scans > 0) && isPageVisible ? (
-                  <div style={{ minHeight: 320 }}>
-                    <ResponsiveContainer key={`weekly-${chartKey}`} width="100%" height={320}>
-                      <BarChart data={weeklyScanActivity} margin={{ top: 10, right: 20, left: 0, bottom: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-                        <XAxis
-                          dataKey="day"
-                          stroke="#9ca3af"
-                          fontSize={12}
-                          tickLine={false}
-                          axisLine={{ stroke: '#e5e7eb' }}
-                          tick={{ fill: '#6b7280' }}
-                        />
-                        <YAxis
-                          stroke="#9ca3af"
-                          fontSize={12}
-                          tickLine={false}
-                          axisLine={{ stroke: '#e5e7eb' }}
-                          tick={{ fill: '#6b7280' }}
-                          allowDecimals={false}
-                        />
-                        <Tooltip
-                          contentStyle={{
-                            backgroundColor: "#fff",
-                            border: "1px solid #e5e7eb",
-                            borderRadius: "8px",
-                            fontSize: "13px",
-                            padding: "8px 12px",
-                            boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
-                          }}
-                          formatter={(value: number | undefined) => [`${value ?? 0} scans`, "Scans"]}
-                        />
-                        <Bar dataKey="scans" radius={[6, 6, 0, 0]} maxBarSize={48}>
-                          {weeklyScanActivity.map((entry, index) => (
-                            <Cell key={`bar-${index}`} fill={entry.isToday ? "#388E3C" : "#D1D5DB"} />
-                          ))}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                ) : (
-                  <div className="flex h-[320px] flex-col items-center justify-center rounded-xl bg-gray-50/70 text-center">
-                    <BarChart3 className="w-10 h-10 text-gray-300 mb-3" />
-                    <p className="text-sm font-medium text-gray-500">No scan activity data</p>
-                    <p className="text-xs text-gray-400 mt-1">Scans for the selected period will appear here.</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+          {/* Success Rate Overview — Full Width */}
+          <Card className="shadow-sm border border-gray-200 bg-white rounded-xl overflow-hidden">
+            <CardHeader className="px-6 py-5 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] rounded-t-xl">
+              <CardTitle className="text-lg font-bold" style={{ color: '#ffffff' }}>Success Rate Overview <span className="ml-2 text-sm font-normal opacity-80">• {dateRangeLabel}</span></CardTitle>
+              <p className="text-xs mt-0.5" style={{ color: '#ffffff', opacity: 0.8 }}>Overall validation success rate for the selected period</p>
+            </CardHeader>
+            <CardContent className="p-6">
+              {(() => {
+                const successfulValidations = filteredScans.filter(s => s.status === "Validated").length;
+                const failedValidations = filteredScans.filter(s => s.status === "Corrected").length;
+                const totalReviewed = successfulValidations + failedValidations;
+                const successRatePercentage = totalReviewed > 0 ? parseFloat(((successfulValidations / totalReviewed) * 100).toFixed(1)) : 0;
+                const failedRatePercentage = totalReviewed > 0 ? parseFloat(((failedValidations / totalReviewed) * 100).toFixed(1)) : 0;
 
-            {/* Success Rate Trend — Area Chart */}
-            <Card className="shadow-sm border border-gray-200 bg-white rounded-xl overflow-hidden">
-              <CardHeader className="px-6 py-5 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] rounded-t-xl">
-                <CardTitle className="text-lg font-bold" style={{ color: '#ffffff' }}>Success Rate Trend <span className="ml-2 text-sm font-normal opacity-80">• {dateRangeLabel}</span></CardTitle>
-                <p className="text-xs mt-0.5" style={{ color: '#ffffff', opacity: 0.8 }}>Validation success rate over time</p>
-              </CardHeader>
-              <CardContent className="p-6">
-                {successRateTrend.length > 0 && isPageVisible ? (
-                  <div style={{ minHeight: 320 }}>
-                    <ResponsiveContainer key={`success-rate-${chartKey}`} width="100%" height={320}>
-                      <AreaChart data={successRateTrend} margin={{ top: 10, right: 30, left: 0, bottom: 5 }}>
-                        <defs>
-                          <linearGradient id="successGradient" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="#388E3C" stopOpacity={0.25} />
-                            <stop offset="100%" stopColor="#388E3C" stopOpacity={0.02} />
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                        <XAxis
-                          dataKey="period"
-                          stroke="#9ca3af"
-                          fontSize={12}
-                          tickLine={false}
-                          axisLine={{ stroke: '#e5e7eb' }}
-                          tick={{ fill: '#6b7280' }}
-                          interval={(range === "monthly" || range === "custom") ? Math.max(1, Math.floor(successRateTrend.length / 10)) : "preserveStartEnd"}
-                        />
-                        <YAxis
-                          stroke="#9ca3af"
-                          fontSize={12}
-                          tickLine={false}
-                          axisLine={{ stroke: '#e5e7eb' }}
-                          tick={{ fill: '#6b7280' }}
-                          allowDecimals={false}
-                          domain={[0, 100]}
-                          unit="%"
-                        />
-                        <Tooltip
-                          contentStyle={{
-                            backgroundColor: "#fff",
-                            border: "1px solid #e5e7eb",
-                            borderRadius: "8px",
-                            fontSize: "13px",
-                            padding: "8px 12px",
-                            boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
-                          }}
-                          formatter={(value: number | undefined) => [`${value ?? 0}%`, "Success Rate"]}
-                          labelFormatter={(label) => {
-                            if (range === "daily") return `Hour: ${label}`;
-                            if (range === "weekly") return label;
-                            return `Day ${label}`;
-                          }}
-                        />
-                        <Area
-                          type="monotone"
-                          dataKey="successRate"
-                          stroke="#388E3C"
-                          strokeWidth={2}
-                          fill="url(#successGradient)"
-                          dot={range === "monthly" ? false : { fill: "#388E3C", r: 4, strokeWidth: 2, stroke: "#fff" }}
-                          activeDot={{ r: 6, strokeWidth: 2, stroke: "#fff" }}
-                          animationDuration={1000}
-                        />
-                      </AreaChart>
-                    </ResponsiveContainer>
+                return (
+                  <div className="space-y-6">
+                    {/* Main percentage */}
+                    <div className="text-center">
+                      <p className="text-5xl sm:text-6xl font-bold text-gray-900 tabular-nums">{successRatePercentage}%</p>
+                      <p className="text-sm text-gray-500 mt-1">Validation Success Rate</p>
+                    </div>
+
+                    {/* Counts */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-md mx-auto">
+                      <div className="text-center p-4 rounded-xl bg-emerald-50 border border-emerald-100">
+                        <p className="text-2xl font-bold text-emerald-700 tabular-nums">{successfulValidations}</p>
+                        <p className="text-xs font-medium text-emerald-600 mt-0.5">Successful Validations</p>
+                      </div>
+                      <div className="text-center p-4 rounded-xl bg-red-50 border border-red-100">
+                        <p className="text-2xl font-bold text-red-700 tabular-nums">{failedValidations}</p>
+                        <p className="text-xs font-medium text-red-600 mt-0.5">Corrected Validations</p>
+                      </div>
+                    </div>
+
+                    {/* Stacked bar */}
+                    <div className="max-w-lg mx-auto">
+                      <div className="h-4 w-full bg-gray-100 rounded-full overflow-hidden flex">
+                        {totalReviewed > 0 ? (
+                          <>
+                            <div
+                              className="h-full bg-emerald-500 transition-all duration-500"
+                              style={{ width: `${successRatePercentage}%` }}
+                            />
+                            <div
+                              className="h-full bg-red-400 transition-all duration-500"
+                              style={{ width: `${failedRatePercentage}%` }}
+                            />
+                          </>
+                        ) : (
+                          <div className="h-full w-full bg-gray-200" />
+                        )}
+                      </div>
+                      {/* Legend */}
+                      <div className="flex items-center justify-center gap-6 mt-3">
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-3 h-3 rounded-full bg-emerald-500" />
+                          <span className="text-xs text-gray-600">Successful ({successRatePercentage}%)</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-3 h-3 rounded-full bg-red-400" />
+                          <span className="text-xs text-gray-600">Corrected ({failedRatePercentage}%)</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Insight text */}
+                    <p className="text-xs text-gray-400 text-center">
+                      {totalReviewed > 0
+                        ? `Based on ${totalReviewed} reviewed validation${totalReviewed === 1 ? '' : 's'} in the selected period.`
+                        : 'No validation performance data available for the selected period.'}
+                    </p>
                   </div>
-                ) : (
-                  <div className="flex h-[320px] flex-col items-center justify-center rounded-xl bg-gray-50/70 text-center">
-                    <TrendingUp className="w-10 h-10 text-gray-300 mb-3" />
-                    <p className="text-sm font-medium text-gray-500">No success rate data</p>
-                    <p className="text-xs text-gray-400 mt-1">Validated scans will populate this chart.</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
+                );
+              })()}
+            </CardContent>
+          </Card>
 
           {/* Performance Details */}
           <Card className="shadow-sm border border-gray-200 bg-white rounded-xl overflow-hidden">
