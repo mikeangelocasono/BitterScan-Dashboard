@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import AuthGuard from "@/components/AuthGuard";
@@ -125,7 +126,7 @@ function ManageDiseaseInfoContent() {
   const [manualBisayaEdits, setManualBisayaEdits] = useState<Record<string, boolean>>({});
   const [lastTranslatedEn, setLastTranslatedEn] = useState<Record<string, string>>({});
   const [translationStatus, setTranslationStatus] = useState<Record<string, string>>({});
-  const debounceTimers = useRef<Record<string, NodeJS.Timeout>>({});
+  const debounceTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   const effectiveRole = useMemo(() => profile?.role || user?.user_metadata?.role || null, [profile?.role, user?.user_metadata?.role]);
   const isAuthorized = useMemo(() => effectiveRole === "expert" || effectiveRole === "admin", [effectiveRole]);
@@ -908,7 +909,7 @@ function ViewField({
   bisayaValue,
 }: {
   label: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   englishValue: string;
   bisayaValue: string;
 }) {
@@ -965,7 +966,7 @@ function FieldGroup({
   isTranslating,
 }: {
   label: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   englishValue: string;
   bisayaValue: string;
   onEnglishChange: (value: string) => void;
