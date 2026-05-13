@@ -189,7 +189,8 @@ export default function AuthGuard({ children }: { children: ReactNode }) {
     }
 
     // If we know the role, enforce route-level access
-    if (resolvedRole) {
+    // Only enforce if profile has loaded (to avoid false denials from stale user_metadata)
+    if (resolvedRole && profile) {
       const allowed = routeAllowed(pathname, resolvedRole);
       if (!allowed) {
         if (!redirectHandled.current) {
@@ -201,7 +202,7 @@ export default function AuthGuard({ children }: { children: ReactNode }) {
         }
         return;
       }
-    } else {
+    } else if (!resolvedRole) {
       // Role not yet known: keep spinner to avoid flashing unauthorized screens
       return;
     }

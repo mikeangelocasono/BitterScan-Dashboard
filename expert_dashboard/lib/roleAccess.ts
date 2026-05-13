@@ -166,6 +166,8 @@ export function canAccessRoute(role: UserRole, pathname: string): boolean {
       '/history',
       '/profile',
       '/manage-disease-info',
+      '/reports',
+      '/data-visualization',
       '/register', // Experts can create new accounts
     ],
     farmer: [], // No dashboard routes for farmers
