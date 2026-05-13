@@ -920,40 +920,34 @@ function ViewField({
   englishValue: string;
   bisayaValue: string;
 }) {
-  const hasContent = englishValue || bisayaValue;
-
-  if (!hasContent) {
-    return null;
-  }
-
   return (
-    <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
-      <div className="flex items-center gap-2 mb-3">
-        <div className="h-7 w-7 rounded-lg bg-emerald-50 flex items-center justify-center text-[#388E3C]">
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="flex items-center gap-2.5 px-4 py-3 bg-gray-50/60 border-b border-gray-100">
+        <div className="h-7 w-7 rounded-lg bg-[#388E3C]/10 flex items-center justify-center text-[#388E3C]">
           {icon}
         </div>
         <h3 className="text-sm font-semibold text-gray-800">{label}</h3>
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-0 divide-y lg:divide-y-0 lg:divide-x divide-gray-100">
         {/* English */}
-        <div>
-          <label className="flex items-center gap-1.5 text-[10px] font-semibold text-gray-500 mb-1.5 uppercase tracking-wider">
-            <span className="h-4 w-4 rounded bg-blue-50 text-blue-600 flex items-center justify-center text-[9px] font-bold border border-blue-100">EN</span>
-            English
-          </label>
-          <div className="px-3 py-2.5 bg-slate-50 rounded-lg text-sm text-gray-700 whitespace-pre-wrap border border-slate-100 min-h-[80px]">
-            {englishValue || <span className="text-gray-400 italic text-xs">No information available</span>}
+        <div className="p-4">
+          <div className="flex items-center gap-1.5 mb-2">
+            <span className="h-5 w-5 rounded bg-blue-50 text-blue-600 flex items-center justify-center text-[10px] font-bold border border-blue-100">EN</span>
+            <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">English</span>
+          </div>
+          <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap min-h-[60px]">
+            {englishValue || <span className="text-gray-400 italic text-xs">No English content available.</span>}
           </div>
         </div>
 
         {/* Bisaya */}
-        <div>
-          <label className="flex items-center gap-1.5 text-[10px] font-semibold text-gray-500 mb-1.5 uppercase tracking-wider">
-            <span className="h-4 w-4 rounded bg-emerald-50 text-emerald-600 flex items-center justify-center text-[9px] font-bold border border-emerald-100">BS</span>
-            Bisaya
-          </label>
-          <div className="px-3 py-2.5 bg-emerald-50/40 rounded-lg text-sm text-gray-700 whitespace-pre-wrap border border-emerald-100/60 min-h-[80px]">
-            {bisayaValue || <span className="text-gray-400 italic text-xs">Walay impormasyon</span>}
+        <div className="p-4 bg-emerald-50/20">
+          <div className="flex items-center gap-1.5 mb-2">
+            <span className="h-5 w-5 rounded bg-emerald-50 text-emerald-600 flex items-center justify-center text-[10px] font-bold border border-emerald-100">BS</span>
+            <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Bisaya</span>
+          </div>
+          <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap min-h-[60px]">
+            {bisayaValue || <span className="text-gray-400 italic text-xs">No Bisaya content available.</span>}
           </div>
         </div>
       </div>
@@ -992,41 +986,41 @@ function FieldGroup({
   })();
 
   return (
-    <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
-      <div className="flex items-center gap-2 mb-3">
-        <div className="h-7 w-7 rounded-lg bg-emerald-50 flex items-center justify-center text-[#388E3C]">
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="flex items-center gap-2.5 px-4 py-3 bg-gray-50/60 border-b border-gray-100">
+        <div className="h-7 w-7 rounded-lg bg-[#388E3C]/10 flex items-center justify-center text-[#388E3C]">
           {icon}
         </div>
         <h3 className="text-sm font-semibold text-gray-800">{label}</h3>
+        {isTranslating && <span className="ml-auto h-3.5 w-3.5 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />}
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 p-4">
         {/* English */}
         <div>
-          <label className="flex items-center gap-1.5 text-[10px] font-semibold text-gray-500 mb-1.5 uppercase tracking-wider">
-            <span className="h-4 w-4 rounded bg-blue-50 text-blue-600 flex items-center justify-center text-[9px] font-bold border border-blue-100">EN</span>
-            English
-          </label>
+          <div className="flex items-center gap-1.5 mb-2">
+            <span className="h-5 w-5 rounded bg-blue-50 text-blue-600 flex items-center justify-center text-[10px] font-bold border border-blue-100">EN</span>
+            <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">English</span>
+          </div>
           <textarea
             value={englishValue}
             onChange={(e) => onEnglishChange(e.target.value)}
-            className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-[#388E3C] text-sm text-gray-800 min-h-[100px] resize-y placeholder:text-gray-300 transition-all"
+            className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-[#388E3C] text-sm text-gray-800 min-h-[110px] resize-y placeholder:text-gray-300 transition-all"
             placeholder={`Enter ${label.toLowerCase()} in English...`}
             rows={4}
           />
-          <p className="text-[10px] text-gray-400 mt-1 text-right">{englishValue.length} characters</p>
+          <p className="text-[10px] text-gray-400 mt-1 text-right">{englishValue.length} chars</p>
         </div>
 
         {/* Bisaya */}
         <div>
-          <label className="flex items-center gap-1.5 text-[10px] font-semibold text-gray-500 mb-1.5 uppercase tracking-wider">
-            <span className="h-4 w-4 rounded bg-emerald-50 text-emerald-600 flex items-center justify-center text-[9px] font-bold border border-emerald-100">BS</span>
-            Bisaya
-            {isTranslating && <span className="ml-1 h-3 w-3 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />}
-          </label>
+          <div className="flex items-center gap-1.5 mb-2">
+            <span className="h-5 w-5 rounded bg-emerald-50 text-emerald-600 flex items-center justify-center text-[10px] font-bold border border-emerald-100">BS</span>
+            <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Bisaya</span>
+          </div>
           <textarea
             value={bisayaValue}
             onChange={(e) => onBisayaChange(e.target.value)}
-            className={`w-full px-3 py-2.5 bg-white border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-[#388E3C] text-sm text-gray-800 min-h-[100px] resize-y placeholder:text-gray-300 transition-all ${isTranslating ? 'border-emerald-200 bg-emerald-50/30' : 'border-gray-200'}`}
+            className={`w-full px-3 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-[#388E3C] text-sm text-gray-800 min-h-[110px] resize-y placeholder:text-gray-300 transition-all ${isTranslating ? 'border-emerald-200 bg-emerald-50/30' : 'bg-white border-gray-200'}`}
             placeholder={`Enter ${label.toLowerCase()} in Bisaya...`}
             rows={4}
           />
@@ -1036,7 +1030,7 @@ function FieldGroup({
                 {statusText}
               </p>
             )}
-            <p className="text-[10px] text-gray-400 ml-auto">{bisayaValue.length} characters</p>
+            <p className="text-[10px] text-gray-400 ml-auto">{bisayaValue.length} chars</p>
           </div>
         </div>
       </div>
