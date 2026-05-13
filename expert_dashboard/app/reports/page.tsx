@@ -68,8 +68,6 @@ const RANGE_LABELS: Record<Range, string> = {
 
 const ONE_DAY = 24 * 60 * 60 * 1000;
 const HOUR_FORMATTER = new Intl.DateTimeFormat("en-US", { hour: "numeric", timeZone: "UTC" });
-const DAY_FORMATTER = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
-const WEEKDAY_FORMATTER = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "UTC" });
 
 // Real-time Clock Component
 function RealTimeClock() {
@@ -217,17 +215,18 @@ function buildScansTrend(range: Range, scans: Scan[], rangeStart: Date, rangeEnd
       const stamp = new Date(startDay);
       stamp.setDate(startDay.getDate() + idx);
       return {
-        period: WEEKDAY_FORMATTER.format(stamp),
+        period: stamp.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }),
         scans: bucketCounts.get(idx) ?? 0,
       };
     });
   }
 
-  // This Month View: Show day numbers (1, 2, 3...)
+  // Monthly / Custom View: Show actual date labels (Mar 11, Mar 12, ...)
   return Array.from({ length: totalDays }, (_, idx) => {
-    const dayNumber = idx + 1;
+    const stamp = new Date(startDay);
+    stamp.setDate(startDay.getDate() + idx);
     return {
-      period: dayNumber.toString(),
+      period: stamp.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
       scans: bucketCounts.get(idx) ?? 0,
     };
   });
@@ -1245,17 +1244,14 @@ export default function ReportsPage() {
                       <XAxis
                         dataKey="period"
                         stroke="#9ca3af"
-                        fontSize={12}
+                        fontSize={11}
                         tick={{ fill: "#6b7280" }}
                         tickLine={false}
                         axisLine={{ stroke: '#e5e7eb' }}
-                        interval={range === "monthly" ? Math.floor(scansTrend.length / 15) : "preserveStartEnd"}
-                        label={{
-                          value: range === "daily" ? "Hours" : range === "weekly" ? "Days" : range === "monthly" ? new Date().toLocaleString("en-US", { month: "long" }) : "Date",
-                          position: "insideBottom",
-                          offset: -10,
-                          style: { fontSize: 13, fontWeight: 600, fill: "#374151", textAnchor: "middle" },
-                        }}
+                        interval={(range === "monthly" || range === "custom") ? Math.max(1, Math.floor(scansTrend.length / 10)) : "preserveStartEnd"}
+                        angle={scansTrend.length > 14 ? -35 : 0}
+                        textAnchor={scansTrend.length > 14 ? "end" : "middle"}
+                        height={scansTrend.length > 14 ? 60 : 40}
                       />
                       <YAxis
                         stroke="#9ca3af"
@@ -1278,8 +1274,7 @@ export default function ReportsPage() {
                         formatter={(value: number | undefined) => [value ?? 0, "Scans"]}
                         labelFormatter={(label) => {
                           if (range === "daily") return `Hour: ${label}`;
-                          if (range === "weekly") return label;
-                          return `Day ${label}`;
+                          return String(label);
                         }}
                       />
                       <Legend
