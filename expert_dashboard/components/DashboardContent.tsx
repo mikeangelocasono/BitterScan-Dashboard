@@ -75,7 +75,7 @@ const StatCard = memo(({
     animate={{ y: 0, opacity: 1 }}
     transition={{ delay: index * 0.05, duration: 0.3 }}
   >
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 flex items-center justify-between gap-3 hover:shadow-md transition-all duration-200 min-h-[88px] overflow-hidden">
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 flex items-center justify-between gap-3 hover:shadow-md transition-all duration-200 h-[88px] overflow-hidden">
       <div className="min-w-0">
         <p className="text-xs font-medium text-gray-500 mb-1">{label}</p>
         <p className="text-xl font-bold text-gray-900">{value.toLocaleString("en-US")}</p>
