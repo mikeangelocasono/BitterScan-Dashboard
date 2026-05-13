@@ -120,6 +120,7 @@ function ManageDiseaseInfoContent() {
   // State for dirty checking
   const [originalDisease, setOriginalDisease] = useState<EditingDisease | null>(null);
   const [showUnsavedWarning, setShowUnsavedWarning] = useState(false);
+  const [translatingField, setTranslatingField] = useState<string | null>(null);
 
   const effectiveRole = useMemo(() => profile?.role || user?.user_metadata?.role || null, [profile?.role, user?.user_metadata?.role]);
   const isAuthorized = useMemo(() => effectiveRole === "expert" || effectiveRole === "admin", [effectiveRole]);
@@ -259,6 +260,62 @@ function ManageDiseaseInfoContent() {
   const closeViewDialog = useCallback(() => {
     setIsViewDialogOpen(false);
     setViewingDisease(null);
+  }, []);
+
+  // Translation handler — calls /api/translate securely
+  const handleTranslate = useCallback(async (
+    fieldLabel: string,
+    direction: 'en-to-bi' | 'bi-to-en',
+    sourceText: string,
+    onResult: (translatedText: string) => void
+  ) => {
+    if (!sourceText.trim()) {
+      toast.error("No text to translate");
+      return;
+    }
+
+    const fieldKey = `${fieldLabel}-${direction}`;
+    setTranslatingField(fieldKey);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) {
+        toast.error("Session expired. Please log in again.");
+        return;
+      }
+
+      const from = direction === 'en-to-bi' ? 'en' : 'ceb';
+      const to = direction === 'en-to-bi' ? 'ceb' : 'en';
+
+      const res = await fetch('/api/translate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ text: sourceText.trim(), from, to }),
+      });
+
+      if (!res.ok) {
+        const errorBody = await res.json().catch(() => ({}));
+        throw new Error(errorBody.error || `Translation failed (${res.status})`);
+      }
+
+      const { translatedText } = await res.json();
+      if (translatedText) {
+        onResult(translatedText);
+        toast.success(`Translated to ${direction === 'en-to-bi' ? 'Bisaya' : 'English'}`);
+      } else {
+        toast.error("Translation returned empty result");
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Translation failed";
+      toast.error(msg);
+      console.error("[Translation]", err);
+    } finally {
+      setTranslatingField(null);
+    }
   }, []);
 
   // Toggle edit mode
@@ -632,6 +689,8 @@ function ManageDiseaseInfoContent() {
                   bisayaValue={editingDisease.description_bi || ""}
                   onEnglishChange={(val) => setEditingDisease(prev => prev ? { ...prev, description_en: val } : prev)}
                   onBisayaChange={(val) => setEditingDisease(prev => prev ? { ...prev, description_bi: val } : prev)}
+                  translatingField={translatingField}
+                  onTranslate={(dir) => handleTranslate("Description", dir, dir === 'en-to-bi' ? (editingDisease.description_en || '') : (editingDisease.description_bi || ''), (text) => setEditingDisease(prev => prev ? { ...prev, [dir === 'en-to-bi' ? 'description_bi' : 'description_en']: text } : prev))}
                 />
                 <FieldGroup
                   label="Symptoms"
@@ -640,6 +699,8 @@ function ManageDiseaseInfoContent() {
                   bisayaValue={editingDisease.symptoms_bi || ""}
                   onEnglishChange={(val) => setEditingDisease(prev => prev ? { ...prev, symptoms_en: val } : prev)}
                   onBisayaChange={(val) => setEditingDisease(prev => prev ? { ...prev, symptoms_bi: val } : prev)}
+                  translatingField={translatingField}
+                  onTranslate={(dir) => handleTranslate("Symptoms", dir, dir === 'en-to-bi' ? (editingDisease.symptoms_en || '') : (editingDisease.symptoms_bi || ''), (text) => setEditingDisease(prev => prev ? { ...prev, [dir === 'en-to-bi' ? 'symptoms_bi' : 'symptoms_en']: text } : prev))}
                 />
                 <FieldGroup
                   label="Treatment"
@@ -648,6 +709,8 @@ function ManageDiseaseInfoContent() {
                   bisayaValue={editingDisease.treatment_bi || ""}
                   onEnglishChange={(val) => setEditingDisease(prev => prev ? { ...prev, treatment_en: val } : prev)}
                   onBisayaChange={(val) => setEditingDisease(prev => prev ? { ...prev, treatment_bi: val } : prev)}
+                  translatingField={translatingField}
+                  onTranslate={(dir) => handleTranslate("Treatment", dir, dir === 'en-to-bi' ? (editingDisease.treatment_en || '') : (editingDisease.treatment_bi || ''), (text) => setEditingDisease(prev => prev ? { ...prev, [dir === 'en-to-bi' ? 'treatment_bi' : 'treatment_en']: text } : prev))}
                 />
                 <FieldGroup
                   label="Products"
@@ -656,6 +719,8 @@ function ManageDiseaseInfoContent() {
                   bisayaValue={editingDisease.products_bi || ""}
                   onEnglishChange={(val) => setEditingDisease(prev => prev ? { ...prev, products_en: val } : prev)}
                   onBisayaChange={(val) => setEditingDisease(prev => prev ? { ...prev, products_bi: val } : prev)}
+                  translatingField={translatingField}
+                  onTranslate={(dir) => handleTranslate("Products", dir, dir === 'en-to-bi' ? (editingDisease.products_en || '') : (editingDisease.products_bi || ''), (text) => setEditingDisease(prev => prev ? { ...prev, [dir === 'en-to-bi' ? 'products_bi' : 'products_en']: text } : prev))}
                 />
                 <FieldGroup
                   label="Prevention"
@@ -664,6 +729,8 @@ function ManageDiseaseInfoContent() {
                   bisayaValue={editingDisease.prevention_bi || ""}
                   onEnglishChange={(val) => setEditingDisease(prev => prev ? { ...prev, prevention_en: val } : prev)}
                   onBisayaChange={(val) => setEditingDisease(prev => prev ? { ...prev, prevention_bi: val } : prev)}
+                  translatingField={translatingField}
+                  onTranslate={(dir) => handleTranslate("Prevention", dir, dir === 'en-to-bi' ? (editingDisease.prevention_en || '') : (editingDisease.prevention_bi || ''), (text) => setEditingDisease(prev => prev ? { ...prev, [dir === 'en-to-bi' ? 'prevention_bi' : 'prevention_en']: text } : prev))}
                 />
               </div>
             )}
@@ -803,7 +870,7 @@ function ViewField({
   );
 }
 
-// Reusable field group component for edit modal
+// Reusable field group component for edit modal with translation support
 function FieldGroup({
   label,
   icon,
@@ -811,6 +878,8 @@ function FieldGroup({
   bisayaValue,
   onEnglishChange,
   onBisayaChange,
+  onTranslate,
+  translatingField,
 }: {
   label: string;
   icon: React.ReactNode;
@@ -818,7 +887,12 @@ function FieldGroup({
   bisayaValue: string;
   onEnglishChange: (value: string) => void;
   onBisayaChange: (value: string) => void;
+  onTranslate?: (direction: 'en-to-bi' | 'bi-to-en') => void;
+  translatingField?: string | null;
 }) {
+  const isTranslatingEnToBi = translatingField === `${label}-en-to-bi`;
+  const isTranslatingBiToEn = translatingField === `${label}-bi-to-en`;
+
   return (
     <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
       <div className="flex items-center gap-2 mb-3">
@@ -830,10 +904,27 @@ function FieldGroup({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         {/* English */}
         <div>
-          <label className="flex items-center gap-1.5 text-[10px] font-semibold text-gray-500 mb-1.5 uppercase tracking-wider">
-            <span className="h-4 w-4 rounded bg-blue-50 text-blue-600 flex items-center justify-center text-[9px] font-bold border border-blue-100">EN</span>
-            English
-          </label>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="flex items-center gap-1.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
+              <span className="h-4 w-4 rounded bg-blue-50 text-blue-600 flex items-center justify-center text-[9px] font-bold border border-blue-100">EN</span>
+              English
+            </label>
+            {onTranslate && bisayaValue.trim() && (
+              <button
+                type="button"
+                onClick={() => onTranslate('bi-to-en')}
+                disabled={!!translatingField}
+                className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium text-blue-600 bg-blue-50 border border-blue-100 rounded-md hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                title="Translate Bisaya → English"
+              >
+                {isTranslatingBiToEn ? (
+                  <><span className="h-3 w-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" /> Translating...</>
+                ) : (
+                  <>← Translate from BS</>
+                )}
+              </button>
+            )}
+          </div>
           <textarea
             value={englishValue}
             onChange={(e) => onEnglishChange(e.target.value)}
@@ -846,10 +937,27 @@ function FieldGroup({
 
         {/* Bisaya */}
         <div>
-          <label className="flex items-center gap-1.5 text-[10px] font-semibold text-gray-500 mb-1.5 uppercase tracking-wider">
-            <span className="h-4 w-4 rounded bg-emerald-50 text-emerald-600 flex items-center justify-center text-[9px] font-bold border border-emerald-100">BS</span>
-            Bisaya
-          </label>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="flex items-center gap-1.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
+              <span className="h-4 w-4 rounded bg-emerald-50 text-emerald-600 flex items-center justify-center text-[9px] font-bold border border-emerald-100">BS</span>
+              Bisaya
+            </label>
+            {onTranslate && englishValue.trim() && (
+              <button
+                type="button"
+                onClick={() => onTranslate('en-to-bi')}
+                disabled={!!translatingField}
+                className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium text-emerald-600 bg-emerald-50 border border-emerald-100 rounded-md hover:bg-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                title="Translate English → Bisaya"
+              >
+                {isTranslatingEnToBi ? (
+                  <><span className="h-3 w-3 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" /> Translating...</>
+                ) : (
+                  <>← Translate from EN</>
+                )}
+              </button>
+            )}
+          </div>
           <textarea
             value={bisayaValue}
             onChange={(e) => onBisayaChange(e.target.value)}
