@@ -124,13 +124,13 @@ function ManageDiseaseInfoContent() {
   const effectiveRole = useMemo(() => profile?.role || user?.user_metadata?.role || null, [profile?.role, user?.user_metadata?.role]);
   const isAuthorized = useMemo(() => effectiveRole === "expert" || effectiveRole === "admin", [effectiveRole]);
 
-  // Redirect unauthorized users - only after session is ready
+  // Redirect unauthorized users - only after session AND profile are fully loaded
   useEffect(() => {
-    if (sessionReady && !userLoading && user && !isAuthorized) {
+    if (sessionReady && !userLoading && user && profile && !isAuthorized) {
       toast.error("Access denied. Experts and Admins only.");
       router.replace("/dashboard");
     }
-  }, [sessionReady, userLoading, user, isAuthorized, router]);
+  }, [sessionReady, userLoading, user, profile, isAuthorized, router]);
 
   // Fetch disease information with timeout protection
   const fetchDiseases = useCallback(async () => {

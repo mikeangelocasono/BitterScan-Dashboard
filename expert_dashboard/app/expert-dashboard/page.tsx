@@ -22,6 +22,8 @@ export default function ExpertDashboardPage() {
     // Wait for session to be fully ready before making routing decisions
     if (loading || !sessionReady) return;
     if (!user) return;
+    // Don't redirect if role hasn't been determined yet (profile still loading)
+    if (!resolvedRole) return;
     if (resolvedRole !== "expert") {
       // Non-experts should be rerouted away from expert dashboard
       router.replace(resolvedRole === "admin" ? "/admin-dashboard" : "/login");

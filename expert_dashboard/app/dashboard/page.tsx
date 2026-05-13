@@ -25,7 +25,11 @@ export default function DashboardPage() {
     <AuthGuard>
       <AppShell>
         {/* RBAC: Ensure only expert or admin can access this dashboard */}
-        {profile && (profile.role === 'expert' || profile.role === 'admin') ? (
+        {!profile ? (
+          <div className="flex items-center justify-center min-h-[60vh]">
+            <div className="h-10 w-10 rounded-full border-4 border-[#388E3C] border-t-transparent animate-spin" />
+          </div>
+        ) : (profile.role === 'expert' || profile.role === 'admin') ? (
           <DashboardContent />
         ) : (
           <div className="flex items-center justify-center min-h-screen">
