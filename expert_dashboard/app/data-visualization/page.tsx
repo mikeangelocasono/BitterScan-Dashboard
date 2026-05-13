@@ -1635,10 +1635,10 @@ export default function DataVisualizationPage() {
             </Card>
           </div>
 
-            {/* Farm Analytics Section — Map + Records side by side (60/40 on desktop) */}
-            <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 lg:gap-5 items-stretch">
-              {/* Interactive Farm Disease Map — 60% */}
-              <div className="lg:col-span-3 min-w-0 flex">
+            {/* Farm Analytics Section — Map + Records side by side */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-5 items-stretch">
+              {/* Interactive Farm Disease Map */}
+              <div className="min-w-0 flex">
                 {typeof window !== 'undefined' && (
                   <div className="w-full">
                     <InteractiveFarmMap
@@ -1657,8 +1657,8 @@ export default function DataVisualizationPage() {
                 )}
               </div>
 
-              {/* Farm Records Panel — 40% */}
-              <div className="lg:col-span-2 min-w-0 flex">
+              {/* Farm Records Panel */}
+              <div className="min-w-0 flex">
               <Card className="w-full shadow-lg border border-[#388E3C]/20 hover:shadow-xl transition-all duration-300 bg-white rounded-xl overflow-hidden flex flex-col lg:max-h-[640px]">
                 <CardHeader className="pb-3 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] text-white px-5 pt-4 flex-shrink-0">
                   <div className="flex flex-col gap-3">
