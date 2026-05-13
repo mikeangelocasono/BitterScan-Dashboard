@@ -1626,7 +1626,7 @@ export default function ValidatePage() {
 																disabled={!hasDecision(scanIdNum) || isProcessing}
 																className="h-9 text-sm font-semibold bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm transition-all"
 															>
-																{isProcessing ? 'Processing...' : 'Confirm Correction'}
+																{isProcessing ? 'Processing...' : 'Modified Result'}
 															</Button>
 														);
 													}
