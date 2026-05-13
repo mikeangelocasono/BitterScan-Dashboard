@@ -226,12 +226,21 @@ function ManageDiseaseInfoContent() {
 
   // Open edit dialog - store original for dirty checking
   const openEditDialog = useCallback((disease: EditingDisease) => {
-    resetTranslationState();
+    // Reset translation state inline to avoid circular dependency
+    setTranslatingFields({});
+    setManualBisayaEdits({});
+    setLastTranslatedEn({});
+    setTranslationStatus({});
+    manualBisayaEditsRef.current = {};
+    lastTranslatedEnRef.current = {};
+    Object.values(debounceTimers.current).forEach(clearTimeout);
+    debounceTimers.current = {};
+
     const diseaseClone = { ...disease, isEditing: true };
     setEditingDisease(diseaseClone);
-    setOriginalDisease({ ...disease, isEditing: false }); // Store original state
+    setOriginalDisease({ ...disease, isEditing: false });
     setIsDialogOpen(true);
-  }, [resetTranslationState]);
+  }, []);
 
   // Attempt to close edit dialog - check for unsaved changes
   const attemptCloseEditDialog = useCallback(() => {
@@ -335,19 +344,6 @@ function ManageDiseaseInfoContent() {
     manualBisayaEditsRef.current[fieldKey] = true;
     setManualBisayaEdits(prev => ({ ...prev, [fieldKey]: true }));
     setTranslationStatus(prev => ({ ...prev, [fieldKey]: 'manual' }));
-  }, []);
-
-  // Reset translation state when edit dialog opens
-  const resetTranslationState = useCallback(() => {
-    setTranslatingFields({});
-    setManualBisayaEdits({});
-    setLastTranslatedEn({});
-    setTranslationStatus({});
-    manualBisayaEditsRef.current = {};
-    lastTranslatedEnRef.current = {};
-    // Clear all timers
-    Object.values(debounceTimers.current).forEach(clearTimeout);
-    debounceTimers.current = {};
   }, []);
 
   // Clean up timers on unmount
