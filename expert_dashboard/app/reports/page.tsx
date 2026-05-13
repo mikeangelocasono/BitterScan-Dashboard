@@ -1482,48 +1482,62 @@ export default function ReportsPage() {
           <Card className="shadow-sm border border-gray-200 bg-white rounded-xl overflow-hidden">
             <CardHeader className="px-6 py-5 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] rounded-t-xl">
               <CardTitle className="text-lg font-bold" style={{ color: '#ffffff' }}>Success Rate Overview <span className="ml-2 text-sm font-normal opacity-80">• {dateRangeLabel}</span></CardTitle>
-              <p className="text-xs mt-0.5" style={{ color: '#ffffff', opacity: 0.8 }}>Overall validation success rate for the selected period</p>
+              <p className="text-xs mt-0.5" style={{ color: '#ffffff', opacity: 0.8 }}>Completed and pending expert validations</p>
             </CardHeader>
             <CardContent className="p-6">
               {(() => {
-                const successfulValidations = filteredScans.filter(s => s.status === "Validated").length;
-                const failedValidations = filteredScans.filter(s => s.status === "Corrected").length;
-                const totalReviewed = successfulValidations + failedValidations;
-                const successRatePercentage = totalReviewed > 0 ? parseFloat(((successfulValidations / totalReviewed) * 100).toFixed(1)) : 0;
-                const failedRatePercentage = totalReviewed > 0 ? parseFloat(((failedValidations / totalReviewed) * 100).toFixed(1)) : 0;
+                // Count validated scans (expert already reviewed — any completed status)
+                const validatedScans = filteredScans.filter(s => {
+                  const status = (s.status || '').toLowerCase();
+                  return status.includes('validated') || status.includes('confirmed') || status.includes('corrected') || status.includes('approved') || status.includes('rejected') || status.includes('completed') || status.includes('reviewed');
+                }).length;
+
+                // Count pending scans (still awaiting expert review)
+                const pendingValidations = filteredScans.filter(s => {
+                  const status = (s.status || '').toLowerCase();
+                  return status.includes('pending') || status.includes('awaiting');
+                }).length;
+
+                const totalSubmitted = validatedScans + pendingValidations;
+                const validationCompletionRate = totalSubmitted > 0 ? parseFloat(((validatedScans / totalSubmitted) * 100).toFixed(1)) : 0;
+                const pendingRate = totalSubmitted > 0 ? parseFloat(((pendingValidations / totalSubmitted) * 100).toFixed(1)) : 0;
 
                 return (
                   <div className="space-y-6">
                     {/* Main percentage */}
                     <div className="text-center">
-                      <p className="text-5xl sm:text-6xl font-bold text-gray-900 tabular-nums">{successRatePercentage}%</p>
-                      <p className="text-sm text-gray-500 mt-1">Validation Success Rate</p>
+                      <p className="text-5xl sm:text-6xl font-bold text-gray-900 tabular-nums">{validationCompletionRate}%</p>
+                      <p className="text-sm text-gray-500 mt-1">Validation Completion Rate</p>
                     </div>
 
                     {/* Counts */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-md mx-auto">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-xl mx-auto">
                       <div className="text-center p-4 rounded-xl bg-emerald-50 border border-emerald-100">
-                        <p className="text-2xl font-bold text-emerald-700 tabular-nums">{successfulValidations}</p>
-                        <p className="text-xs font-medium text-emerald-600 mt-0.5">Successful Validations</p>
+                        <p className="text-2xl font-bold text-emerald-700 tabular-nums">{validatedScans}</p>
+                        <p className="text-xs font-medium text-emerald-600 mt-0.5">Validated Scans</p>
                       </div>
-                      <div className="text-center p-4 rounded-xl bg-red-50 border border-red-100">
-                        <p className="text-2xl font-bold text-red-700 tabular-nums">{failedValidations}</p>
-                        <p className="text-xs font-medium text-red-600 mt-0.5">Corrected Validations</p>
+                      <div className="text-center p-4 rounded-xl bg-amber-50 border border-amber-100">
+                        <p className="text-2xl font-bold text-amber-700 tabular-nums">{pendingValidations}</p>
+                        <p className="text-xs font-medium text-amber-600 mt-0.5">Pending Validations</p>
+                      </div>
+                      <div className="text-center p-4 rounded-xl bg-gray-50 border border-gray-200">
+                        <p className="text-2xl font-bold text-gray-700 tabular-nums">{totalSubmitted}</p>
+                        <p className="text-xs font-medium text-gray-500 mt-0.5">Total Submitted</p>
                       </div>
                     </div>
 
                     {/* Stacked bar */}
                     <div className="max-w-lg mx-auto">
                       <div className="h-4 w-full bg-gray-100 rounded-full overflow-hidden flex">
-                        {totalReviewed > 0 ? (
+                        {totalSubmitted > 0 ? (
                           <>
                             <div
                               className="h-full bg-emerald-500 transition-all duration-500"
-                              style={{ width: `${successRatePercentage}%` }}
+                              style={{ width: `${validationCompletionRate}%` }}
                             />
                             <div
-                              className="h-full bg-red-400 transition-all duration-500"
-                              style={{ width: `${failedRatePercentage}%` }}
+                              className="h-full bg-amber-400 transition-all duration-500"
+                              style={{ width: `${pendingRate}%` }}
                             />
                           </>
                         ) : (
@@ -1534,20 +1548,22 @@ export default function ReportsPage() {
                       <div className="flex items-center justify-center gap-6 mt-3">
                         <div className="flex items-center gap-1.5">
                           <div className="w-3 h-3 rounded-full bg-emerald-500" />
-                          <span className="text-xs text-gray-600">Successful ({successRatePercentage}%)</span>
+                          <span className="text-xs text-gray-600">Validated ({validationCompletionRate}%)</span>
                         </div>
                         <div className="flex items-center gap-1.5">
-                          <div className="w-3 h-3 rounded-full bg-red-400" />
-                          <span className="text-xs text-gray-600">Corrected ({failedRatePercentage}%)</span>
+                          <div className="w-3 h-3 rounded-full bg-amber-400" />
+                          <span className="text-xs text-gray-600">Pending ({pendingRate}%)</span>
                         </div>
                       </div>
                     </div>
 
                     {/* Insight text */}
                     <p className="text-xs text-gray-400 text-center">
-                      {totalReviewed > 0
-                        ? `Based on ${totalReviewed} reviewed validation${totalReviewed === 1 ? '' : 's'} in the selected period.`
-                        : 'No validation performance data available for the selected period.'}
+                      {totalSubmitted === 0
+                        ? 'No submitted scans found for the selected period.'
+                        : validationCompletionRate >= 80
+                          ? 'Most submitted scans have already been reviewed by the expert, showing that the validation process is nearly complete for the selected period.'
+                          : 'Several submitted scans are still pending expert review for the selected period.'}
                     </p>
                   </div>
                 );
