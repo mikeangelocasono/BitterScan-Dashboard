@@ -128,6 +128,8 @@ function ManageDiseaseInfoContent() {
   const [translationStatus, setTranslationStatus] = useState<Record<string, string>>({});
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const debounceTimers = useRef<Record<string, any>>({});
+  const manualBisayaEditsRef = useRef<Record<string, boolean>>({});
+  const lastTranslatedEnRef = useRef<Record<string, string>>({});
 
   const effectiveRole = useMemo(() => profile?.role || user?.user_metadata?.role || null, [profile?.role, user?.user_metadata?.role]);
   const isAuthorized = useMemo(() => effectiveRole === "expert" || effectiveRole === "admin", [effectiveRole]);
@@ -303,8 +305,8 @@ function ManageDiseaseInfoContent() {
       setTranslationStatus(prev => ({ ...prev, [fieldKey]: '' }));
       return;
     }
-    if (manualBisayaEdits[fieldKey]) return;
-    if (lastTranslatedEn[fieldKey] === englishText.trim()) return;
+    if (manualBisayaEditsRef.current[fieldKey]) return;
+    if (lastTranslatedEnRef.current[fieldKey] === englishText.trim()) return;
 
     setTranslationStatus(prev => ({ ...prev, [fieldKey]: 'waiting' }));
 
@@ -315,21 +317,22 @@ function ManageDiseaseInfoContent() {
 
       const result = await translateText(currentEn, fieldKey);
 
-      // Only apply if the English text hasn't changed during translation
       setTranslatingFields(prev => ({ ...prev, [fieldKey]: false }));
 
       if (result) {
         setBisaya(result);
+        lastTranslatedEnRef.current[fieldKey] = currentEn;
         setLastTranslatedEn(prev => ({ ...prev, [fieldKey]: currentEn }));
         setTranslationStatus(prev => ({ ...prev, [fieldKey]: 'done' }));
       } else {
         setTranslationStatus(prev => ({ ...prev, [fieldKey]: 'error' }));
       }
     }, 1000);
-  }, [manualBisayaEdits, lastTranslatedEn, translateText]);
+  }, [translateText]);
 
   // Mark Bisaya field as manually edited
   const markBisayaManual = useCallback((fieldKey: string) => {
+    manualBisayaEditsRef.current[fieldKey] = true;
     setManualBisayaEdits(prev => ({ ...prev, [fieldKey]: true }));
     setTranslationStatus(prev => ({ ...prev, [fieldKey]: 'manual' }));
   }, []);
@@ -340,6 +343,8 @@ function ManageDiseaseInfoContent() {
     setManualBisayaEdits({});
     setLastTranslatedEn({});
     setTranslationStatus({});
+    manualBisayaEditsRef.current = {};
+    lastTranslatedEnRef.current = {};
     // Clear all timers
     Object.values(debounceTimers.current).forEach(clearTimeout);
     debounceTimers.current = {};
