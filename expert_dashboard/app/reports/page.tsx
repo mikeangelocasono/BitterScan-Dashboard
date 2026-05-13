@@ -1479,12 +1479,12 @@ export default function ReportsPage() {
           </div>
 
           {/* Success Rate Overview — Full Width */}
-          <Card className="shadow-sm border border-gray-200 bg-white rounded-xl overflow-hidden">
-            <CardHeader className="px-6 py-5 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] rounded-t-xl">
+          <Card className="shadow-sm border border-gray-200 bg-white rounded-2xl overflow-hidden">
+            <CardHeader className="px-6 py-5 bg-gradient-to-r from-[#388E3C] to-[#2F7A33] rounded-t-2xl">
               <CardTitle className="text-lg font-bold" style={{ color: '#ffffff' }}>Success Rate Overview <span className="ml-2 text-sm font-normal opacity-80">• {dateRangeLabel}</span></CardTitle>
               <p className="text-xs mt-0.5" style={{ color: '#ffffff', opacity: 0.8 }}>Completed and pending expert validations for the selected period</p>
             </CardHeader>
-            <CardContent className="px-6 py-6">
+            <CardContent className="px-6 py-7">
               {(() => {
                 // Count validated scans (expert already reviewed — any completed status)
                 const validatedScans = filteredScans.filter(s => {
@@ -1503,66 +1503,75 @@ export default function ReportsPage() {
                 const pendingRate = totalSubmitted > 0 ? parseFloat(((pendingValidations / totalSubmitted) * 100).toFixed(1)) : 0;
 
                 return (
-                  <div className="space-y-7">
+                  <div className="space-y-6">
                     {/* Main metric */}
-                    <div className="text-center">
+                    <div className="text-center py-2">
                       <p className="text-5xl sm:text-6xl font-extrabold text-[#388E3C] tabular-nums leading-none">{validationCompletionRate}%</p>
-                      <p className="text-sm font-medium text-gray-600 mt-2">Validation Completion Rate</p>
-                      <p className="text-xs text-gray-400 mt-0.5">{totalSubmitted} total submitted for validation</p>
+                      <p className="text-sm font-semibold text-gray-700 mt-2.5">Validation Completion Rate</p>
+                      <p className="text-xs text-gray-400 mt-1">{totalSubmitted} total submitted for validation</p>
                     </div>
 
-                    {/* Three metric cards */}
+                    {/* Three metric cards — consistent green theme */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       {/* Validated */}
-                      <div className="flex items-center gap-3 p-4 rounded-xl bg-emerald-50/70 border border-emerald-100">
-                        <div className="h-10 w-10 rounded-lg bg-emerald-100 flex items-center justify-center flex-shrink-0">
-                          <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-xl font-bold text-emerald-700 tabular-nums leading-tight">{validatedScans}</p>
-                          <p className="text-[11px] font-medium text-emerald-600">Validated Scans</p>
-                          <p className="text-[10px] text-emerald-500/80">Reviewed by expert</p>
+                      <div className="relative overflow-hidden rounded-xl border border-[#388E3C]/20 bg-[#388E3C]/[0.04] p-4">
+                        <div className="absolute top-0 left-0 right-0 h-0.5 bg-[#388E3C]" />
+                        <div className="flex items-center gap-3">
+                          <div className="h-10 w-10 rounded-lg bg-[#388E3C]/10 flex items-center justify-center flex-shrink-0">
+                            <CheckCircle2 className="h-5 w-5 text-[#388E3C]" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xl font-bold text-gray-900 tabular-nums leading-tight">{validatedScans}</p>
+                            <p className="text-[11px] font-semibold text-[#388E3C]">Validated Scans</p>
+                            <p className="text-[10px] text-gray-500">Reviewed by expert</p>
+                          </div>
                         </div>
                       </div>
                       {/* Pending */}
-                      <div className="flex items-center gap-3 p-4 rounded-xl bg-amber-50/70 border border-amber-100">
-                        <div className="h-10 w-10 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
-                          <Clock3 className="h-5 w-5 text-amber-600" />
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-xl font-bold text-amber-700 tabular-nums leading-tight">{pendingValidations}</p>
-                          <p className="text-[11px] font-medium text-amber-600">Pending Validations</p>
-                          <p className="text-[10px] text-amber-500/80">Waiting for review</p>
+                      <div className="relative overflow-hidden rounded-xl border border-amber-200 bg-amber-50/50 p-4">
+                        <div className="absolute top-0 left-0 right-0 h-0.5 bg-amber-400" />
+                        <div className="flex items-center gap-3">
+                          <div className="h-10 w-10 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
+                            <Clock3 className="h-5 w-5 text-amber-600" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xl font-bold text-gray-900 tabular-nums leading-tight">{pendingValidations}</p>
+                            <p className="text-[11px] font-semibold text-amber-600">Pending Validations</p>
+                            <p className="text-[10px] text-gray-500">Waiting for review</p>
+                          </div>
                         </div>
                       </div>
                       {/* Total */}
-                      <div className="flex items-center gap-3 p-4 rounded-xl bg-slate-50 border border-slate-200">
-                        <div className="h-10 w-10 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
-                          <Camera className="h-5 w-5 text-slate-600" />
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-xl font-bold text-slate-700 tabular-nums leading-tight">{totalSubmitted}</p>
-                          <p className="text-[11px] font-medium text-slate-600">Total Submitted</p>
-                          <p className="text-[10px] text-slate-400">For expert review</p>
+                      <div className="relative overflow-hidden rounded-xl border border-gray-200 bg-gray-50/50 p-4">
+                        <div className="absolute top-0 left-0 right-0 h-0.5 bg-gray-300" />
+                        <div className="flex items-center gap-3">
+                          <div className="h-10 w-10 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                            <Camera className="h-5 w-5 text-gray-600" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xl font-bold text-gray-900 tabular-nums leading-tight">{totalSubmitted}</p>
+                            <p className="text-[11px] font-semibold text-gray-600">Total Submitted</p>
+                            <p className="text-[10px] text-gray-500">For expert review</p>
+                          </div>
                         </div>
                       </div>
                     </div>
 
                     {/* Stacked progress bar */}
-                    <div>
-                      <div className="h-3.5 w-full bg-gray-100 rounded-full overflow-hidden flex">
+                    <div className="pt-1">
+                      <div className="h-3 w-full bg-gray-100 rounded-full overflow-hidden flex shadow-inner">
                         {totalSubmitted > 0 ? (
                           <>
                             {validationCompletionRate > 0 && (
                               <div
-                                className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-700 ease-out"
-                                style={{ width: `${validationCompletionRate}%` }}
+                                className="h-full bg-gradient-to-r from-[#388E3C] to-[#4CAF50] transition-all duration-700 ease-out rounded-l-full"
+                                style={{ width: `${validationCompletionRate}%`, borderRadius: pendingRate === 0 ? '9999px' : undefined }}
                               />
                             )}
                             {pendingRate > 0 && (
                               <div
-                                className="h-full bg-gradient-to-r from-amber-400 to-amber-300 transition-all duration-700 ease-out"
-                                style={{ width: `${pendingRate}%` }}
+                                className="h-full bg-gradient-to-r from-amber-400 to-amber-300 transition-all duration-700 ease-out rounded-r-full"
+                                style={{ width: `${pendingRate}%`, borderRadius: validationCompletionRate === 0 ? '9999px' : undefined }}
                               />
                             )}
                           </>
@@ -1571,9 +1580,9 @@ export default function ReportsPage() {
                         )}
                       </div>
                       {/* Legend */}
-                      <div className="flex items-center justify-center gap-5 mt-2.5">
+                      <div className="flex items-center justify-center gap-6 mt-3">
                         <div className="flex items-center gap-1.5">
-                          <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                          <div className="w-2.5 h-2.5 rounded-full bg-[#388E3C]" />
                           <span className="text-[11px] text-gray-600 font-medium">Validated {validationCompletionRate}%</span>
                         </div>
                         <div className="flex items-center gap-1.5">
@@ -1584,8 +1593,8 @@ export default function ReportsPage() {
                     </div>
 
                     {/* Insight box */}
-                    <div className={`rounded-lg px-4 py-3 ${totalSubmitted === 0 ? 'bg-gray-50 border border-gray-100' : validationCompletionRate >= 80 ? 'bg-emerald-50/60 border border-emerald-100' : 'bg-amber-50/60 border border-amber-100'}`}>
-                      <p className={`text-xs leading-relaxed ${totalSubmitted === 0 ? 'text-gray-500' : validationCompletionRate >= 80 ? 'text-emerald-700' : 'text-amber-700'}`}>
+                    <div className={`rounded-xl px-4 py-3.5 ${totalSubmitted === 0 ? 'bg-gray-50 border border-gray-100' : validationCompletionRate >= 80 ? 'bg-[#388E3C]/[0.05] border border-[#388E3C]/15' : 'bg-amber-50/60 border border-amber-100'}`}>
+                      <p className={`text-xs leading-relaxed ${totalSubmitted === 0 ? 'text-gray-500' : validationCompletionRate >= 80 ? 'text-[#2F7A33]' : 'text-amber-700'}`}>
                         {totalSubmitted === 0
                           ? 'No validation records are available for the selected period.'
                           : pendingValidations === 0
