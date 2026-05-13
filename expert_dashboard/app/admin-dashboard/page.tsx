@@ -81,18 +81,22 @@ function AdminDashboardContent() {
     }).length;
 
     // For confirmed vs corrections, use validationHistory but only count entries
-    // that correspond to scans in our validScans set (same filtering applied)
-    // This ensures confirmed + corrections <= total - pending
-    const validScanUuids = new Set(validScans.map(s => s.scan_uuid).filter(Boolean));
+    // that correspond to scans in our validScans set
+    // Build a Set of all valid scan identifiers (scan_uuid and string id)
+    const validScanIds = new Set<string>();
+    validScans.forEach(s => {
+      if (s.scan_uuid) validScanIds.add(String(s.scan_uuid).trim());
+      if (s.id) validScanIds.add(String(s.id).trim());
+    });
 
     let confirmed = 0;
     let corrections = 0;
 
     if (validationHistory && validationHistory.length > 0) {
       validationHistory.forEach((v) => {
-        // Only count if this validation belongs to a scan in our filtered set
-        const scanId = typeof v.scan_id === 'string' ? v.scan_id.trim() : '';
-        if (!scanId || !validScanUuids.has(scanId)) return;
+        // Match by scan_id (could be UUID or numeric ID)
+        const scanId = String(v.scan_id ?? '').trim();
+        if (!scanId || !validScanIds.has(scanId)) return;
 
         const status = (v.status || '').toLowerCase().trim();
         if (status === 'corrected') {
