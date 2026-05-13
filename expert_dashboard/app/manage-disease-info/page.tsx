@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import AuthGuard from "@/components/AuthGuard";
@@ -120,7 +120,12 @@ function ManageDiseaseInfoContent() {
   // State for dirty checking
   const [originalDisease, setOriginalDisease] = useState<EditingDisease | null>(null);
   const [showUnsavedWarning, setShowUnsavedWarning] = useState(false);
-  const [translatingField, setTranslatingField] = useState<string | null>(null);
+  // Auto-translation state
+  const [translatingFields, setTranslatingFields] = useState<Record<string, boolean>>({});
+  const [manualBisayaEdits, setManualBisayaEdits] = useState<Record<string, boolean>>({});
+  const [lastTranslatedEn, setLastTranslatedEn] = useState<Record<string, string>>({});
+  const [translationStatus, setTranslationStatus] = useState<Record<string, string>>({});
+  const debounceTimers = useRef<Record<string, NodeJS.Timeout>>({});
 
   const effectiveRole = useMemo(() => profile?.role || user?.user_metadata?.role || null, [profile?.role, user?.user_metadata?.role]);
   const isAuthorized = useMemo(() => effectiveRole === "expert" || effectiveRole === "admin", [effectiveRole]);
@@ -217,11 +222,12 @@ function ManageDiseaseInfoContent() {
 
   // Open edit dialog - store original for dirty checking
   const openEditDialog = useCallback((disease: EditingDisease) => {
+    resetTranslationState();
     const diseaseClone = { ...disease, isEditing: true };
     setEditingDisease(diseaseClone);
     setOriginalDisease({ ...disease, isEditing: false }); // Store original state
     setIsDialogOpen(true);
-  }, []);
+  }, [resetTranslationState]);
 
   // Attempt to close edit dialog - check for unsaved changes
   const attemptCloseEditDialog = useCallback(() => {
@@ -262,61 +268,108 @@ function ManageDiseaseInfoContent() {
     setViewingDisease(null);
   }, []);
 
-  // Translation handler — calls /api/translate securely
-  const handleTranslate = useCallback(async (
-    fieldLabel: string,
-    direction: 'en-to-bi' | 'bi-to-en',
-    sourceText: string,
-    onResult: (translatedText: string) => void
-  ) => {
-    if (!sourceText.trim()) {
-      toast.error("No text to translate");
-      return;
-    }
-
-    const fieldKey = `${fieldLabel}-${direction}`;
-    setTranslatingField(fieldKey);
-
+  // Auto-translate helper — calls /api/translate securely
+  const translateText = useCallback(async (text: string, fieldKey: string): Promise<string | null> => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
-      if (!token) {
-        toast.error("Session expired. Please log in again.");
-        return;
-      }
-
-      const from = direction === 'en-to-bi' ? 'en' : 'ceb';
-      const to = direction === 'en-to-bi' ? 'ceb' : 'en';
+      if (!token) return null;
 
       const res = await fetch('/api/translate', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({ text: sourceText.trim(), from, to }),
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ text: text.trim(), from: 'en', to: 'ceb' }),
       });
 
-      if (!res.ok) {
-        const errorBody = await res.json().catch(() => ({}));
-        throw new Error(errorBody.error || `Translation failed (${res.status})`);
-      }
-
+      if (!res.ok) return null;
       const { translatedText } = await res.json();
-      if (translatedText) {
-        onResult(translatedText);
-        toast.success(`Translated to ${direction === 'en-to-bi' ? 'Bisaya' : 'English'}`);
-      } else {
-        toast.error("Translation returned empty result");
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Translation failed";
-      toast.error(msg);
-      console.error("[Translation]", err);
-    } finally {
-      setTranslatingField(null);
+      return translatedText || null;
+    } catch {
+      return null;
     }
   }, []);
+
+  // Debounced auto-translate: triggers when English field changes
+  const scheduleAutoTranslate = useCallback((fieldKey: string, englishText: string, setBisaya: (text: string) => void) => {
+    // Clear existing timer for this field
+    if (debounceTimers.current[fieldKey]) {
+      clearTimeout(debounceTimers.current[fieldKey]);
+    }
+
+    // Don't translate if empty or manually edited
+    if (!englishText.trim()) {
+      setTranslationStatus(prev => ({ ...prev, [fieldKey]: '' }));
+      return;
+    }
+    if (manualBisayaEdits[fieldKey]) return;
+    if (lastTranslatedEn[fieldKey] === englishText.trim()) return;
+
+    setTranslationStatus(prev => ({ ...prev, [fieldKey]: 'waiting' }));
+
+    debounceTimers.current[fieldKey] = setTimeout(async () => {
+      const currentEn = englishText.trim();
+      setTranslatingFields(prev => ({ ...prev, [fieldKey]: true }));
+      setTranslationStatus(prev => ({ ...prev, [fieldKey]: 'translating' }));
+
+      const result = await translateText(currentEn, fieldKey);
+
+      // Only apply if the English text hasn't changed during translation
+      setTranslatingFields(prev => ({ ...prev, [fieldKey]: false }));
+
+      if (result) {
+        setBisaya(result);
+        setLastTranslatedEn(prev => ({ ...prev, [fieldKey]: currentEn }));
+        setTranslationStatus(prev => ({ ...prev, [fieldKey]: 'done' }));
+      } else {
+        setTranslationStatus(prev => ({ ...prev, [fieldKey]: 'error' }));
+      }
+    }, 1000);
+  }, [manualBisayaEdits, lastTranslatedEn, translateText]);
+
+  // Mark Bisaya field as manually edited
+  const markBisayaManual = useCallback((fieldKey: string) => {
+    setManualBisayaEdits(prev => ({ ...prev, [fieldKey]: true }));
+    setTranslationStatus(prev => ({ ...prev, [fieldKey]: 'manual' }));
+  }, []);
+
+  // Reset translation state when edit dialog opens
+  const resetTranslationState = useCallback(() => {
+    setTranslatingFields({});
+    setManualBisayaEdits({});
+    setLastTranslatedEn({});
+    setTranslationStatus({});
+    // Clear all timers
+    Object.values(debounceTimers.current).forEach(clearTimeout);
+    debounceTimers.current = {};
+  }, []);
+
+  // Clean up timers on unmount
+  useEffect(() => {
+    return () => {
+      Object.values(debounceTimers.current).forEach(clearTimeout);
+    };
+  }, []);
+
+  // Auto-translate empty Bisaya fields when edit modal opens
+  useEffect(() => {
+    if (!isDialogOpen || !editingDisease) return;
+
+    const fields: { key: string; en: string | null; bi: string | null; setBi: (text: string) => void }[] = [
+      { key: 'description', en: editingDisease.description_en, bi: editingDisease.description_bi, setBi: (t) => setEditingDisease(prev => prev ? { ...prev, description_bi: t } : prev) },
+      { key: 'symptoms', en: editingDisease.symptoms_en, bi: editingDisease.symptoms_bi, setBi: (t) => setEditingDisease(prev => prev ? { ...prev, symptoms_bi: t } : prev) },
+      { key: 'treatment', en: editingDisease.treatment_en, bi: editingDisease.treatment_bi, setBi: (t) => setEditingDisease(prev => prev ? { ...prev, treatment_bi: t } : prev) },
+      { key: 'products', en: editingDisease.products_en, bi: editingDisease.products_bi, setBi: (t) => setEditingDisease(prev => prev ? { ...prev, products_bi: t } : prev) },
+      { key: 'prevention', en: editingDisease.prevention_en, bi: editingDisease.prevention_bi, setBi: (t) => setEditingDisease(prev => prev ? { ...prev, prevention_bi: t } : prev) },
+    ];
+
+    // Only auto-translate fields where English exists but Bisaya is empty
+    fields.forEach(({ key, en, bi, setBi }) => {
+      if (en && en.trim() && (!bi || !bi.trim())) {
+        scheduleAutoTranslate(key, en, setBi);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDialogOpen]);
 
   // Toggle edit mode
   const toggleEdit = useCallback((id: string) => {
@@ -687,50 +740,80 @@ function ManageDiseaseInfoContent() {
                   icon={<FileText className="h-4 w-4" />}
                   englishValue={editingDisease.description_en || ""}
                   bisayaValue={editingDisease.description_bi || ""}
-                  onEnglishChange={(val) => setEditingDisease(prev => prev ? { ...prev, description_en: val } : prev)}
-                  onBisayaChange={(val) => setEditingDisease(prev => prev ? { ...prev, description_bi: val } : prev)}
-                  translatingField={translatingField}
-                  onTranslate={(dir) => handleTranslate("Description", dir, dir === 'en-to-bi' ? (editingDisease.description_en || '') : (editingDisease.description_bi || ''), (text) => setEditingDisease(prev => prev ? { ...prev, [dir === 'en-to-bi' ? 'description_bi' : 'description_en']: text } : prev))}
+                  onEnglishChange={(val) => {
+                    setEditingDisease(prev => prev ? { ...prev, description_en: val } : prev);
+                    scheduleAutoTranslate('description', val, (t) => setEditingDisease(prev => prev ? { ...prev, description_bi: t } : prev));
+                  }}
+                  onBisayaChange={(val) => {
+                    setEditingDisease(prev => prev ? { ...prev, description_bi: val } : prev);
+                    markBisayaManual('description');
+                  }}
+                  translationStatus={translationStatus['description']}
+                  isTranslating={translatingFields['description']}
                 />
                 <FieldGroup
                   label="Symptoms"
                   icon={<Stethoscope className="h-4 w-4" />}
                   englishValue={editingDisease.symptoms_en || ""}
                   bisayaValue={editingDisease.symptoms_bi || ""}
-                  onEnglishChange={(val) => setEditingDisease(prev => prev ? { ...prev, symptoms_en: val } : prev)}
-                  onBisayaChange={(val) => setEditingDisease(prev => prev ? { ...prev, symptoms_bi: val } : prev)}
-                  translatingField={translatingField}
-                  onTranslate={(dir) => handleTranslate("Symptoms", dir, dir === 'en-to-bi' ? (editingDisease.symptoms_en || '') : (editingDisease.symptoms_bi || ''), (text) => setEditingDisease(prev => prev ? { ...prev, [dir === 'en-to-bi' ? 'symptoms_bi' : 'symptoms_en']: text } : prev))}
+                  onEnglishChange={(val) => {
+                    setEditingDisease(prev => prev ? { ...prev, symptoms_en: val } : prev);
+                    scheduleAutoTranslate('symptoms', val, (t) => setEditingDisease(prev => prev ? { ...prev, symptoms_bi: t } : prev));
+                  }}
+                  onBisayaChange={(val) => {
+                    setEditingDisease(prev => prev ? { ...prev, symptoms_bi: val } : prev);
+                    markBisayaManual('symptoms');
+                  }}
+                  translationStatus={translationStatus['symptoms']}
+                  isTranslating={translatingFields['symptoms']}
                 />
                 <FieldGroup
                   label="Treatment"
                   icon={<Pill className="h-4 w-4" />}
                   englishValue={editingDisease.treatment_en || ""}
                   bisayaValue={editingDisease.treatment_bi || ""}
-                  onEnglishChange={(val) => setEditingDisease(prev => prev ? { ...prev, treatment_en: val } : prev)}
-                  onBisayaChange={(val) => setEditingDisease(prev => prev ? { ...prev, treatment_bi: val } : prev)}
-                  translatingField={translatingField}
-                  onTranslate={(dir) => handleTranslate("Treatment", dir, dir === 'en-to-bi' ? (editingDisease.treatment_en || '') : (editingDisease.treatment_bi || ''), (text) => setEditingDisease(prev => prev ? { ...prev, [dir === 'en-to-bi' ? 'treatment_bi' : 'treatment_en']: text } : prev))}
+                  onEnglishChange={(val) => {
+                    setEditingDisease(prev => prev ? { ...prev, treatment_en: val } : prev);
+                    scheduleAutoTranslate('treatment', val, (t) => setEditingDisease(prev => prev ? { ...prev, treatment_bi: t } : prev));
+                  }}
+                  onBisayaChange={(val) => {
+                    setEditingDisease(prev => prev ? { ...prev, treatment_bi: val } : prev);
+                    markBisayaManual('treatment');
+                  }}
+                  translationStatus={translationStatus['treatment']}
+                  isTranslating={translatingFields['treatment']}
                 />
                 <FieldGroup
                   label="Products"
                   icon={<CheckCircle2 className="h-4 w-4" />}
                   englishValue={editingDisease.products_en || ""}
                   bisayaValue={editingDisease.products_bi || ""}
-                  onEnglishChange={(val) => setEditingDisease(prev => prev ? { ...prev, products_en: val } : prev)}
-                  onBisayaChange={(val) => setEditingDisease(prev => prev ? { ...prev, products_bi: val } : prev)}
-                  translatingField={translatingField}
-                  onTranslate={(dir) => handleTranslate("Products", dir, dir === 'en-to-bi' ? (editingDisease.products_en || '') : (editingDisease.products_bi || ''), (text) => setEditingDisease(prev => prev ? { ...prev, [dir === 'en-to-bi' ? 'products_bi' : 'products_en']: text } : prev))}
+                  onEnglishChange={(val) => {
+                    setEditingDisease(prev => prev ? { ...prev, products_en: val } : prev);
+                    scheduleAutoTranslate('products', val, (t) => setEditingDisease(prev => prev ? { ...prev, products_bi: t } : prev));
+                  }}
+                  onBisayaChange={(val) => {
+                    setEditingDisease(prev => prev ? { ...prev, products_bi: val } : prev);
+                    markBisayaManual('products');
+                  }}
+                  translationStatus={translationStatus['products']}
+                  isTranslating={translatingFields['products']}
                 />
                 <FieldGroup
                   label="Prevention"
                   icon={<ShieldCheck className="h-4 w-4" />}
                   englishValue={editingDisease.prevention_en || ""}
                   bisayaValue={editingDisease.prevention_bi || ""}
-                  onEnglishChange={(val) => setEditingDisease(prev => prev ? { ...prev, prevention_en: val } : prev)}
-                  onBisayaChange={(val) => setEditingDisease(prev => prev ? { ...prev, prevention_bi: val } : prev)}
-                  translatingField={translatingField}
-                  onTranslate={(dir) => handleTranslate("Prevention", dir, dir === 'en-to-bi' ? (editingDisease.prevention_en || '') : (editingDisease.prevention_bi || ''), (text) => setEditingDisease(prev => prev ? { ...prev, [dir === 'en-to-bi' ? 'prevention_bi' : 'prevention_en']: text } : prev))}
+                  onEnglishChange={(val) => {
+                    setEditingDisease(prev => prev ? { ...prev, prevention_en: val } : prev);
+                    scheduleAutoTranslate('prevention', val, (t) => setEditingDisease(prev => prev ? { ...prev, prevention_bi: t } : prev));
+                  }}
+                  onBisayaChange={(val) => {
+                    setEditingDisease(prev => prev ? { ...prev, prevention_bi: val } : prev);
+                    markBisayaManual('prevention');
+                  }}
+                  translationStatus={translationStatus['prevention']}
+                  isTranslating={translatingFields['prevention']}
                 />
               </div>
             )}
@@ -870,7 +953,7 @@ function ViewField({
   );
 }
 
-// Reusable field group component for edit modal with translation support
+// Reusable field group component for edit modal with auto-translation
 function FieldGroup({
   label,
   icon,
@@ -878,8 +961,8 @@ function FieldGroup({
   bisayaValue,
   onEnglishChange,
   onBisayaChange,
-  onTranslate,
-  translatingField,
+  translationStatus,
+  isTranslating,
 }: {
   label: string;
   icon: React.ReactNode;
@@ -887,11 +970,18 @@ function FieldGroup({
   bisayaValue: string;
   onEnglishChange: (value: string) => void;
   onBisayaChange: (value: string) => void;
-  onTranslate?: (direction: 'en-to-bi' | 'bi-to-en') => void;
-  translatingField?: string | null;
+  translationStatus?: string;
+  isTranslating?: boolean;
 }) {
-  const isTranslatingEnToBi = translatingField === `${label}-en-to-bi`;
-  const isTranslatingBiToEn = translatingField === `${label}-bi-to-en`;
+  // Status message for Bisaya field
+  const statusText = (() => {
+    if (isTranslating) return '⏳ Auto-translating...';
+    if (translationStatus === 'waiting') return '⏳ Waiting to translate...';
+    if (translationStatus === 'done') return '✓ Translated automatically';
+    if (translationStatus === 'error') return '⚠ Translation failed — edit manually';
+    if (translationStatus === 'manual') return '✎ Manually edited';
+    return null;
+  })();
 
   return (
     <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
@@ -904,27 +994,10 @@ function FieldGroup({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         {/* English */}
         <div>
-          <div className="flex items-center justify-between mb-1.5">
-            <label className="flex items-center gap-1.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
-              <span className="h-4 w-4 rounded bg-blue-50 text-blue-600 flex items-center justify-center text-[9px] font-bold border border-blue-100">EN</span>
-              English
-            </label>
-            {onTranslate && bisayaValue.trim() && (
-              <button
-                type="button"
-                onClick={() => onTranslate('bi-to-en')}
-                disabled={!!translatingField}
-                className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium text-blue-600 bg-blue-50 border border-blue-100 rounded-md hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                title="Translate Bisaya → English"
-              >
-                {isTranslatingBiToEn ? (
-                  <><span className="h-3 w-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" /> Translating...</>
-                ) : (
-                  <>← Translate from BS</>
-                )}
-              </button>
-            )}
-          </div>
+          <label className="flex items-center gap-1.5 text-[10px] font-semibold text-gray-500 mb-1.5 uppercase tracking-wider">
+            <span className="h-4 w-4 rounded bg-blue-50 text-blue-600 flex items-center justify-center text-[9px] font-bold border border-blue-100">EN</span>
+            English
+          </label>
           <textarea
             value={englishValue}
             onChange={(e) => onEnglishChange(e.target.value)}
@@ -937,35 +1010,26 @@ function FieldGroup({
 
         {/* Bisaya */}
         <div>
-          <div className="flex items-center justify-between mb-1.5">
-            <label className="flex items-center gap-1.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
-              <span className="h-4 w-4 rounded bg-emerald-50 text-emerald-600 flex items-center justify-center text-[9px] font-bold border border-emerald-100">BS</span>
-              Bisaya
-            </label>
-            {onTranslate && englishValue.trim() && (
-              <button
-                type="button"
-                onClick={() => onTranslate('en-to-bi')}
-                disabled={!!translatingField}
-                className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium text-emerald-600 bg-emerald-50 border border-emerald-100 rounded-md hover:bg-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                title="Translate English → Bisaya"
-              >
-                {isTranslatingEnToBi ? (
-                  <><span className="h-3 w-3 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" /> Translating...</>
-                ) : (
-                  <>← Translate from EN</>
-                )}
-              </button>
-            )}
-          </div>
+          <label className="flex items-center gap-1.5 text-[10px] font-semibold text-gray-500 mb-1.5 uppercase tracking-wider">
+            <span className="h-4 w-4 rounded bg-emerald-50 text-emerald-600 flex items-center justify-center text-[9px] font-bold border border-emerald-100">BS</span>
+            Bisaya
+            {isTranslating && <span className="ml-1 h-3 w-3 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />}
+          </label>
           <textarea
             value={bisayaValue}
             onChange={(e) => onBisayaChange(e.target.value)}
-            className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-[#388E3C] text-sm text-gray-800 min-h-[100px] resize-y placeholder:text-gray-300 transition-all"
+            className={`w-full px-3 py-2.5 bg-white border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#388E3C] focus:border-[#388E3C] text-sm text-gray-800 min-h-[100px] resize-y placeholder:text-gray-300 transition-all ${isTranslating ? 'border-emerald-200 bg-emerald-50/30' : 'border-gray-200'}`}
             placeholder={`Enter ${label.toLowerCase()} in Bisaya...`}
             rows={4}
           />
-          <p className="text-[10px] text-gray-400 mt-1 text-right">{bisayaValue.length} characters</p>
+          <div className="flex items-center justify-between mt-1">
+            {statusText && (
+              <p className={`text-[10px] ${translationStatus === 'error' ? 'text-amber-600' : translationStatus === 'manual' ? 'text-gray-500' : 'text-emerald-600'}`}>
+                {statusText}
+              </p>
+            )}
+            <p className="text-[10px] text-gray-400 ml-auto">{bisayaValue.length} characters</p>
+          </div>
         </div>
       </div>
     </div>
