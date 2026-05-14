@@ -302,19 +302,16 @@ function buildExpertValidationPerformance(validationHistory: ValidationHistory[]
   for (let i = 11; i >= 0; i--) {
     const monthDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
     const monthName = monthDate.toLocaleDateString("en-US", { month: "short" });
-
-    const monthStart = new Date(Date.UTC(monthDate.getUTCFullYear(), monthDate.getUTCMonth(), 1, 0, 0, 0, 0));
-    const monthEnd = new Date(Date.UTC(monthDate.getUTCFullYear(), monthDate.getUTCMonth() + 1, 0, 23, 59, 59, 999));
+    const targetYear = monthDate.getUTCFullYear();
+    const targetMonth = monthDate.getUTCMonth(); // 0-based
 
     const monthValidations = validationHistory.filter((vh) => {
       if (!vh?.validated_at) return false;
       try {
         const validationDate = new Date(vh.validated_at);
         if (isNaN(validationDate.getTime())) return false;
-        const validationDateStr = validationDate.toISOString().split("T")[0];
-        const monthStartStr = monthStart.toISOString().split("T")[0];
-        const monthEndStr = monthEnd.toISOString().split("T")[0];
-        return validationDateStr >= monthStartStr && validationDateStr <= monthEndStr;
+        // Compare year and month directly to avoid timezone string issues
+        return validationDate.getUTCFullYear() === targetYear && validationDate.getUTCMonth() === targetMonth;
       } catch {
         return false;
       }
