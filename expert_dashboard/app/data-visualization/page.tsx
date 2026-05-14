@@ -760,31 +760,14 @@ export default function DataVisualizationPage() {
 
   const expertValidationPerformance = useMemo(() => {
     try {
-      // Filter validation history based on selected time period
-      const filteredValidations = safeValidationHistory.filter((vh) => {
-        if (!vh?.validated_at) return false;
-        try {
-          const validationDate = new Date(vh.validated_at);
-          if (isNaN(validationDate.getTime())) return false;
-          const validationTime = validationDate.getTime();
-          const rangeStartTime = rangeStart.getTime();
-          let rangeEndTime = rangeEnd.getTime();
-          if (range === "this_week" || range === "this_month") {
-            rangeEndTime = new Date().getTime();
-          }
-          return validationTime >= rangeStartTime && validationTime <= rangeEndTime;
-        } catch {
-          return false;
-        }
-      });
-      
-      // Use filtered validations for the chart
-      return buildExpertValidationPerformance(filteredValidations);
+      // This chart shows 12-month historical data — do NOT filter by selected date range
+      // Use all validation history records for accurate monthly comparison
+      return buildExpertValidationPerformance(safeValidationHistory);
     } catch (error) {
       console.error("Error building expert validation performance:", error);
       return [];
     }
-  }, [safeValidationHistory, rangeStart, rangeEnd, range]);
+  }, [safeValidationHistory]);
 
   // Calculate AI accuracy rate with error handling
   const aiAccuracyRate = useMemo(() => {
