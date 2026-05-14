@@ -295,18 +295,21 @@ function buildMonthlyMostScanned(scans: Scan[]): MonthlyMostScannedDatum[] {
 }
 
 // Build expert validation performance data for 12 months
+// Groups by the scan's creation date (when submitted) to show monthly scan validation breakdown
 function buildExpertValidationPerformance(validationHistory: ValidationHistory[]): ExpertValidationDatum[] {
   const now = new Date();
   const months: ExpertValidationDatum[] = [];
 
-  // Pre-process: group all validations by their local year-month
+  // Pre-process: group all validations by their scan's month
+  // Use scan.created_at (submission date) for grouping, fallback to validated_at
   const validationsByMonth = new Map<string, ValidationHistory[]>();
   validationHistory.forEach((vh) => {
-    if (!vh?.validated_at) return;
+    // Prefer scan's created_at (submission month), fallback to validated_at
+    const dateStr = vh.scan?.created_at || vh.validated_at;
+    if (!dateStr) return;
     try {
-      const d = new Date(vh.validated_at);
+      const d = new Date(dateStr);
       if (isNaN(d.getTime())) return;
-      // Use local time (not UTC) since validations happen in local timezone (Philippines)
       const key = `${d.getFullYear()}-${d.getMonth()}`;
       const existing = validationsByMonth.get(key) || [];
       existing.push(vh);
