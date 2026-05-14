@@ -299,26 +299,32 @@ function buildExpertValidationPerformance(validationHistory: ValidationHistory[]
   const now = new Date();
   const months: ExpertValidationDatum[] = [];
 
+  // Pre-process: group all validations by their local year-month
+  const validationsByMonth = new Map<string, ValidationHistory[]>();
+  validationHistory.forEach((vh) => {
+    if (!vh?.validated_at) return;
+    try {
+      const d = new Date(vh.validated_at);
+      if (isNaN(d.getTime())) return;
+      // Use local time (not UTC) since validations happen in local timezone (Philippines)
+      const key = `${d.getFullYear()}-${d.getMonth()}`;
+      const existing = validationsByMonth.get(key) || [];
+      existing.push(vh);
+      validationsByMonth.set(key, existing);
+    } catch {
+      // skip invalid dates
+    }
+  });
+
+  // Build 12 months from now going back
   for (let i = 11; i >= 0; i--) {
-    const monthDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+    const year = now.getFullYear();
+    const month = now.getMonth() - i;
+    const monthDate = new Date(year, month, 1);
     const monthName = monthDate.toLocaleDateString("en-US", { month: "short" });
+    const key = `${monthDate.getFullYear()}-${monthDate.getMonth()}`;
 
-    const monthStart = new Date(Date.UTC(monthDate.getUTCFullYear(), monthDate.getUTCMonth(), 1, 0, 0, 0, 0));
-    const monthEnd = new Date(Date.UTC(monthDate.getUTCFullYear(), monthDate.getUTCMonth() + 1, 0, 23, 59, 59, 999));
-
-    const monthValidations = validationHistory.filter((vh) => {
-      if (!vh?.validated_at) return false;
-      try {
-        const validationDate = new Date(vh.validated_at);
-        if (isNaN(validationDate.getTime())) return false;
-        const validationDateStr = validationDate.toISOString().split("T")[0];
-        const monthStartStr = monthStart.toISOString().split("T")[0];
-        const monthEndStr = monthEnd.toISOString().split("T")[0];
-        return validationDateStr >= monthStartStr && validationDateStr <= monthEndStr;
-      } catch {
-        return false;
-      }
-    });
+    const monthValidations = validationsByMonth.get(key) || [];
 
     const aiValidated = monthValidations.filter((vh) => vh.status === "Validated").length;
     const aiCorrected = monthValidations.filter((vh) => vh.status === "Corrected").length;
